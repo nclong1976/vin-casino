@@ -15,7 +15,7 @@ const DEFAULT_GAMES_MAINTENANCE = {
     maxBet: 500000000, 
     forcedOutcome: "auto", // 'auto', 'player', 'banker', 'tie', 'tiger'
     winRate: 50, // 50% standard
-    odds205: false, // Tỷ lệ trả thưởng Player & Banker 2.05x
+    odds205: false, // Tỷ lệ trả thưởng Player & Banker 1.1x (kh\u00f4ng H\u00f2a)
     totalBets: 1250000000,
     totalPayout: 1140000000
   },
@@ -26,7 +26,7 @@ const DEFAULT_GAMES_MAINTENANCE = {
     maxBet: 500000000, 
     forcedOutcome: "auto", // 'auto', 'player', 'banker', 'tie', 'tiger'
     winRate: 50,
-    odds205: false, // Tỷ lệ trả thưởng Player & Banker 2.05x
+    odds205: false, // Tỷ lệ trả thưởng Player & Banker 1.1x (kh\u00f4ng H\u00f2a)
     totalBets: 980000000,
     totalPayout: 890000000
   },

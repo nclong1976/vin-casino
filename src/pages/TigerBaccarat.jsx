@@ -434,28 +434,41 @@ export default function TigerBaccarat() {
     pScore = getHandScore(pHand);
     bScore = getHandScore(bHand);
 
-    // If admin feature (odds205) is enabled, ensure result in table is strictly Player or Banker
+    // If admin feature (odds110) is enabled, ensure result is strictly Player or Banker — never Tie
     const isOdds205 = !!gameSettings?.odds205;
-    if (isOdds205 && (forcedOutcome === "auto" || pScore === bScore)) {
-      if (pScore === bScore || Math.random() > 0.5) {
-        // Player win
+    if (isOdds205) {
+      // Always override to non-tie: random 50/50 Player vs Banker regardless of forcedOutcome
+      if (pScore === bScore || forcedOutcome === "auto" || forcedOutcome === "tie") {
+        if (Math.random() >= 0.5) {
+          // Player win
+          pHand = [
+            { rank: "9", suit: SUITS[1], value: 9 },
+            { rank: "K", suit: SUITS[0], value: 0 },
+          ];
+          bHand = [
+            { rank: "5", suit: SUITS[2], value: 5 },
+            { rank: "J", suit: SUITS[3], value: 0 },
+          ];
+        } else {
+          // Banker win
+          pHand = [
+            { rank: "4", suit: SUITS[0], value: 4 },
+            { rank: "Q", suit: SUITS[1], value: 0 },
+          ];
+          bHand = [
+            { rank: "9", suit: SUITS[2], value: 9 },
+            { rank: "K", suit: SUITS[3], value: 0 },
+          ];
+        }
+      } else if (pScore === bScore) {
+        // Edge-case: scores still tied after forced outcome — force Player win
         pHand = [
-          { rank: "9", suit: SUITS[1], value: 9 },
-          { rank: "K", suit: SUITS[0], value: 0 },
+          { rank: "8", suit: SUITS[0], value: 8 },
+          { rank: "K", suit: SUITS[1], value: 0 },
         ];
         bHand = [
-          { rank: "5", suit: SUITS[2], value: 5 },
-          { rank: "J", suit: SUITS[3], value: 0 },
-        ];
-      } else {
-        // Banker win
-        pHand = [
-          { rank: "4", suit: SUITS[0], value: 4 },
-          { rank: "Q", suit: SUITS[1], value: 0 },
-        ];
-        bHand = [
-          { rank: "9", suit: SUITS[2], value: 9 },
-          { rank: "K", suit: SUITS[3], value: 0 },
+          { rank: "3", suit: SUITS[2], value: 3 },
+          { rank: "4", suit: SUITS[3], value: 4 },
         ];
       }
       pScore = getHandScore(pHand);
@@ -514,20 +527,22 @@ export default function TigerBaccarat() {
       if (pScore > bScore) {
         winners.push("player");
         if (bets.player > 0) {
-          const pay = isOdds205 
-            ? Math.floor(bets.player * 1.05) 
+          // odds110 mode: trả lại vốn (1x) + lời (1.1x) = 2.1x tổng
+          const pay = isOdds205
+            ? Math.floor(bets.player * 2.1)
             : (bets.player * 1 + bets.player);
           totalPayout += pay;
-          winsList.push(`PLAYER thắng (${isOdds205 ? "1.05:1" : "1:1"}): +${fmt(pay)}`);
+          winsList.push(`PLAYER thắng (${isOdds205 ? "1.1:1" : "1:1"}): +${fmt(pay)}`);
         }
       } else if (bScore > pScore) {
         winners.push("banker");
         if (bets.banker > 0) {
-          const pay = isOdds205 
-            ? Math.floor(bets.banker * 1.05) 
+          // odds110 mode: trả lại vốn (1x) + lời (1.1x) = 2.1x tổng
+          const pay = isOdds205
+            ? Math.floor(bets.banker * 2.1)
             : (Math.floor(bets.banker * 0.95) + bets.banker);
           totalPayout += pay;
-          winsList.push(`BANKER thắng (${isOdds205 ? "1.05:1" : "0.95:1"}): +${fmt(pay)}`);
+          winsList.push(`BANKER thắng (${isOdds205 ? "1.1:1" : "0.95:1"}): +${fmt(pay)}`);
         }
 
         if (bScore === 6) {
@@ -866,7 +881,7 @@ export default function TigerBaccarat() {
                   Player
                 </span>
                 <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold" : "text-white/70"}`}>
-                  {odds205 ? "1.05:1" : "1:1"}
+                  {odds205 ? "1.1:1" : "1:1"}
                 </span>
                 {bets.player > 0 && (
                   <span className="absolute top-1 right-1 bg-[#38bdf8] text-[#002117] font-mono text-[9px] font-black px-1 rounded-full shadow">
@@ -904,7 +919,7 @@ export default function TigerBaccarat() {
                   Banker
                 </span>
                 <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold" : "text-white/70"}`}>
-                  {odds205 ? "1.05:1" : "0.95:1"}
+                  {odds205 ? "1.1:1" : "0.95:1"}
                 </span>
                 {bets.banker > 0 && (
                   <span className="absolute top-1 right-1 bg-[#f87171] text-white font-mono text-[9px] font-black px-1 rounded-full shadow">

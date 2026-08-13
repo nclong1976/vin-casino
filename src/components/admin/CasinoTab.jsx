@@ -78,7 +78,7 @@ export default function CasinoTab() {
     saveCasinoConfig(newCfg);
 
     if (nextVal) {
-      toast.success(`ĐÃ BẬT TÍNH NĂNG: Kết quả bàn cược tự động trả về PLAYER & BANKER (1.05x) cho ${current.name || gameKey}!`);
+      toast.success(`ĐÃ BẬT TÍNH NĂNG: Kết quả bàn cược tự động trả về PLAYER & BANKER (1.1x) cho ${current.name || gameKey}!`);
     } else {
       toast.info(`Đã TẮT tính năng (Trở về chuẩn 50/50 & Hòa) cho ${current.name || gameKey}`);
     }
@@ -277,11 +277,11 @@ export default function CasinoTab() {
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
                     <span className="text-xs font-black text-amber-300 uppercase tracking-wide">
-                      Kết quả Player & Banker (Trả thưởng 1.05)
+                      Kết quả Player & Banker (Trả thưởng 1.1x — Không Hòa)
                     </span>
                   </div>
                   <p className="text-[10px] text-gray-300 mt-0.5">
-                    Tự động đưa kết quả bàn chơi về <strong className="text-yellow-400 font-extrabold">PLAYER & BANKER</strong> với tỷ lệ trả thưởng <strong className="text-yellow-400 font-extrabold">1.05x</strong>
+                    Tự động đưa kết quả về <strong className="text-yellow-400 font-extrabold">PLAYER hoặc BANKER</strong>, tỷ lệ trả thưởng <strong className="text-yellow-400 font-extrabold">1.1x</strong> (cược 1,000 → lời 1,100). Kết quả Hòa sẽ không xuất hiện.
                   </p>
                 </div>
 
@@ -294,7 +294,7 @@ export default function CasinoTab() {
                   }`}
                 >
                   <Power className="w-3.5 h-3.5" />
-                  {activeSpecialGameData.odds205 ? "BẬT (1.05x)" : "TẮT (Chuẩn)"}
+                  {activeSpecialGameData.odds205 ? "BẬT (1.1x — Không Hòa)" : "TẮT (Chuẩn)"}
                 </button>
               </div>
             </div>
