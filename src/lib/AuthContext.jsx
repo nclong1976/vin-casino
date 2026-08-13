@@ -4,7 +4,7 @@ import { appParams } from '@/lib/app-params';
 import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 
-import { pushUserToRTDB, trackPresenceInRTDB } from '@/lib/rtdbSync';
+import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/lib/rtdbSync';
 
 const AuthContext = createContext(null);
 
@@ -27,6 +27,17 @@ export const AuthProvider = ({ children }) => {
       startFirebaseSync();
       pushUserToRTDB(user);
       const unsubPresence = trackPresenceInRTDB(user);
+
+      // Connect real-time balance listener from Firebase Realtime Database
+      const unsubRTDBUser = subscribeUserFromRTDB(user.id, (rtdbUser) => {
+        if (rtdbUser && typeof rtdbUser.balance === "number") {
+          setUser((prev) => {
+            if (!prev) return prev;
+            if (prev.balance === rtdbUser.balance && prev.is_locked === rtdbUser.is_locked) return prev;
+            return { ...prev, balance: rtdbUser.balance, is_locked: rtdbUser.is_locked };
+          });
+        }
+      });
 
       const refreshUserBalance = async () => {
         try {
@@ -73,6 +84,7 @@ export const AuthProvider = ({ children }) => {
         clearInterval(yieldInterval);
         stopFirebaseSync();
         if (typeof unsubPresence === "function") unsubPresence();
+        if (typeof unsubRTDBUser === "function") unsubRTDBUser();
         if (typeof unsubWT === "function") unsubWT();
         if (typeof unsubUser === "function") unsubUser();
         window.removeEventListener("vinclub:balance_updated", handleBalanceEvent);

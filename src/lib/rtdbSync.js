@@ -42,6 +42,38 @@ export async function pushUserToRTDB(user) {
 }
 
 /**
+ * Real-time balance & status subscriber for individual logged-in user
+ */
+export function subscribeUserFromRTDB(userId, onUserReceived) {
+  if (!userId) return () => {};
+  const userRef = ref(rtdb, `users/${userId}`);
+  return onValue(userRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const rtdbUser = snapshot.val();
+      try {
+        const currentLocalStr = localStorage.getItem('base44_local_user');
+        if (currentLocalStr) {
+          const currentLocal = JSON.parse(currentLocalStr);
+          if (currentLocal.id === userId || currentLocal.email === userId) {
+            if (currentLocal.balance !== rtdbUser.balance || currentLocal.is_locked !== rtdbUser.is_locked) {
+              const updatedLocal = { ...currentLocal, balance: rtdbUser.balance, is_locked: rtdbUser.is_locked };
+              localStorage.setItem('base44_local_user', JSON.stringify(updatedLocal));
+              window.dispatchEvent(new CustomEvent("vinclub:balance_updated", {
+                detail: { userId, newBalance: rtdbUser.balance, user: updatedLocal }
+              }));
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (typeof onUserReceived === "function") {
+        onUserReceived(rtdbUser);
+      }
+    }
+  }, (err) => console.warn(`[RTDB User Sub ${userId}] Error:`, err));
+}
+
+/**
  * 2. Node: online_users/{uid}
  * Theo dõi số lượng người dùng đang hoạt động thực tế trên ứng dụng.
  */
