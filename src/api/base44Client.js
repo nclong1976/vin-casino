@@ -471,6 +471,10 @@ class LocalEntityClient {
         import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
           pushUserToRTDB(newItem);
         });
+      } else if (this.entityName === 'WalletTransaction') {
+        import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
+          pushWalletTransactionToRTDB(newItem);
+        });
       }
     } catch (e) {
       console.error("Lỗi đồng bộ Firestore/RTDB (create):", e);

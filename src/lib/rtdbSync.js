@@ -213,3 +213,20 @@ export function subscribeMessagesFromRTDB(onMessagesReceived) {
     }
   }, (err) => console.warn("[RTDB Messages Sub] Error:", err));
 }
+
+/**
+ * Pushes a new Wallet Transaction (Deposit / Withdrawal adjustment) to Firebase Realtime Database (/wallet_transactions/{txId})
+ */
+export async function pushWalletTransactionToRTDB(tx) {
+  if (!tx || !tx.id) return;
+  try {
+    const txRef = ref(rtdb, `wallet_transactions/${tx.id}`);
+    await set(txRef, {
+      ...tx,
+      synced_at: new Date().toISOString()
+    });
+    console.log(`[RTDB Sync] ✅ Pushed wallet transaction ${tx.id} to Realtime Database`);
+  } catch (err) {
+    console.warn(`[RTDB Sync] Failed to push wallet transaction:`, err?.message || err);
+  }
+}
