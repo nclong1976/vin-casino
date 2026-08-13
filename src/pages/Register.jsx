@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
+import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "@/components/ui/use-toast";
@@ -58,15 +60,48 @@ export default function Register() {
 
     setLoading(true);
     try {
-      const result = await base44.auth.register({ 
-        email, 
-        password,
-        name: fullName,
-        referral_code: referralCode
-      });
-      if (result?.access_token) {
-        base44.auth.setToken(result.access_token);
+      // (Ưu tiên) Đăng ký qua Supabase Auth
+      let supaData = null;
+      try {
+        supaData = await supaSignUp(email, password, {
+          full_name: fullName,
+          name: fullName,
+          role: "user",
+          balance: 0,
+          membership_tier: "VIP 1 - Gold",
+          referral_code: referralCode,
+        });
+      } catch (supaErr) {
+        console.warn("[Register] Supabase signUp warning:", supaErr.message);
       }
+
+      // Song song đăng ký qua base44 legacy (để tương thích Admin panel)
+      try {
+        const result = await base44.auth.register({
+          email,
+          password,
+          name: fullName,
+          referral_code: referralCode
+        });
+        if (result?.access_token) {
+          base44.auth.setToken(result.access_token);
+        }
+      } catch (legacyErr) {
+        // Legacy có thể thất bại nếu đã tồn tại, bỏ qua
+        console.warn("[Register] base44 register warning:", legacyErr.message);
+      }
+
+      // Đẩy user lên Firebase RTDB để Admin thấy ngay lập tức
+      if (supaData?.user) {
+        const vinUser = mapSupabaseUser(supaData.user, {
+          full_name: fullName,
+          balance: 0,
+          membership_tier: "VIP 1 - Gold",
+        });
+        pushUserToRTDB(vinUser);
+        localStorage.setItem("base44_local_user", JSON.stringify(vinUser));
+      }
+
       setShowTermsModal(false);
       toast({
         title: "Đăng ký thành công",

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { signIn as supaSignIn, mapSupabaseUser } from "@/lib/supabaseAuth";
+import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff, CheckCircle2, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import GoogleIcon from "@/components/GoogleIcon";
@@ -72,15 +74,30 @@ export default function Login() {
 
     setLoading(true);
     try {
-      await base44.auth.loginViaEmailPassword(email, password);
+      // Ưu tiên đăng nhập qua Supabase Auth
+      let loginSuccess = false;
+      try {
+        await supaSignIn(email, password);
+        loginSuccess = true;
+      } catch (supaErr) {
+        // Fallback sang base44 legacy nếu Supabase thất bại
+        try {
+          await base44.auth.loginViaEmailPassword(email, password);
+          loginSuccess = true;
+        } catch (legacyErr) {
+          throw new Error(supaErr.message || legacyErr.message || "Tài khoản hoặc mật khẩu không chính xác");
+        }
+      }
 
-      // Generate a new random 6-digit OTP
-      const newOtp = generateRandomOtp();
-      setGeneratedOtp(newOtp);
-      setStep("otp");
-      setCountdown(30);
-      setOtpCode("");
-      triggerSound("toggle");
+      if (loginSuccess) {
+        // Generate a new random 6-digit OTP
+        const newOtp = generateRandomOtp();
+        setGeneratedOtp(newOtp);
+        setStep("otp");
+        setCountdown(30);
+        setOtpCode("");
+        triggerSound("toggle");
+      }
     } catch (err) {
       setError(err.message || "Tài khoản hoặc mật khẩu không chính xác");
       triggerSound("click");
@@ -119,14 +136,31 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const result = await base44.auth.verifyOtp({ email, otpCode });
-      if (result?.access_token) {
-        base44.auth.setToken(result.access_token);
-      }
+      // OTP validated locally — session đã được thiết lập ở bước signIn
       triggerSound("win");
 
-      const currentUser = await base44.auth.me();
-      if (currentUser?.role === "admin") {
+      // Lấy user từ Supabase session để xác định role
+      let role = "user";
+      try {
+        const { getSession } = await import("@/lib/supabaseAuth");
+        const session = await getSession();
+        if (session?.user) {
+          const vinUser = mapSupabaseUser(session.user);
+          role = vinUser.role || "user";
+          // Đẩy user lên RTDB để sync real-time
+          pushUserToRTDB(vinUser);
+          // Lưu vào localStorage để các component khác đọc được
+          localStorage.setItem("base44_local_user", JSON.stringify(vinUser));
+        }
+      } catch (e) {
+        // Fallback sang base44 user
+        try {
+          const currentUser = await base44.auth.me();
+          role = currentUser?.role || "user";
+        } catch (_) {}
+      }
+
+      if (role === "admin") {
         window.location.href = "/admin";
       } else {
         window.location.href = "/";

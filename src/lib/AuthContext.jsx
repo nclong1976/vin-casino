@@ -3,8 +3,8 @@ import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
-
 import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/lib/rtdbSync';
+import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
 
 const AuthContext = createContext(null);
 
@@ -15,22 +15,92 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
+  const [appPublicSettings, setAppPublicSettings] = useState(null);
 
+  // ──────────────────────────────────────────────────────────────────
+  // Supabase Auth State Listener
+  // Lắng nghe mọi thay đổi session: đăng nhập, đăng xuất, token refresh
+  // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    checkAppState();
+    setAppPublicSettings({ id: appParams.appId || 'vin-investment-app', public_settings: {} });
+    setIsLoadingPublicSettings(false);
+
+    // Kiểm tra session đang tồn tại khi khởi động app
+    const initAuth = async () => {
+      setIsLoadingAuth(true);
+      try {
+        const session = await getSession();
+        if (session?.user) {
+          const vinUser = mapSupabaseUser(session.user);
+          // Merge balance/extra data từ localStorage nếu có
+          const merged = mergeWithLocalData(vinUser);
+          setUser(merged);
+          setIsAuthenticated(true);
+        } else {
+          // Fallback: thử base44 legacy auth
+          try {
+            const legacyUser = await base44.auth.me();
+            if (legacyUser) {
+              setUser(legacyUser);
+              setIsAuthenticated(true);
+            } else {
+              setIsAuthenticated(false);
+            }
+          } catch {
+            setIsAuthenticated(false);
+          }
+        }
+      } catch (e) {
+        console.warn('[AuthContext] initAuth error:', e);
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoadingAuth(false);
+        setAuthChecked(true);
+      }
+    };
+
+    initAuth();
+
+    // Subscribe thay đổi Supabase session real-time
+    const unsubSupabase = onAuthStateChange(async (event, session) => {
+      console.log('[AuthContext] Supabase auth event:', event);
+      if (event === 'SIGNED_IN' && session?.user) {
+        const vinUser = mapSupabaseUser(session.user);
+        const merged = mergeWithLocalData(vinUser);
+        setUser(merged);
+        setIsAuthenticated(true);
+        setAuthChecked(true);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setIsAuthenticated(false);
+        setAuthChecked(true);
+      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+        const vinUser = mapSupabaseUser(session.user);
+        const merged = mergeWithLocalData(vinUser);
+        setUser(prev => prev ? { ...prev, ...merged } : merged);
+      } else if (event === 'USER_UPDATED' && session?.user) {
+        const vinUser = mapSupabaseUser(session.user);
+        setUser(prev => prev ? { ...prev, ...vinUser } : vinUser);
+      }
+    });
+
+    return () => {
+      if (typeof unsubSupabase === 'function') unsubSupabase();
+    };
   }, []);
 
-  // Tự động đồng bộ hóa Firebase và số dư thời gian thực khi người dùng đăng nhập thành công
+  // ──────────────────────────────────────────────────────────────────
+  // Firebase RTDB Sync — giữ nguyên để real-time balance hoạt động
+  // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isAuthenticated && user) {
       startFirebaseSync();
       pushUserToRTDB(user);
       const unsubPresence = trackPresenceInRTDB(user);
 
-      // Connect real-time balance listener from Firebase Realtime Database
+      // Lắng nghe số dư real-time từ Firebase RTDB
       const unsubRTDBUser = subscribeUserFromRTDB(user.id, (rtdbUser) => {
-        if (rtdbUser && typeof rtdbUser.balance === "number") {
+        if (rtdbUser && typeof rtdbUser.balance === 'number') {
           setUser((prev) => {
             if (!prev) return prev;
             if (prev.balance === rtdbUser.balance && prev.is_locked === rtdbUser.is_locked) return prev;
@@ -45,37 +115,26 @@ export const AuthProvider = ({ children }) => {
           if (!localUserStr) return;
           const localUser = JSON.parse(localUserStr);
           const currentBal = Number(localUser.balance || 0);
-
           setUser((prev) => {
             if (!prev) return localUser;
             if (prev.balance === currentBal && prev.total_deposited === localUser.total_deposited) return prev;
             return { ...prev, balance: currentBal, total_deposited: localUser.total_deposited };
           });
         } catch (e) {
-          console.error("AuthContext sync balance error:", e);
+          console.error('[AuthContext] sync balance error:', e);
         }
       };
 
-      // Real-time subscribers
-      const unsubWT = base44.entities.WalletTransaction.subscribe(() => {
-        refreshUserBalance();
-      });
+      const unsubWT = base44.entities.WalletTransaction?.subscribe?.(() => { refreshUserBalance(); });
+      const unsubUser = base44.entities.User?.subscribe?.(() => { refreshUserBalance(); });
 
-      const unsubUser = base44.entities.User?.subscribe(() => {
-        refreshUserBalance();
-      });
-
-      const handleBalanceEvent = () => {
-        refreshUserBalance();
-      };
-
-      window.addEventListener("vinclub:balance_updated", handleBalanceEvent);
-      window.addEventListener("storage", handleBalanceEvent);
+      const handleBalanceEvent = () => { refreshUserBalance(); };
+      window.addEventListener('vinclub:balance_updated', handleBalanceEvent);
+      window.addEventListener('storage', handleBalanceEvent);
 
       refreshUserBalance();
       runDailyYieldAndMaturityCheck(user);
 
-      // Periodically check maturity & 9 AM yield every 30 seconds
       const yieldInterval = setInterval(() => {
         runDailyYieldAndMaturityCheck(user);
       }, 30000);
@@ -83,65 +142,95 @@ export const AuthProvider = ({ children }) => {
       return () => {
         clearInterval(yieldInterval);
         stopFirebaseSync();
-        if (typeof unsubPresence === "function") unsubPresence();
-        if (typeof unsubRTDBUser === "function") unsubRTDBUser();
-        if (typeof unsubWT === "function") unsubWT();
-        if (typeof unsubUser === "function") unsubUser();
-        window.removeEventListener("vinclub:balance_updated", handleBalanceEvent);
-        window.removeEventListener("storage", handleBalanceEvent);
+        if (typeof unsubPresence === 'function') unsubPresence();
+        if (typeof unsubRTDBUser === 'function') unsubRTDBUser();
+        if (typeof unsubWT === 'function') unsubWT();
+        if (typeof unsubUser === 'function') unsubUser();
+        window.removeEventListener('vinclub:balance_updated', handleBalanceEvent);
+        window.removeEventListener('storage', handleBalanceEvent);
       };
     } else {
       stopFirebaseSync();
     }
   }, [isAuthenticated, user?.id]);
 
-  const checkAppState = async () => {
+  // ──────────────────────────────────────────────────────────────────
+  // Helpers
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Merge Supabase user với dữ liệu balance/profile từ localStorage
+   * để không mất số dư đã có trong local storage
+   */
+  function mergeWithLocalData(supaUser) {
     try {
-      setIsLoadingPublicSettings(true);
-      setAuthError(null);
-      
-      setAppPublicSettings({ id: appParams.appId || 'vin-investment-app', public_settings: {} });
-      await checkUserAuth();
-      setIsLoadingPublicSettings(false);
-    } catch (error) {
-      console.warn('App state check warning:', error);
-      setAppPublicSettings({ id: appParams.appId || 'vin-investment-app', public_settings: {} });
-      await checkUserAuth();
-      setIsLoadingPublicSettings(false);
-    }
-  };
+      const localStr = localStorage.getItem('base44_local_user');
+      if (localStr) {
+        const local = JSON.parse(localStr);
+        if (local.email === supaUser.email || local.id === supaUser.id) {
+          return {
+            ...supaUser,
+            balance: Number(local.balance || supaUser.balance || 0),
+            total_deposited: Number(local.total_deposited || supaUser.total_deposited || 0),
+            bank_name: local.bank_name || supaUser.bank_name || '',
+            account_number: local.account_number || supaUser.account_number || '',
+            account_holder: local.account_holder || supaUser.account_holder || '',
+          };
+        }
+      }
+    } catch (e) {}
+    return supaUser;
+  }
 
   const checkUserAuth = async () => {
+    setIsLoadingAuth(true);
     try {
-      // Now check if the user is authenticated
-      setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
-      setUser(currentUser);
-      setIsAuthenticated(true);
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
-    } catch (error) {
-      if (error?.status !== 401) {
-        console.error('User auth check failed:', error);
+      const session = await getSession();
+      if (session?.user) {
+        const vinUser = mapSupabaseUser(session.user);
+        const merged = mergeWithLocalData(vinUser);
+        setUser(merged);
+        setIsAuthenticated(true);
       } else {
-        console.log('User not authenticated (Normal state)');
+        const legacyUser = await base44.auth.me();
+        if (legacyUser) {
+          setUser(legacyUser);
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+          setAuthError({ type: 'auth_required', message: 'Authentication required' });
+        }
       }
-      setIsLoadingAuth(false);
+    } catch (error) {
       setIsAuthenticated(false);
+      setAuthError({ type: 'auth_required', message: error?.message || 'Authentication required' });
+    } finally {
+      setIsLoadingAuth(false);
       setAuthChecked(true);
-      
-      // If user auth fails, we set auth required
-      setAuthError({
-        type: 'auth_required',
-        message: error?.message || 'Authentication required'
-      });
     }
   };
 
-  const logout = () => {
+  const checkAppState = async () => {
+    setIsLoadingPublicSettings(true);
+    setAuthError(null);
+    setAppPublicSettings({ id: appParams.appId || 'vin-investment-app', public_settings: {} });
+    await checkUserAuth();
+    setIsLoadingPublicSettings(false);
+  };
+
+  const logout = async () => {
+    try {
+      await supaSignOut();
+    } catch (e) {
+      // Supabase signOut có thể không cần thiết nếu dùng legacy
+    }
+    try {
+      base44.auth.logout();
+    } catch (e) {}
     setUser(null);
     setIsAuthenticated(false);
-    base44.auth.logout();
+    // Xoá session cũ
+    localStorage.removeItem('vinclub_supabase_session');
     window.location.href = '/login';
   };
 
@@ -150,9 +239,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated,
       isLoadingAuth,
       isLoadingPublicSettings,
       authError,
@@ -161,7 +250,7 @@ export const AuthProvider = ({ children }) => {
       logout,
       navigateToLogin,
       checkUserAuth,
-      checkAppState
+      checkAppState,
     }}>
       {children}
     </AuthContext.Provider>
