@@ -1,4 +1,4 @@
-// Helper module to manage synchronized user balances and account state across all pages
+import { pushUserToRTDB } from '@/lib/rtdbSync';
 
 export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
   if (!userId) return null;
@@ -62,13 +62,20 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
       } catch (e) {}
     }
 
+    // If updatedUser is not in local storage yet, create fallback object
+    if (!updatedUser) {
+      updatedUser = {
+        id: userId,
+        balance: numBalance,
+        last_active: new Date().toISOString()
+      };
+    }
+
     // 4. Push updated balance directly to Firebase Realtime Database for instant multi-device sync
-    if (updatedUser) {
-      try {
-        import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
-          pushUserToRTDB(updatedUser);
-        });
-      } catch (e) {}
+    try {
+      pushUserToRTDB(updatedUser);
+    } catch (e) {
+      console.warn("pushUserToRTDB error in updateUserBalance:", e);
     }
 
     // 5. Dispatch custom event for real-time UI synchronization across all open pages & components
