@@ -114,6 +114,17 @@ export default function Support() {
         attachments,
       });
 
+      // Send real-time notification to Admin flow
+      try {
+        await base44.entities.Notification.create({
+          title: "Tin nhắn CSKH mới từ hội viên",
+          content: `Hội viên ${user?.name || user?.full_name || user?.email} vừa gửi tin nhắn: "${text.trim() || 'Hình ảnh/Tệp đính kèm'}"`,
+          type: "admin",
+          user_id: "admin",
+          is_read: false,
+        });
+      } catch (e) {}
+
       // Trigger cross-tab event
       localStorage.setItem("vinclub_msg_update", Date.now().toString());
 

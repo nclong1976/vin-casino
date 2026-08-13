@@ -47,8 +47,9 @@ export default function BankAccountList({ accounts, loading, onAdd }) {
                       <Star className="w-3 h-3 text-[#e8c87a] fill-[#e8c87a] shrink-0" />
                     )}
                   </div>
-                  <p className="text-[12px] font-medium text-gray-700 tracking-wider">
-                    {acc.account_number}
+                  <p className="text-[12px] font-mono font-bold text-gray-800 tracking-wider flex items-center gap-1">
+                    <span className="text-gray-400">•••• •••• ••••</span>
+                    <span className="text-[#948154]">{(String(acc.account_number || "").trim().slice(-4)) || "••••"}</span>
                   </p>
                   <p className="text-[9px] text-gray-400 uppercase font-medium">{acc.account_holder}</p>
                 </div>

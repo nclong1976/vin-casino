@@ -194,37 +194,28 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       setLiveStatus("pending");
       setStep("tracking");
 
-      // Send real-time push notification for withdrawal request
+      // Send real-time notification to User
       await base44.entities.Notification.create({
-        title: "Yêu cầu rút tiền đang xử lý",
-        content: `Lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (${selectedBank.account_number}) đang được kiểm tra. Mã GD: ${code}`,
+        title: "Yêu cầu rút tiền đang chờ phê duyệt",
+        content: `Lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) đang chờ Admin phê duyệt. Mã GD: ${code}`,
         type: "withdraw",
         user_id: user?.id,
         is_read: false,
       });
 
+      // Send real-time notification to Admin flow
+      try {
+        await base44.entities.Notification.create({
+          title: "Lệnh rút tiền mới cần phê duyệt",
+          content: `Hội viên ${user?.full_name || user?.email} vừa tạo lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name}. Mã GD: ${code}`,
+          type: "admin",
+          user_id: "admin",
+          is_read: false,
+        });
+      } catch (e) {}
+
       if (onDone) onDone();
-
-      // Real-time status simulation: Change to completed after 2.5 seconds
-      setTimeout(async () => {
-        setLiveStatus("completed");
-        toast.success(`Rút ${fmt(numAmount)} VNĐ thành công!`);
-
-        // Send real-time push notification for balance deduction & withdrawal completion
-        try {
-          await base44.entities.Notification.create({
-            title: `Biến động số dư: -${fmt(numAmount)} VNĐ`,
-            content: `Đã chuyển thành công ${fmt(numAmount)} VNĐ vào tài khoản ${selectedBank.bank_name} (${selectedBank.account_number}). Mã GD: ${code}`,
-            type: "withdraw",
-            user_id: user?.id,
-            is_read: false,
-          });
-        } catch (err) {
-          // ignore
-        }
-
-        if (onDone) onDone();
-      }, 2500);
+      toast.success(`Đã tạo lệnh rút ${fmt(numAmount)} VNĐ! Đang chờ Admin phê duyệt.`);
     } catch (e) {
       toast.error("Không thể khởi tạo lệnh rút tiền");
       setStep("input");
