@@ -12,10 +12,19 @@ export function useCasinoMaintenance(gameSlug = "") {
 
   useEffect(() => {
     syncConfig();
+
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeCasinoConfigFromRTDB }) => {
+      unsubRTDB = subscribeCasinoConfigFromRTDB((rtdbConfig) => {
+        if (rtdbConfig) setConfig(rtdbConfig);
+      });
+    }).catch(() => null);
+
     const handleUpdate = () => syncConfig();
     window.addEventListener("vinclub:casino_config_updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
+      if (typeof unsubRTDB === "function") unsubRTDB();
       window.removeEventListener("vinclub:casino_config_updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };

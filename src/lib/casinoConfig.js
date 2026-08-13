@@ -72,6 +72,9 @@ export function saveCasinoConfig(newConfig) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
     window.dispatchEvent(new CustomEvent("vinclub:casino_config_updated", { detail: newConfig }));
+    import('@/lib/rtdbSync').then(({ pushCasinoConfigToRTDB }) => {
+      pushCasinoConfigToRTDB(newConfig);
+    }).catch(() => null);
   } catch (e) {
     console.error("Failed to save casino config", e);
   }

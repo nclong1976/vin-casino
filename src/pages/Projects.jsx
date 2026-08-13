@@ -21,6 +21,15 @@ export default function Projects() {
 
     fetch();
 
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeProjectsFromRTDB }) => {
+      unsubRTDB = subscribeProjectsFromRTDB((rtdbProjects) => {
+        if (Array.isArray(rtdbProjects)) {
+          setProjects(rtdbProjects.filter((p) => p.is_active ?? true));
+        }
+      });
+    }).catch(() => null);
+
     const unsubscribe = base44.entities.Project.subscribe((updatedItems) => {
       if (Array.isArray(updatedItems)) {
         setProjects(updatedItems.filter((p) => p.is_active ?? true));
@@ -28,6 +37,7 @@ export default function Projects() {
     });
 
     return () => {
+      if (typeof unsubRTDB === "function") unsubRTDB();
       if (typeof unsubscribe === "function") unsubscribe();
     };
   }, []);
