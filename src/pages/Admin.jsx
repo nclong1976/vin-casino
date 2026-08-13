@@ -58,6 +58,20 @@ export default function Admin() {
 
   useEffect(() => {
     fetchStats();
+
+    // Subscribe to all RTDB nodes for complete real-time Admin panel sync
+    let unsubs = [];
+    import('@/lib/rtdbSync').then((rtdb) => {
+      if (rtdb.subscribeAllUsersFromRTDB) unsubs.push(rtdb.subscribeAllUsersFromRTDB(() => fetchStats()));
+      if (rtdb.subscribeWalletTransactionsFromRTDB) unsubs.push(rtdb.subscribeWalletTransactionsFromRTDB(() => fetchStats()));
+      if (rtdb.subscribeMessagesFromRTDB) unsubs.push(rtdb.subscribeMessagesFromRTDB(() => fetchStats()));
+      if (rtdb.subscribeSignaturesFromRTDB) unsubs.push(rtdb.subscribeSignaturesFromRTDB(() => fetchStats()));
+      if (rtdb.subscribeNotificationsFromRTDB) unsubs.push(rtdb.subscribeNotificationsFromRTDB(() => fetchStats()));
+    }).catch(() => null);
+
+    return () => {
+      unsubs.forEach(u => typeof u === "function" && u());
+    };
   }, [tab]);
 
   return (

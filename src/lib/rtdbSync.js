@@ -432,3 +432,83 @@ export function subscribeMessagesFromRTDB(onMessagesReceived) {
     unsub2();
   };
 }
+
+export function subscribeWalletTransactionsFromRTDB(onTxReceived) {
+  const txRef = ref(rtdb, "wallet_transactions");
+  return onValue(txRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const txData = snapshot.val();
+      const txList = Object.values(txData || {});
+      try {
+        const rawLocal = localStorage.getItem("base44_entity_WalletTransaction");
+        let localTxs = rawLocal ? JSON.parse(rawLocal) : [];
+        let modified = false;
+
+        txList.forEach(t => {
+          if (!t || !t.id) return;
+          const idx = localTxs.findIndex(lt => lt.id === t.id);
+          if (idx === -1) {
+            localTxs.unshift(t);
+            modified = true;
+          } else {
+            if (JSON.stringify(localTxs[idx]) !== JSON.stringify(t)) {
+              localTxs[idx] = t;
+              modified = true;
+            }
+          }
+        });
+
+        if (modified) {
+          localStorage.setItem("base44_entity_WalletTransaction", JSON.stringify(localTxs));
+          if (base44.entities.WalletTransaction) {
+            base44.entities.WalletTransaction.notifySubscribers();
+          }
+        }
+      } catch (e) {}
+
+      if (typeof onTxReceived === "function") {
+        onTxReceived(txList);
+      }
+    }
+  }, (err) => console.warn("[RTDB WalletTx Sub] Error:", err));
+}
+
+export function subscribeSignaturesFromRTDB(onSigReceived) {
+  const sigRef = ref(rtdb, "entities/Signature");
+  return onValue(sigRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const sigData = snapshot.val();
+      const sigList = Object.values(sigData || {});
+      try {
+        const rawLocal = localStorage.getItem("base44_entity_Signature");
+        let localSigs = rawLocal ? JSON.parse(rawLocal) : [];
+        let modified = false;
+
+        sigList.forEach(s => {
+          if (!s || !s.id) return;
+          const idx = localSigs.findIndex(ls => ls.id === s.id);
+          if (idx === -1) {
+            localSigs.unshift(s);
+            modified = true;
+          } else {
+            if (JSON.stringify(localSigs[idx]) !== JSON.stringify(s)) {
+              localSigs[idx] = s;
+              modified = true;
+            }
+          }
+        });
+
+        if (modified) {
+          localStorage.setItem("base44_entity_Signature", JSON.stringify(localSigs));
+          if (base44.entities.Signature) {
+            base44.entities.Signature.notifySubscribers();
+          }
+        }
+      } catch (e) {}
+
+      if (typeof onSigReceived === "function") {
+        onSigReceived(sigList);
+      }
+    }
+  }, (err) => console.warn("[RTDB Signature Sub] Error:", err));
+}
