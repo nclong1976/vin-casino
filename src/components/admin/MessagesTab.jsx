@@ -203,6 +203,17 @@ export default function MessagesTab() {
         attachments,
       });
 
+      // Send real-time notification to User flow
+      try {
+        await base44.entities.Notification.create({
+          title: "Phản hồi mới từ Chăm sóc Khách hàng VinClub",
+          content: replyText.trim() || "Quản trị viên đã gửi tệp đính kèm mới.",
+          type: "system",
+          user_id: selectedUser,
+          is_read: false,
+        });
+      } catch (e) {}
+
       localStorage.setItem("vinclub_msg_update", Date.now().toString());
 
       setReplyText("");
