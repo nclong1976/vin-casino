@@ -2,6 +2,52 @@ import { ref, set, update, onValue, onDisconnect } from "firebase/database";
 import { rtdb } from "./firebase";
 import { base44 } from "@/api/base44Client";
 
+const BASE_RTDB_URL = "https://gen-lang-client-0800418734-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+function cleanObject(obj) {
+  if (obj === null || obj === undefined || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(cleanObject);
+  const cleaned = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      cleaned[key] = (typeof val === "object" && val !== null) ? cleanObject(val) : val;
+    }
+  }
+  return cleaned;
+}
+
+export async function safeWriteRTDB(path, data, mode = "update") {
+  if (!path || !data) return false;
+  const cleaned = cleanObject(data);
+
+  try {
+    const dbRef = ref(rtdb, path);
+    if (mode === "set") {
+      await set(dbRef, cleaned);
+    } else {
+      await update(dbRef, cleaned);
+    }
+    console.log(`[RTDB Sync] ✅ SDK write succeeded at /${path}`);
+    return true;
+  } catch (sdkErr) {
+    console.warn(`[RTDB Sync] SDK write failed at /${path}, executing REST PUT fallback...`, sdkErr?.message || sdkErr);
+    try {
+      const url = `${BASE_RTDB_URL}/${path}.json`;
+      const res = await fetch(url, {
+        method: mode === "set" ? "PUT" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cleaned)
+      });
+      const resData = await res.json();
+      console.log(`[RTDB Sync] ✅ REST fallback succeeded at /${path}:`, resData ? "OK" : "ERR");
+      return true;
+    } catch (restErr) {
+      console.error(`[RTDB Sync] ❌ REST fallback failed at /${path}:`, restErr?.message || restErr);
+      return false;
+    }
+  }
+}
+
 /**
  * 1. Node: users/{uid}
  * Lưu thông tin tài khoản, số dư tiền mặt (balance), cấp độ VIP, avatar, quyền role.
@@ -32,13 +78,7 @@ export async function pushUserToRTDB(user) {
     last_active: new Date().toISOString(),
   };
 
-  try {
-    const userRef = ref(rtdb, `users/${uid}`);
-    await update(userRef, userData);
-    console.log(`[RTDB Sync] ✅ Pushed user ${uid} to users/{uid}`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push user to users/{uid}:`, err?.message || err);
-  }
+  return safeWriteRTDB(`users/${uid}`, userData, "set");
 }
 
 /**
@@ -192,18 +232,13 @@ export function subscribeAllUsersFromRTDB(onUpdate) {
  */
 export async function pushCasinoConfigToRTDB(config) {
   if (!config) return;
-  try {
-    const configRef = ref(rtdb, "casino_config");
-    await set(configRef, {
-      ...config,
-      house_edge: config.house_edge || 5, // Tỷ lệ phế 5%
-      forced_mode_enabled: true,
-      updated_at: new Date().toISOString()
-    });
-    console.log(`[RTDB Sync] ✅ Pushed casino_config with forcedOutcome & maintenance to Realtime Database`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push casino_config:`, err?.message || err);
-  }
+  const payload = {
+    ...config,
+    house_edge: config.house_edge || 5, // Tỷ lệ phế 5%
+    forced_mode_enabled: true,
+    updated_at: new Date().toISOString()
+  };
+  return safeWriteRTDB("casino_config", payload, "set");
 }
 
 export function subscribeCasinoConfigFromRTDB(onConfigReceived) {
@@ -229,21 +264,14 @@ export function subscribeCasinoConfigFromRTDB(onConfigReceived) {
  */
 export async function pushProjectToRTDB(project) {
   if (!project || !project.id) return;
-  try {
-    const projRef1 = ref(rtdb, `investment_projects/${project.id}`);
-    const projRef2 = ref(rtdb, `projects/${project.id}`);
-    const payload = {
-      ...project,
-      daily_return_rate: project.daily_return_rate || project.annual_return || 14.5,
-      subdivision_progress: project.subdivision_progress || "Phân lô 85% - Đang bàn giao",
-      synced_at: new Date().toISOString()
-    };
-    await set(projRef1, payload);
-    await set(projRef2, payload);
-    console.log(`[RTDB Sync] ✅ Pushed project ${project.id} to investment_projects and projects`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push project:`, err?.message || err);
-  }
+  const payload = {
+    ...project,
+    daily_return_rate: project.daily_return_rate || project.annual_return || 14.5,
+    subdivision_progress: project.subdivision_progress || "Phân lô 85% - Đang bàn giao",
+    synced_at: new Date().toISOString()
+  };
+  await safeWriteRTDB(`investment_projects/${project.id}`, payload, "set");
+  return safeWriteRTDB(`projects/${project.id}`, payload, "set");
 }
 
 export function subscribeProjectsFromRTDB(onProjectsReceived) {
@@ -292,16 +320,11 @@ export function subscribeProjectsFromRTDB(onProjectsReceived) {
  */
 export async function pushWalletTransactionToRTDB(tx) {
   if (!tx || !tx.id) return;
-  try {
-    const txRef = ref(rtdb, `wallet_transactions/${tx.id}`);
-    await set(txRef, {
-      ...tx,
-      synced_at: new Date().toISOString()
-    });
-    console.log(`[RTDB Sync] ✅ Pushed wallet transaction ${tx.id} to wallet_transactions`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push wallet transaction:`, err?.message || err);
-  }
+  const payload = {
+    ...tx,
+    synced_at: new Date().toISOString()
+  };
+  return safeWriteRTDB(`wallet_transactions/${tx.id}`, payload, "set");
 }
 
 /**
@@ -311,25 +334,16 @@ export async function pushWalletTransactionToRTDB(tx) {
 export async function pushNotificationToRTDB(notif) {
   if (!notif || !notif.id) return;
   const uid = notif.user_id || "all";
-  try {
-    // Write under root notifications and user-specific notifications/{uid}/{notifId}
-    const notifRootRef = ref(rtdb, `notifications/${notif.id}`);
-    await set(notifRootRef, {
-      ...notif,
-      synced_at: new Date().toISOString()
-    });
+  const payload = {
+    ...notif,
+    synced_at: new Date().toISOString()
+  };
+  await safeWriteRTDB(`notifications/${notif.id}`, payload, "set");
 
-    if (uid !== "all") {
-      const userNotifRef = ref(rtdb, `notifications/${uid}/${notif.id}`);
-      await set(userNotifRef, {
-        ...notif,
-        synced_at: new Date().toISOString()
-      });
-    }
-    console.log(`[RTDB Sync] ✅ Pushed notification ${notif.id} to notifications/${uid}`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push notification:`, err?.message || err);
+  if (uid !== "all") {
+    await safeWriteRTDB(`notifications/${uid}/${notif.id}`, payload, "set");
   }
+  return true;
 }
 
 export function subscribeNotificationsFromRTDB(onNotifsReceived) {
@@ -386,26 +400,17 @@ export function subscribeNotificationsFromRTDB(onNotifsReceived) {
  */
 export async function pushGenericEntityToRTDB(entityName, id, data) {
   if (!entityName || !id || !data) return;
-  try {
-    const entityRef = ref(rtdb, `entities/${entityName}/${id}`);
-    await set(entityRef, {
-      ...data,
-      synced_at: new Date().toISOString()
-    });
+  const payload = {
+    ...data,
+    synced_at: new Date().toISOString()
+  };
 
-    // Also push message to root /messages for backwards compatibility
-    if (entityName === "Message") {
-      const msgRef = ref(rtdb, `messages/${id}`);
-      await set(msgRef, {
-        ...data,
-        synced_at: new Date().toISOString()
-      });
-    }
+  await safeWriteRTDB(`entities/${entityName}/${id}`, payload, "set");
 
-    console.log(`[RTDB Sync] ✅ Pushed entity to entities/${entityName}/${id}`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push entity to entities/${entityName}/${id}:`, err?.message || err);
+  if (entityName === "Message") {
+    await safeWriteRTDB(`messages/${id}`, payload, "set");
   }
+  return true;
 }
 
 export async function pushMessageToRTDB(msg) {
