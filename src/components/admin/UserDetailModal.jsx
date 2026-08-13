@@ -51,17 +51,49 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       setActiveTab("overview");
 
       setLoading(true);
-      Promise.all([
-        base44.entities.BankAccount.filter({ user_id: user.id }).catch(() => []),
-        base44.entities.WalletTransaction.filter({ user_id: user.id }, "-created_date", 100).catch(() => []),
-        base44.entities.Transaction.filter({ user_id: user.id }, "-created_date", 100).catch(() => []),
-      ])
-        .then(([banks, txs, ctrs]) => {
-          setBankAccounts(banks);
-          setWalletTxs(txs);
-          setContracts(ctrs);
-        })
-        .finally(() => setLoading(false));
+      const fetchModalData = () => {
+        Promise.all([
+          base44.entities.BankAccount.filter({
+            $or: [
+              { user_id: user.id },
+              { created_by_id: user.id },
+              { user_email: user.email }
+            ]
+          }).catch(() => []),
+          base44.entities.WalletTransaction.filter({ user_id: user.id }, "-created_date", 100).catch(() => []),
+          base44.entities.Transaction.filter({ user_id: user.id }, "-created_date", 100).catch(() => []),
+        ])
+          .then(([banks, txs, ctrs]) => {
+            let finalBanks = banks;
+            if (finalBanks.length === 0 && Array.isArray(user.bank_accounts) && user.bank_accounts.length > 0) {
+              finalBanks = user.bank_accounts;
+            } else if (finalBanks.length === 0 && user.bank_name && user.account_number) {
+              finalBanks = [{
+                id: 'user_bank_' + user.id,
+                bank_name: user.bank_name,
+                bank_code: user.bank_code || 'BK',
+                account_number: user.account_number,
+                account_holder: user.account_holder || user.full_name || user.name,
+                is_default: true
+              }];
+            }
+            setBankAccounts(finalBanks);
+            setWalletTxs(txs);
+            setContracts(ctrs);
+          })
+          .finally(() => setLoading(false));
+      };
+
+      fetchModalData();
+
+      const handleBankSync = () => fetchModalData();
+      window.addEventListener("vinclub:bank_updated", handleBankSync);
+      const unsub = base44.entities.BankAccount.subscribe(fetchModalData);
+
+      return () => {
+        window.removeEventListener("vinclub:bank_updated", handleBankSync);
+        if (typeof unsub === "function") unsub();
+      };
     }
   }, [open, user]);
 

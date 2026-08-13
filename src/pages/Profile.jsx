@@ -74,11 +74,16 @@ export default function Profile() {
       setShowDeposit(true);
     }
 
-    const handleBalanceUpdate = () => {
+    const handleDataUpdate = () => {
       fetchData();
+      if (refreshUser) refreshUser();
     };
-    window.addEventListener("vinclub:balance_updated", handleBalanceUpdate);
-    return () => window.removeEventListener("vinclub:balance_updated", handleBalanceUpdate);
+    window.addEventListener("vinclub:balance_updated", handleDataUpdate);
+    window.addEventListener("vinclub:bank_updated", handleDataUpdate);
+    return () => {
+      window.removeEventListener("vinclub:balance_updated", handleDataUpdate);
+      window.removeEventListener("vinclub:bank_updated", handleDataUpdate);
+    };
   }, [user, location.search]);
 
   const currentBalance = Number(user?.balance || 0);

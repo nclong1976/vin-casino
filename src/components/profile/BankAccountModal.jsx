@@ -31,21 +31,50 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
 
     setSaving(true);
     try {
-      await base44.entities.BankAccount.create({
+      const bankData = {
+        user_id: user?.id,
+        created_by_id: user?.id,
+        user_email: user?.email,
+        user_name: user?.full_name || user?.name || user?.username || user?.email,
         bank_name: bank.name,
         bank_code: bank.code,
         account_number: accountNumber.trim(),
         account_holder: accountHolder.trim().toUpperCase(),
         is_default: isDefault,
-      });
-      toast.success("Đã liên kết tài khoản ngân hàng");
-      onSaved();
+      };
+
+      const created = await base44.entities.BankAccount.create(bankData);
+
+      // Also update user record for instant sync in admin user table
+      if (user?.id) {
+        try {
+          const userRec = await base44.entities.User.get(user.id);
+          const currentBanks = Array.isArray(userRec?.bank_accounts) ? userRec.bank_accounts : [];
+          const updatedBanks = [created, ...currentBanks.filter(b => b.account_number !== created.account_number)];
+          
+          await base44.entities.User.update(user.id, {
+            bank_accounts: updatedBanks,
+            bank_name: bank.name,
+            bank_code: bank.code,
+            account_number: accountNumber.trim(),
+            account_holder: accountHolder.trim().toUpperCase(),
+          });
+        } catch (err) {}
+      }
+
+      // Fire global events for instant UI synchronization in both User & Admin flows
+      window.dispatchEvent(new CustomEvent("vinclub:bank_updated", { detail: created }));
+      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+
+      toast.success("Đã liên kết tài khoản ngân hàng thành công!");
+      if (onSaved) onSaved(created);
       onClose();
       setBank(null);
       setAccountNumber("");
       setIsDefault(false);
     } catch (e) {
-      toast.error("Không thể liên kết tài khoản");
+      console.error(e);
+      toast.error("Không thể liên kết tài khoản. Vui lòng thử lại!");
     } finally {
       setSaving(false);
     }
