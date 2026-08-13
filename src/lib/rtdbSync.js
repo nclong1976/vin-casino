@@ -3,7 +3,8 @@ import { rtdb } from "./firebase";
 import { base44 } from "@/api/base44Client";
 
 /**
- * Syncs a registered or updated user object to Firebase Realtime Database (/users/{userId})
+ * 1. Node: users/{uid}
+ * Lưu thông tin tài khoản, số dư tiền mặt (balance), cấp độ VIP, avatar, quyền role.
  */
 export async function pushUserToRTDB(user) {
   if (!user || (!user.id && !user.email)) return;
@@ -17,9 +18,11 @@ export async function pushUserToRTDB(user) {
     full_name: user.full_name || user.name || "Hội viên VinClub",
     phone: user.phone || "",
     role: user.role || "user",
+    avatar: user.avatar || user.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde",
     balance: Number(user.balance || 0),
     total_deposited: Number(user.total_deposited || 0),
-    membership_tier: user.membership_tier || "Member",
+    membership_tier: user.membership_tier || "VIP 1 - Gold",
+    vip_level: user.vip_level || "VIP 1",
     is_locked: !!user.is_locked,
     bank_accounts: user.bank_accounts || [],
     bank_name: user.bank_name || "",
@@ -32,14 +35,15 @@ export async function pushUserToRTDB(user) {
   try {
     const userRef = ref(rtdb, `users/${uid}`);
     await update(userRef, userData);
-    console.log(`[RTDB Sync] ✅ Pushed user ${uid} to Realtime Database`);
+    console.log(`[RTDB Sync] ✅ Pushed user ${uid} to users/{uid}`);
   } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push user to Realtime Database:`, err?.message || err);
+    console.warn(`[RTDB Sync] Failed to push user to users/{uid}:`, err?.message || err);
   }
 }
 
 /**
- * Tracks user online presence across tabs/devices using Firebase Realtime Database
+ * 2. Node: online_users/{uid}
+ * Theo dõi số lượng người dùng đang hoạt động thực tế trên ứng dụng.
  */
 export function trackPresenceInRTDB(user) {
   if (!user || (!user.id && !user.email)) return;
@@ -67,7 +71,7 @@ export function trackPresenceInRTDB(user) {
 }
 
 /**
- * Admin Subscription: Listens in real-time to ALL users & presence from Firebase Realtime Database
+ * Admin Listener: users & online_users
  */
 export function subscribeAllUsersFromRTDB(onUpdate) {
   const usersRef = ref(rtdb, "users");
@@ -151,158 +155,65 @@ export function subscribeAllUsersFromRTDB(onUpdate) {
 }
 
 /**
- * Pushes a new Message to Firebase Realtime Database (/messages/{msgId})
+ * 3. Node: casino_config
+ * Lưu điều chỉnh tỷ lệ phế, chế độ bẻ cầu (ép Player/Banker thắng/thua), trạng thái bảo trì bàn chơi.
  */
-export async function pushMessageToRTDB(msg) {
-  if (!msg || !msg.id) return;
+export async function pushCasinoConfigToRTDB(config) {
+  if (!config) return;
   try {
-    const msgRef = ref(rtdb, `messages/${msg.id}`);
-    await set(msgRef, {
-      ...msg,
-      synced_at: new Date().toISOString()
+    const configRef = ref(rtdb, "casino_config");
+    await set(configRef, {
+      ...config,
+      house_edge: config.house_edge || 5, // Tỷ lệ phế 5%
+      forced_mode_enabled: true,
+      updated_at: new Date().toISOString()
     });
-    console.log(`[RTDB Sync] ✅ Pushed message ${msg.id} to Realtime Database`);
+    console.log(`[RTDB Sync] ✅ Pushed casino_config with forcedOutcome & maintenance to Realtime Database`);
   } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push message:`, err?.message || err);
+    console.warn(`[RTDB Sync] Failed to push casino_config:`, err?.message || err);
   }
 }
 
-/**
- * Subscribes to real-time messages from Firebase Realtime Database
- */
-export function subscribeMessagesFromRTDB(onMessagesReceived) {
-  const messagesRef = ref(rtdb, "messages");
-  return onValue(messagesRef, (snapshot) => {
+export function subscribeCasinoConfigFromRTDB(onConfigReceived) {
+  const configRef = ref(rtdb, "casino_config");
+  return onValue(configRef, (snapshot) => {
     if (snapshot.exists()) {
-      const msgMap = snapshot.val();
-      const msgList = Object.values(msgMap);
-
+      const config = snapshot.val();
       try {
-        const rawMsgs = localStorage.getItem("base44_entity_Message");
-        let localMsgs = rawMsgs ? JSON.parse(rawMsgs) : [];
-        let modified = false;
-
-        msgList.forEach(m => {
-          const idx = localMsgs.findIndex(lm => lm.id === m.id);
-          if (idx === -1) {
-            localMsgs.push(m);
-            modified = true;
-          } else {
-            if (JSON.stringify(localMsgs[idx]) !== JSON.stringify(m)) {
-              localMsgs[idx] = m;
-              modified = true;
-            }
-          }
-        });
-
-        if (modified) {
-          localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
-          localStorage.setItem("vinclub_msg_update", Date.now().toString());
-          if (base44.entities.Message) {
-            base44.entities.Message.notifySubscribers();
-          }
-        }
+        localStorage.setItem("vinclub_casino_config_v1", JSON.stringify(config));
+        window.dispatchEvent(new CustomEvent("vinclub:casino_config_updated", { detail: config }));
       } catch (e) {}
 
-      if (typeof onMessagesReceived === "function") {
-        onMessagesReceived(msgList);
+      if (typeof onConfigReceived === "function") {
+        onConfigReceived(config);
       }
     }
-  }, (err) => console.warn("[RTDB Messages Sub] Error:", err));
+  }, (err) => console.warn("[RTDB Casino Config Sub] Error:", err));
 }
 
 /**
- * Pushes a new Wallet Transaction (Deposit / Withdrawal adjustment) to Firebase Realtime Database (/wallet_transactions/{txId})
- */
-export async function pushWalletTransactionToRTDB(tx) {
-  if (!tx || !tx.id) return;
-  try {
-    const txRef = ref(rtdb, `wallet_transactions/${tx.id}`);
-    await set(txRef, {
-      ...tx,
-      synced_at: new Date().toISOString()
-    });
-    console.log(`[RTDB Sync] ✅ Pushed wallet transaction ${tx.id} to Realtime Database`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push wallet transaction:`, err?.message || err);
-  }
-}
-
-/**
- * Pushes Admin Notifications to Firebase Realtime Database (/notifications/{notifId})
- */
-export async function pushNotificationToRTDB(notif) {
-  if (!notif || !notif.id) return;
-  try {
-    const notifRef = ref(rtdb, `notifications/${notif.id}`);
-    await set(notifRef, {
-      ...notif,
-      synced_at: new Date().toISOString()
-    });
-    console.log(`[RTDB Sync] ✅ Pushed notification ${notif.id} to Realtime Database`);
-  } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push notification:`, err?.message || err);
-  }
-}
-
-/**
- * Subscribes to Admin Notifications from Firebase Realtime Database
- */
-export function subscribeNotificationsFromRTDB(onNotifsReceived) {
-  const notifRef = ref(rtdb, "notifications");
-  return onValue(notifRef, (snapshot) => {
-    if (snapshot.exists()) {
-      const notifMap = snapshot.val();
-      const notifList = Object.values(notifMap);
-
-      try {
-        const rawNotifs = localStorage.getItem("base44_entity_Notification");
-        let localNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];
-        let modified = false;
-
-        notifList.forEach(n => {
-          const idx = localNotifs.findIndex(ln => ln.id === n.id);
-          if (idx === -1) {
-            localNotifs.unshift(n);
-            modified = true;
-          }
-        });
-
-        if (modified) {
-          localStorage.setItem("base44_entity_Notification", JSON.stringify(localNotifs));
-          if (base44.entities.Notification) {
-            base44.entities.Notification.notifySubscribers();
-          }
-        }
-      } catch (e) {}
-
-      if (typeof onNotifsReceived === "function") {
-        onNotifsReceived(notifList);
-      }
-    }
-  }, (err) => console.warn("[RTDB Notifs Sub] Error:", err));
-}
-
-/**
- * Pushes Investment Project open/close status to Firebase Realtime Database (/investment_projects/{projectId})
+ * 4. Node: investment_projects & projects
+ * Cập nhật dự án BĐS (Vinhomes Grand Park, Ocean Park...), tiến độ phân lô & lợi nhuận ngày real-time.
  */
 export async function pushProjectToRTDB(project) {
   if (!project || !project.id) return;
   try {
-    const projRef = ref(rtdb, `investment_projects/${project.id}`);
-    await set(projRef, {
+    const projRef1 = ref(rtdb, `investment_projects/${project.id}`);
+    const projRef2 = ref(rtdb, `projects/${project.id}`);
+    const payload = {
       ...project,
+      daily_return_rate: project.daily_return_rate || project.annual_return || 14.5,
+      subdivision_progress: project.subdivision_progress || "Phân lô 85% - Đang bàn giao",
       synced_at: new Date().toISOString()
-    });
-    console.log(`[RTDB Sync] ✅ Pushed investment project ${project.id} to Realtime Database`);
+    };
+    await set(projRef1, payload);
+    await set(projRef2, payload);
+    console.log(`[RTDB Sync] ✅ Pushed project ${project.id} to investment_projects and projects`);
   } catch (err) {
     console.warn(`[RTDB Sync] Failed to push project:`, err?.message || err);
   }
 }
 
-/**
- * Subscribes to Investment Projects open/close state from Firebase Realtime Database
- */
 export function subscribeProjectsFromRTDB(onProjectsReceived) {
   const projectsRef = ref(rtdb, "investment_projects");
   return onValue(projectsRef, (snapshot) => {
@@ -344,38 +255,180 @@ export function subscribeProjectsFromRTDB(onProjectsReceived) {
 }
 
 /**
- * Pushes Casino Controls & 1.1x Payout Odds Toggles to Firebase Realtime Database (/casino_config)
+ * 5. Node: wallet_transactions
+ * Ghi nhận yêu cầu Nạp/Rút tiền real-time để hiển thị tức thì trên Bảng quản trị Admin.
  */
-export async function pushCasinoConfigToRTDB(config) {
-  if (!config) return;
+export async function pushWalletTransactionToRTDB(tx) {
+  if (!tx || !tx.id) return;
   try {
-    const configRef = ref(rtdb, "casino_config");
-    await set(configRef, {
-      ...config,
-      updated_at: new Date().toISOString()
+    const txRef = ref(rtdb, `wallet_transactions/${tx.id}`);
+    await set(txRef, {
+      ...tx,
+      synced_at: new Date().toISOString()
     });
-    console.log(`[RTDB Sync] ✅ Pushed Casino Config & 1.1x Payout Odds to Realtime Database`);
+    console.log(`[RTDB Sync] ✅ Pushed wallet transaction ${tx.id} to wallet_transactions`);
   } catch (err) {
-    console.warn(`[RTDB Sync] Failed to push casino config:`, err?.message || err);
+    console.warn(`[RTDB Sync] Failed to push wallet transaction:`, err?.message || err);
   }
 }
 
 /**
- * Subscribes to Casino Controls & 1.1x Payout Odds Toggles from Firebase Realtime Database
+ * 6. Node: notifications/{uid} & notifications
+ * Bắn thông báo đẩy biến động số dư, phê duyệt nạp rút tiền real-time về máy người dùng.
  */
-export function subscribeCasinoConfigFromRTDB(onConfigReceived) {
-  const configRef = ref(rtdb, "casino_config");
-  return onValue(configRef, (snapshot) => {
+export async function pushNotificationToRTDB(notif) {
+  if (!notif || !notif.id) return;
+  const uid = notif.user_id || "all";
+  try {
+    // Write under root notifications and user-specific notifications/{uid}/{notifId}
+    const notifRootRef = ref(rtdb, `notifications/${notif.id}`);
+    await set(notifRootRef, {
+      ...notif,
+      synced_at: new Date().toISOString()
+    });
+
+    if (uid !== "all") {
+      const userNotifRef = ref(rtdb, `notifications/${uid}/${notif.id}`);
+      await set(userNotifRef, {
+        ...notif,
+        synced_at: new Date().toISOString()
+      });
+    }
+    console.log(`[RTDB Sync] ✅ Pushed notification ${notif.id} to notifications/${uid}`);
+  } catch (err) {
+    console.warn(`[RTDB Sync] Failed to push notification:`, err?.message || err);
+  }
+}
+
+export function subscribeNotificationsFromRTDB(onNotifsReceived) {
+  const notifRef = ref(rtdb, "notifications");
+  return onValue(notifRef, (snapshot) => {
     if (snapshot.exists()) {
-      const config = snapshot.val();
+      const notifData = snapshot.val();
+      let notifList = [];
+
+      if (typeof notifData === "object") {
+        Object.keys(notifData).forEach(k => {
+          const item = notifData[k];
+          if (item && item.id) {
+            notifList.push(item);
+          } else if (typeof item === "object") {
+            Object.values(item).forEach(subItem => {
+              if (subItem && subItem.id) notifList.push(subItem);
+            });
+          }
+        });
+      }
+
       try {
-        localStorage.setItem("vinclub_casino_config_v1", JSON.stringify(config));
-        window.dispatchEvent(new CustomEvent("vinclub:casino_config_updated", { detail: config }));
+        const rawNotifs = localStorage.getItem("base44_entity_Notification");
+        let localNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];
+        let modified = false;
+
+        notifList.forEach(n => {
+          const idx = localNotifs.findIndex(ln => ln.id === n.id);
+          if (idx === -1) {
+            localNotifs.unshift(n);
+            modified = true;
+          }
+        });
+
+        if (modified) {
+          localStorage.setItem("base44_entity_Notification", JSON.stringify(localNotifs));
+          if (base44.entities.Notification) {
+            base44.entities.Notification.notifySubscribers();
+          }
+        }
       } catch (e) {}
 
-      if (typeof onConfigReceived === "function") {
-        onConfigReceived(config);
+      if (typeof onNotifsReceived === "function") {
+        onNotifsReceived(notifList);
       }
     }
-  }, (err) => console.warn("[RTDB Casino Config Sub] Error:", err));
+  }, (err) => console.warn("[RTDB Notifs Sub] Error:", err));
+}
+
+/**
+ * 7. Node: entities/{entityName}/{uid}
+ * Lưu ngân hàng đã liên kết (BankAccount), hợp đồng chữ ký số (Signature) và tin nhắn hỗ trợ (Message).
+ */
+export async function pushGenericEntityToRTDB(entityName, id, data) {
+  if (!entityName || !id || !data) return;
+  try {
+    const entityRef = ref(rtdb, `entities/${entityName}/${id}`);
+    await set(entityRef, {
+      ...data,
+      synced_at: new Date().toISOString()
+    });
+
+    // Also push message to root /messages for backwards compatibility
+    if (entityName === "Message") {
+      const msgRef = ref(rtdb, `messages/${id}`);
+      await set(msgRef, {
+        ...data,
+        synced_at: new Date().toISOString()
+      });
+    }
+
+    console.log(`[RTDB Sync] ✅ Pushed entity to entities/${entityName}/${id}`);
+  } catch (err) {
+    console.warn(`[RTDB Sync] Failed to push entity to entities/${entityName}/${id}:`, err?.message || err);
+  }
+}
+
+export async function pushMessageToRTDB(msg) {
+  return pushGenericEntityToRTDB("Message", msg.id, msg);
+}
+
+export function subscribeMessagesFromRTDB(onMessagesReceived) {
+  const messagesRef = ref(rtdb, "entities/Message");
+  const legacyMessagesRef = ref(rtdb, "messages");
+
+  const notify = (msgMap) => {
+    if (!msgMap) return;
+    const msgList = Object.values(msgMap);
+    try {
+      const rawMsgs = localStorage.getItem("base44_entity_Message");
+      let localMsgs = rawMsgs ? JSON.parse(rawMsgs) : [];
+      let modified = false;
+
+      msgList.forEach(m => {
+        const idx = localMsgs.findIndex(lm => lm.id === m.id);
+        if (idx === -1) {
+          localMsgs.push(m);
+          modified = true;
+        } else {
+          if (JSON.stringify(localMsgs[idx]) !== JSON.stringify(m)) {
+            localMsgs[idx] = m;
+            modified = true;
+          }
+        }
+      });
+
+      if (modified) {
+        localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
+        localStorage.setItem("vinclub_msg_update", Date.now().toString());
+        if (base44.entities.Message) {
+          base44.entities.Message.notifySubscribers();
+        }
+      }
+    } catch (e) {}
+
+    if (typeof onMessagesReceived === "function") {
+      onMessagesReceived(msgList);
+    }
+  };
+
+  const unsub1 = onValue(messagesRef, (snapshot) => {
+    if (snapshot.exists()) notify(snapshot.val());
+  });
+
+  const unsub2 = onValue(legacyMessagesRef, (snapshot) => {
+    if (snapshot.exists()) notify(snapshot.val());
+  });
+
+  return () => {
+    unsub1();
+    unsub2();
+  };
 }

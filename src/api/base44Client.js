@@ -463,6 +463,9 @@ class LocalEntityClient {
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
         pushEntityToFirestore(this.entityName, newItem.id, newItem, 'upsert');
       });
+      import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
+        pushGenericEntityToRTDB(this.entityName, newItem.id, newItem);
+      });
       if (this.entityName === 'Message') {
         import('@/lib/rtdbSync').then(({ pushMessageToRTDB }) => {
           pushMessageToRTDB(newItem);
@@ -474,6 +477,14 @@ class LocalEntityClient {
       } else if (this.entityName === 'WalletTransaction') {
         import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
           pushWalletTransactionToRTDB(newItem);
+        });
+      } else if (this.entityName === 'Notification') {
+        import('@/lib/rtdbSync').then(({ pushNotificationToRTDB }) => {
+          pushNotificationToRTDB(newItem);
+        });
+      } else if (this.entityName === 'Project') {
+        import('@/lib/rtdbSync').then(({ pushProjectToRTDB }) => {
+          pushProjectToRTDB(newItem);
         });
       }
     } catch (e) {
