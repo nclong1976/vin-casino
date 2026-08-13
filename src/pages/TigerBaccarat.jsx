@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
 import { updateUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
-import GameCountdownTimer from "@/components/GameCountdownTimer";
+import GameCountdownTimer, { getSyncedTimerSeconds } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
 import { getCasinoConfig } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
@@ -124,8 +124,8 @@ export default function TigerBaccarat() {
   // Game Phase: 'betting' | 'dealing' | 'revealed'
   const [phase, setPhase] = useState("betting");
 
-  // Timer seconds (04:59 = 299 seconds)
-  const [timerSeconds, setTimerSeconds] = useState(299);
+  // === SYNCED REAL-TIME TIMER (epoch-based, identical to GameCountdownTimer) ===
+  const [timerSeconds, setTimerSeconds] = useState(() => getSyncedTimerSeconds());
 
   // Dealt Cards
   const [playerCards, setPlayerCards] = useState([]);
@@ -195,25 +195,19 @@ export default function TigerBaccarat() {
     }
   }, [user]);
 
-  // Timer countdown (4:59 reset loop)
+  // Sync timer with real-time epoch every second
   useEffect(() => {
     const interval = setInterval(() => {
-      setTimerSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+      const synced = getSyncedTimerSeconds();
+      setTimerSeconds(synced);
+
+      // When real-time cycle hits 00:00 and user has locked bet → deal cards
+      if (synced === 0 && phase === "waiting_timer") {
+        triggerDealAndReveal();
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
-
-  // When timer reaches 00:00: If bet is locked/confirmed, start dealing & revealing cards to evaluate reward!
-  useEffect(() => {
-    if (timerSeconds === 0) {
-      if (phase === "waiting_timer") {
-        triggerDealAndReveal();
-      } else if (phase === "betting") {
-        // Automatically reset timer to 299 (04:59) for new round
-        setTimerSeconds(299);
-      }
-    }
-  }, [timerSeconds, phase]);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatTimer = (secs) => {
     const m = Math.floor(secs / 60);
@@ -596,10 +590,17 @@ export default function TigerBaccarat() {
         toast.error(`Kết quả: Player (${pScore}) - Banker (${bScore}). Chúc bạn may mắn ván sau!`);
       }
 
-      // Automatically reset timer to 299 for next round after 8 seconds
+
+      // Auto-reset to next betting round after 1 second (timer is epoch-synced, no manual reset needed)
       setTimeout(() => {
-        setTimerSeconds(299);
-      }, 8000);
+        setShowWinModal(false);
+        setPhase("betting");
+        setPlayerCards([]);
+        setBankerCards([]);
+        setFlippedCards({ player: [], banker: [] });
+        setBets({ player: 0, banker: 0, tie: 0, tiger: 0, player_pair: 0, banker_pair: 0 });
+        setWinningZones([]);
+      }, 1000);
     }, totalFlipTime);
   };
 
