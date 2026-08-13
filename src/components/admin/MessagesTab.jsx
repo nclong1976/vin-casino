@@ -56,7 +56,14 @@ export default function MessagesTab() {
   useEffect(() => {
     fetchData();
 
-    // Real-time subscription & polling
+    // Real-time subscription & polling via Firebase Realtime Database
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeMessagesFromRTDB }) => {
+      unsubRTDB = subscribeMessagesFromRTDB(() => {
+        fetchData();
+      });
+    }).catch(() => null);
+
     const unsub = base44.entities.Message.subscribe(() => {
       fetchData();
     });
@@ -71,6 +78,7 @@ export default function MessagesTab() {
     window.addEventListener("storage", handleStorageChange);
 
     return () => {
+      if (typeof unsubRTDB === "function") unsubRTDB();
       unsub();
       clearInterval(interval);
       window.removeEventListener("storage", handleStorageChange);

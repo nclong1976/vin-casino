@@ -40,7 +40,14 @@ export default function Support() {
     // 1. Initial Load
     loadMessages(user.id);
 
-    // 2. Real-time Subscription via WebSocket
+    // 2. Real-time Subscription via Firebase Realtime Database
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeMessagesFromRTDB }) => {
+      unsubRTDB = subscribeMessagesFromRTDB(() => {
+        loadMessages(user.id);
+      });
+    }).catch(() => null);
+
     const unsub = base44.entities.Message.subscribe((event) => {
       if (event.data?.conversation_id !== user.id && event.data?.user_id !== user.id) return;
       loadMessages(user.id);
@@ -60,6 +67,7 @@ export default function Support() {
     window.addEventListener("storage", handleStorageChange);
 
     return () => {
+      if (typeof unsubRTDB === "function") unsubRTDB();
       unsub();
       clearInterval(pollInterval);
       window.removeEventListener("storage", handleStorageChange);

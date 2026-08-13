@@ -458,13 +458,22 @@ class LocalEntityClient {
     setLocalStore(this.entityName, items);
     this.notifySubscribers();
 
-    // Đẩy thay đổi lên Firestore không đồng bộ để giữ UX mượt mà
+    // Đẩy thay đổi lên Firestore & Realtime Database không đồng bộ để giữ UX mượt mà
     try {
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
         pushEntityToFirestore(this.entityName, newItem.id, newItem, 'upsert');
       });
+      if (this.entityName === 'Message') {
+        import('@/lib/rtdbSync').then(({ pushMessageToRTDB }) => {
+          pushMessageToRTDB(newItem);
+        });
+      } else if (this.entityName === 'User') {
+        import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
+          pushUserToRTDB(newItem);
+        });
+      }
     } catch (e) {
-      console.error("Lỗi đồng bộ Firestore (create):", e);
+      console.error("Lỗi đồng bộ Firestore/RTDB (create):", e);
     }
 
     return newItem;

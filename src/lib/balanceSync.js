@@ -62,7 +62,16 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
       } catch (e) {}
     }
 
-    // 4. Dispatch custom event for real-time UI synchronization across all open pages & components
+    // 4. Push updated balance directly to Firebase Realtime Database for instant multi-device sync
+    if (updatedUser) {
+      try {
+        import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
+          pushUserToRTDB(updatedUser);
+        });
+      } catch (e) {}
+    }
+
+    // 5. Dispatch custom event for real-time UI synchronization across all open pages & components
     window.dispatchEvent(
       new CustomEvent("vinclub:balance_updated", {
         detail: { userId, newBalance: numBalance, updatedUser }

@@ -1,4 +1,4 @@
-import { ref, set, update, onValue, onDisconnect, get, child } from "firebase/database";
+import { ref, set, update, onValue, onDisconnect } from "firebase/database";
 import { rtdb } from "./firebase";
 import { base44 } from "@/api/base44Client";
 
@@ -50,7 +50,6 @@ export function trackPresenceInRTDB(user) {
 
   const unsubscribe = onValue(connectedRef, (snap) => {
     if (snap.val() === true) {
-      // Set online status
       set(onlineRef, {
         id: uid,
         name: user.name || user.full_name || user.email,
@@ -60,7 +59,6 @@ export function trackPresenceInRTDB(user) {
         last_seen: new Date().toISOString(),
       }).catch(() => null);
 
-      // On disconnect (tab/browser close), remove from online_users automatically
       onDisconnect(onlineRef).remove().catch(() => null);
     }
   });
@@ -82,7 +80,6 @@ export function subscribeAllUsersFromRTDB(onUpdate) {
     const userList = Object.values(latestUsers);
     const onlineMap = latestOnline;
 
-    // Merge into local registered users & base44 entity storage for Admin
     if (userList.length > 0) {
       try {
         const rawLocalReg = localStorage.getItem("base44_registered_users");
@@ -95,14 +92,30 @@ export function subscribeAllUsersFromRTDB(onUpdate) {
             localRegs.push(rtdbUser);
             modified = true;
           } else {
+            // Check balance change or lock change
+            if (localRegs[idx].balance !== rtdbUser.balance || localRegs[idx].is_locked !== rtdbUser.is_locked) {
+              modified = true;
+            }
             localRegs[idx] = { ...localRegs[idx], ...rtdbUser };
-            modified = true;
           }
         });
 
         if (modified) {
           localStorage.setItem("base44_registered_users", JSON.stringify(localRegs));
           localStorage.setItem("base44_entity_User", JSON.stringify(localRegs));
+          
+          // Also sync active local user balance if matching
+          const currentLocalStr = localStorage.getItem("base44_local_user");
+          if (currentLocalStr) {
+            const currentLocal = JSON.parse(currentLocalStr);
+            const rtdbMatch = userList.find(u => u.id === currentLocal.id || (u.email && u.email === currentLocal.email));
+            if (rtdbMatch && (currentLocal.balance !== rtdbMatch.balance || currentLocal.is_locked !== rtdbMatch.is_locked)) {
+              const updatedLocal = { ...currentLocal, balance: rtdbMatch.balance, is_locked: rtdbMatch.is_locked };
+              localStorage.setItem("base44_local_user", JSON.stringify(updatedLocal));
+              window.dispatchEvent(new CustomEvent("vinclub:balance_updated", { detail: { userId: currentLocal.id, newBalance: rtdbMatch.balance } }));
+            }
+          }
+
           if (base44.entities.User) {
             base44.entities.User.notifySubscribers();
           }
@@ -137,4 +150,66 @@ export function subscribeAllUsersFromRTDB(onUpdate) {
     unsubUsers();
     unsubOnline();
   };
+}
+
+/**
+ * Pushes a new Message to Firebase Realtime Database (/messages/{msgId})
+ */
+export async function pushMessageToRTDB(msg) {
+  if (!msg || !msg.id) return;
+  try {
+    const msgRef = ref(rtdb, `messages/${msg.id}`);
+    await set(msgRef, {
+      ...msg,
+      synced_at: new Date().toISOString()
+    });
+    console.log(`[RTDB Sync] ✅ Pushed message ${msg.id} to Realtime Database`);
+  } catch (err) {
+    console.warn(`[RTDB Sync] Failed to push message:`, err?.message || err);
+  }
+}
+
+/**
+ * Subscribes to real-time messages from Firebase Realtime Database
+ */
+export function subscribeMessagesFromRTDB(onMessagesReceived) {
+  const messagesRef = ref(rtdb, "messages");
+  return onValue(messagesRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const msgMap = snapshot.val();
+      const msgList = Object.values(msgMap);
+
+      // Merge into local Message entity store
+      try {
+        const rawMsgs = localStorage.getItem("base44_entity_Message");
+        let localMsgs = rawMsgs ? JSON.parse(rawMsgs) : [];
+        let modified = false;
+
+        msgList.forEach(m => {
+          const idx = localMsgs.findIndex(lm => lm.id === m.id);
+          if (idx === -1) {
+            localMsgs.push(m);
+            modified = true;
+          } else {
+            if (JSON.stringify(localMsgs[idx]) !== JSON.stringify(m)) {
+              localMsgs[idx] = m;
+              modified = true;
+            }
+          }
+        });
+
+        if (modified) {
+          localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
+          localStorage.setItem("vinclub_msg_update", Date.now().toString());
+          if (base44.entities.Message) {
+            base44.entities.Message.notifySubscribers();
+          }
+        }
+      } catch (e) {}
+
+      if (typeof onMessagesReceived === "function") {
+        onMessagesReceived(msgList);
+      }
+    }
+  }, (err) => console.warn("[RTDB Messages Sub] Error:", err));
 }
