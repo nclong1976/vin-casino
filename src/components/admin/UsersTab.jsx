@@ -39,13 +39,23 @@ export default function UsersTab() {
   const [adjustWalletUser, setAdjustWalletUser] = useState(null);
   const [detailUser, setDetailUser] = useState(null);
 
+  const rtdbUsersRef = useRef([]);
+
   const fetchUsers = () => {
     setLoading(true);
     Promise.all([
       base44.entities.User.list().catch(() => []),
       base44.entities.WalletTransaction.list("-created_date", 1000).catch(() => []),
     ]).then(([userList, wts]) => {
-      setUsers(userList);
+      const mergedMap = {};
+      (userList || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
+      (rtdbUsersRef.current || []).forEach(ru => {
+        if (ru && (ru.id || ru.email)) {
+          mergedMap[ru.id || ru.email] = { ...(mergedMap[ru.id || ru.email] || {}), ...ru };
+        }
+      });
+
+      setUsers(Object.values(mergedMap));
 
       const balMap = {};
       wts.forEach((t) => {
@@ -67,19 +77,20 @@ export default function UsersTab() {
     let unsubRTDB;
     import('@/lib/rtdbSync').then(({ subscribeAllUsersFromRTDB }) => {
       unsubRTDB = subscribeAllUsersFromRTDB((rtdbUsers, onlineMap) => {
+        if (Array.isArray(rtdbUsers)) {
+          rtdbUsersRef.current = rtdbUsers;
+        }
         setOnlineUsers(onlineMap || {});
         if (Array.isArray(rtdbUsers) && rtdbUsers.length > 0) {
           setUsers((prev) => {
-            const merged = [...prev];
-            rtdbUsers.forEach((ru) => {
-              const idx = merged.findIndex((u) => u.id === ru.id || (u.email && u.email === ru.email));
-              if (idx === -1) {
-                merged.unshift(ru);
-              } else {
-                merged[idx] = { ...merged[idx], ...ru };
+            const mergedMap = {};
+            (prev || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
+            rtdbUsers.forEach(ru => {
+              if (ru && (ru.id || ru.email)) {
+                mergedMap[ru.id || ru.email] = { ...(mergedMap[ru.id || ru.email] || {}), ...ru };
               }
             });
-            return merged;
+            return Object.values(mergedMap);
           });
         }
       });
