@@ -54,12 +54,54 @@ export default function Profile() {
         50
       ).catch(() => []),
       base44.entities.Signature.filter({ user_id: me.id }, "-created_date", 20).catch(() => []),
-      base44.entities.BankAccount.filter({ user_id: me.id }, "-created_date", 20).catch(() => []),
+      base44.entities.BankAccount.filter({
+        $or: [
+          { user_id: me.id },
+          { created_by_id: me.id },
+          { user_email: me.email }
+        ]
+      }, "-created_date", 50).catch(() => []),
     ]);
+
+    let finalBanks = b;
+    // Fallback 1: check user.bank_accounts array on user object
+    if ((!finalBanks || finalBanks.length === 0) && Array.isArray(me.bank_accounts) && me.bank_accounts.length > 0) {
+      finalBanks = me.bank_accounts;
+    }
+    // Fallback 2: check direct bank_name / account_number fields
+    if ((!finalBanks || finalBanks.length === 0) && me.bank_name && me.account_number) {
+      finalBanks = [{
+        id: 'user_bank_' + me.id,
+        bank_name: me.bank_name,
+        bank_code: me.bank_code || 'BK',
+        account_number: me.account_number,
+        account_holder: me.account_holder || me.full_name || me.name,
+        is_default: true
+      }];
+    }
+    // Fallback 3: check localStorage entity store for any bank accounts matching me.id or me.email
+    if (!finalBanks || finalBanks.length === 0) {
+      try {
+        const rawStore = localStorage.getItem("base44_entity_BankAccount");
+        if (rawStore) {
+          const parsed = JSON.parse(rawStore);
+          if (Array.isArray(parsed)) {
+            const matched = parsed.filter(item => 
+              item.user_id === me.id || 
+              item.created_by_id === me.id || 
+              item.user_email === me.email ||
+              !item.user_id
+            );
+            if (matched.length > 0) finalBanks = matched;
+          }
+        }
+      } catch (e) {}
+    }
+
     setTxs(t);
     setWalletTxs(wt);
     setSigs(s);
-    setBanks(b);
+    setBanks(finalBanks || []);
     setLoading(false);
   };
 

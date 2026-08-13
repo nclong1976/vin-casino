@@ -59,6 +59,20 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
             account_number: accountNumber.trim(),
             account_holder: accountHolder.trim().toUpperCase(),
           });
+
+          // Sync to localStorage user object for instant auth context update
+          const localUserStr = localStorage.getItem("base44_local_user");
+          if (localUserStr) {
+            try {
+              const localUser = JSON.parse(localUserStr);
+              localUser.bank_accounts = updatedBanks;
+              localUser.bank_name = bank.name;
+              localUser.bank_code = bank.code;
+              localUser.account_number = accountNumber.trim();
+              localUser.account_holder = accountHolder.trim().toUpperCase();
+              localStorage.setItem("base44_local_user", JSON.stringify(localUser));
+            } catch (e) {}
+          }
         } catch (err) {}
       }
 
