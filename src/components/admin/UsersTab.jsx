@@ -68,7 +68,20 @@ export default function UsersTab() {
     import('@/lib/rtdbSync').then(({ subscribeAllUsersFromRTDB }) => {
       unsubRTDB = subscribeAllUsersFromRTDB((rtdbUsers, onlineMap) => {
         setOnlineUsers(onlineMap || {});
-        fetchUsers();
+        if (Array.isArray(rtdbUsers) && rtdbUsers.length > 0) {
+          setUsers((prev) => {
+            const merged = [...prev];
+            rtdbUsers.forEach((ru) => {
+              const idx = merged.findIndex((u) => u.id === ru.id || (u.email && u.email === ru.email));
+              if (idx === -1) {
+                merged.unshift(ru);
+              } else {
+                merged[idx] = { ...merged[idx], ...ru };
+              }
+            });
+            return merged;
+          });
+        }
       });
     }).catch(() => null);
 

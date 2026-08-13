@@ -1,4 +1,5 @@
 import { appParams } from '@/lib/app-params';
+import { pushUserToRTDB } from '@/lib/rtdbSync';
 
 // LocalStorage fallback implementation
 const entityNames = [
@@ -786,12 +787,12 @@ class FallbackBase44Client {
         registeredUsers.push(newUser);
         localStorage.setItem('base44_registered_users', JSON.stringify(registeredUsers));
 
-        // Push new user to Firebase Realtime Database for instant Admin sync across all devices
+        // Synchronously push new user to Firebase Realtime Database for instant Admin sync across all devices
         try {
-          import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
-            pushUserToRTDB(newUser);
-          });
-        } catch (e) {}
+          await pushUserToRTDB(newUser);
+        } catch (e) {
+          console.warn("pushUserToRTDB registration error:", e);
+        }
 
         // Create welcome notification in bell inbox for the new user
         try {
