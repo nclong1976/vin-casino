@@ -488,8 +488,13 @@ class LocalEntityClient {
         import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
           pushEntityToFirestore(this.entityName, id, updated, 'upsert');
         });
+        if (this.entityName === 'User') {
+          import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
+            pushUserToRTDB(updated);
+          });
+        }
       } catch (e) {
-        console.error("Lỗi đồng bộ Firestore (update):", e);
+        console.error("Lỗi đồng bộ Firestore/RTDB (update):", e);
       }
     }
 
@@ -630,6 +635,19 @@ class FallbackBase44Client {
       this.entities[name] = new LocalEntityClient(name);
     });
 
+    this.integrations = {
+      Core: {
+        UploadFile: async ({ file }) => {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({ file_url: reader.result });
+            reader.onerror = () => resolve({ file_url: null });
+            reader.readAsDataURL(file);
+          });
+        }
+      }
+    };
+
     this.auth = {
       async me() {
         const localUser = localStorage.getItem('base44_local_user');
@@ -743,6 +761,13 @@ class FallbackBase44Client {
 
         registeredUsers.push(newUser);
         localStorage.setItem('base44_registered_users', JSON.stringify(registeredUsers));
+
+        // Push new user to Firebase Realtime Database for instant Admin sync across all devices
+        try {
+          import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
+            pushUserToRTDB(newUser);
+          });
+        } catch (e) {}
 
         // Create welcome notification in bell inbox for the new user
         try {

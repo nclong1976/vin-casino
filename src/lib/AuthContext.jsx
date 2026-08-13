@@ -4,7 +4,9 @@ import { appParams } from '@/lib/app-params';
 import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 
-const AuthContext = createContext();
+import { pushUserToRTDB, trackPresenceInRTDB } from '@/lib/rtdbSync';
+
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -23,6 +25,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (isAuthenticated && user) {
       startFirebaseSync();
+      pushUserToRTDB(user);
+      const unsubPresence = trackPresenceInRTDB(user);
 
       const refreshUserBalance = async () => {
         try {
@@ -68,6 +72,7 @@ export const AuthProvider = ({ children }) => {
       return () => {
         clearInterval(yieldInterval);
         stopFirebaseSync();
+        if (typeof unsubPresence === "function") unsubPresence();
         if (typeof unsubWT === "function") unsubWT();
         if (typeof unsubUser === "function") unsubUser();
         window.removeEventListener("vinclub:balance_updated", handleBalanceEvent);

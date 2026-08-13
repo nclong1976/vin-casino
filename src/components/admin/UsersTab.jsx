@@ -58,14 +58,28 @@ export default function UsersTab() {
     });
   };
 
+  const [onlineUsers, setOnlineUsers] = useState({});
+
   useEffect(() => {
     fetchUsers();
+
+    // Subscribe to Firebase Realtime Database for instant user registration & presence sync across all devices
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeAllUsersFromRTDB }) => {
+      unsubRTDB = subscribeAllUsersFromRTDB((rtdbUsers, onlineMap) => {
+        setOnlineUsers(onlineMap || {});
+        fetchUsers();
+      });
+    }).catch(() => null);
 
     const handleBalUpdate = () => {
       fetchUsers();
     };
     window.addEventListener("vinclub:balance_updated", handleBalUpdate);
-    return () => window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
+    return () => {
+      if (typeof unsubRTDB === "function") unsubRTDB();
+      window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
+    };
   }, []);
 
   const handleToggleLock = async (u) => {
@@ -255,6 +269,14 @@ export default function UsersTab() {
                       <span className={`text-[8.5px] px-1.5 py-0.2 rounded-md border ${TIER_BADGES[tier] || TIER_BADGES.Member}`}>
                         {tier}
                       </span>
+                      {(() => {
+                        const isOnline = !!onlineUsers[u.id] || Object.values(onlineUsers).some(o => o.email && o.email === u.email);
+                        return isOnline ? (
+                          <span className="text-[8px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.2 rounded-md border border-emerald-300 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> ONLINE
+                          </span>
+                        ) : null;
+                      })()}
                       {u.is_locked && (
                         <span className="text-[8px] bg-red-100 text-red-800 font-bold px-1.5 py-0.2 rounded-md border border-red-200">
                           ĐÃ KHÓA
