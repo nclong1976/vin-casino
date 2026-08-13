@@ -116,12 +116,6 @@ export default function GameCountdownTimer({
         >
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
           <span>Đã khóa cược! Chờ 00:00 lật bài</span>
-          <button
-            onClick={handleFastForward}
-            className="bg-gradient-to-r from-amber-400 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-black px-2 py-0.5 rounded text-[9px] font-black uppercase transition-all ml-1 shadow active:scale-95"
-          >
-            ⏩ Hết giờ ngay
-          </button>
         </motion.div>
       )}
     </div>

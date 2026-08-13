@@ -515,19 +515,19 @@ export default function TigerBaccarat() {
         winners.push("player");
         if (bets.player > 0) {
           const pay = isOdds205 
-            ? Math.floor(bets.player * 2.05) 
+            ? Math.floor(bets.player * 1.05) 
             : (bets.player * 1 + bets.player);
           totalPayout += pay;
-          winsList.push(`PLAYER thắng (${isOdds205 ? "2.05:1" : "1:1"}): +${fmt(pay)}`);
+          winsList.push(`PLAYER thắng (${isOdds205 ? "1.05:1" : "1:1"}): +${fmt(pay)}`);
         }
       } else if (bScore > pScore) {
         winners.push("banker");
         if (bets.banker > 0) {
           const pay = isOdds205 
-            ? Math.floor(bets.banker * 2.05) 
+            ? Math.floor(bets.banker * 1.05) 
             : (Math.floor(bets.banker * 0.95) + bets.banker);
           totalPayout += pay;
-          winsList.push(`BANKER thắng (${isOdds205 ? "2.05:1" : "0.95:1"}): +${fmt(pay)}`);
+          winsList.push(`BANKER thắng (${isOdds205 ? "1.05:1" : "0.95:1"}): +${fmt(pay)}`);
         }
 
         if (bScore === 6) {
@@ -865,8 +865,8 @@ export default function TigerBaccarat() {
                 <span className="text-blue-500 font-black text-lg uppercase tracking-widest text-shadow-strong">
                   Player
                 </span>
-                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold animate-pulse" : "text-white/80"}`}>
-                  {odds205 ? "2.05:1" : "1:1"}
+                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold" : "text-white/70"}`}>
+                  {odds205 ? "1.05:1" : "1:1"}
                 </span>
                 {bets.player > 0 && (
                   <span className="absolute top-1 right-1 bg-[#38bdf8] text-[#002117] font-mono text-[9px] font-black px-1 rounded-full shadow">
@@ -903,8 +903,8 @@ export default function TigerBaccarat() {
                 <span className="text-red-500 font-black text-lg uppercase tracking-widest text-shadow-strong">
                   Banker
                 </span>
-                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold animate-pulse" : "text-white/80"}`}>
-                  {odds205 ? "2.05:1" : "0.95:1"}
+                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold" : "text-white/70"}`}>
+                  {odds205 ? "1.05:1" : "0.95:1"}
                 </span>
                 {bets.banker > 0 && (
                   <span className="absolute top-1 right-1 bg-[#f87171] text-white font-mono text-[9px] font-black px-1 rounded-full shadow">
