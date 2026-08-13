@@ -1,0 +1,1017 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { useAuth } from "@/lib/AuthContext";
+import { base44 } from "@/api/base44Client";
+import { updateUserBalance } from "@/lib/balanceSync";
+import { toast } from "sonner";
+import GameCountdownTimer from "@/components/GameCountdownTimer";
+import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
+import { getCasinoConfig } from "@/lib/casinoConfig";
+import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
+import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet } from "@/components/casino/MyBetsDrawer";
+import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
+import { Receipt } from "lucide-react";
+
+// Card Definitions
+const SUITS = [
+  { symbol: "♠", name: "spades", isRed: false },
+  { symbol: "♥", name: "hearts", isRed: true },
+  { symbol: "♦", name: "diamonds", isRed: true },
+  { symbol: "♣", name: "clubs", isRed: false },
+];
+
+const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+
+function buildDeck() {
+  const deck = [];
+  for (let d = 0; d < 8; d++) {
+    for (const suit of SUITS) {
+      for (const rank of RANKS) {
+        let value = 0;
+        if (["10", "J", "Q", "K"].includes(rank)) value = 0;
+        else if (rank === "A") value = 1;
+        else value = parseInt(rank);
+
+        deck.push({ rank, suit, value });
+      }
+    }
+  }
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
+function getHandScore(cards) {
+  if (!cards || cards.length === 0) return 0;
+  const total = cards.reduce((sum, c) => sum + c.value, 0);
+  return total % 10;
+}
+
+function isPair(cards) {
+  if (!cards || cards.length < 2) return false;
+  return cards[0].rank === cards[1].rank;
+}
+
+const fmt = (n) => new Intl.NumberFormat("vi-VN").format(n) + " VNĐ";
+const fmtShort = (n) => {
+  if (n >= 1000000) return (n / 1000000) + "M";
+  if (n >= 1000) return (n / 1000) + "K";
+  return n;
+};
+
+// Preset Chip Values matching prompt chips (50% chip placed in the center at index 2)
+const CHIP_VALUES = [
+  { label: "10K", value: 10000, bgClass: "bg-[#b0b0b0] border-gray-400 text-black font-bold text-xs" },
+  { label: "100K", value: 100000, bgClass: "bg-[#388e3c] border-white text-white font-bold text-sm" },
+  { label: "50%", value: 0.5, isPercent: true, bgClass: "bg-[#1976d2] border-white/60 text-white font-bold text-sm" },
+  { label: "2M", value: 2000000, bgClass: "bg-[#7b1fa2] border-white/60 text-white font-bold text-xs" },
+  { label: "5M", value: 5000000, bgClass: "bg-[#d32f2f] border-white/60 text-white font-bold text-sm" },
+];
+
+export default function TigerBaccarat() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+
+  // Determine game variation & Maintenance status
+  const isLongHo = location.pathname.includes("baccarat-long-ho");
+  const gameSlug = isLongHo ? "baccarat-long-ho" : "tiger-baccarat";
+  const gameTitle = isLongHo ? "BACCARAT LONG HỔ" : "TIGER BACCARAT";
+
+  const { isMaintenance, maintenanceMessage, gameSettings } = useCasinoMaintenance(gameSlug);
+  const odds205 = !!gameSettings?.odds205;
+  const [showMyBets, setShowMyBets] = useState(false);
+
+  // Dealer image per game variant
+  const bgImage = isLongHo
+    ? "https://lh3.googleusercontent.com/aida-public/AB6AXuAbPyMkkA-oNWH3VWIBa7To7lvUJhBRUmuTxTNIUrZuAdmwGFfkY8wmtzmkx2eQu3qiGbfVgO2Crltli1C7lj6AxmP_9LCYekOJtNIldYWvsNwWpp42r66O2UHcsnKDGkcruchbW8C9nG89pfx1NR0hxK_6vIZY6wA64ZzzhJZmdyv4fMSQjsS_JxqE-8q26tQJL_FrIfZKWpq6l-0R8ij_Wc67nmd0GWwu_o4PrPzmYqjoQZlxu91mZw"
+    : "https://lh3.googleusercontent.com/aida/AP1WRLuJnMCrAeOpa0z00-bz6avUjpMK5SRRy0jSbAoZ3W4weGE_YVk2ZLlYdXNTjbB2rwt2myoMOf4261UcWeOAESD4tJwVxPpEtlBpr_rwWKaF_k6oCM6tzGZm76HxfpKpX_gh0nDE_xXEcNZwV8hm-3SeG-XMxP-Wt5ufZKMIx4aYh4bmWM2z65IJFtfKB03wGamFb0u-HZBalCHYIxMiOfm47IpCa6oKi0iFd3R-jVZvYvfkme3JREBXvl8j";
+
+  // Balance Management
+  const [balance, setBalance] = useState(() => {
+    if (user?.balance !== undefined) return Number(user.balance);
+    const localUserStr = localStorage.getItem("base44_local_user");
+    if (localUserStr) {
+      try {
+        const u = JSON.parse(localUserStr);
+        if (u && u.balance !== undefined) return Number(u.balance);
+      } catch (e) {}
+    }
+    const local = localStorage.getItem("vinclub_xito_balance");
+    if (local) {
+      const parsed = parseInt(local);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return 0;
+  });
+
+  // Selected Chip (default index 2: 100K green chip)
+  const [selectedChipIndex, setSelectedChipIndex] = useState(2);
+
+  // Placed Bets per zone
+  const [bets, setBets] = useState({
+    player: 0,
+    banker: 0,
+    tie: 0,
+    tiger: 0,
+    player_pair: 0,
+    banker_pair: 0,
+  });
+
+  // Game Phase: 'betting' | 'dealing' | 'revealed'
+  const [phase, setPhase] = useState("betting");
+
+  // Timer seconds (04:59 = 299 seconds)
+  const [timerSeconds, setTimerSeconds] = useState(299);
+
+  // Dealt Cards
+  const [playerCards, setPlayerCards] = useState([]);
+  const [bankerCards, setBankerCards] = useState([]);
+
+  // Flip states for cards
+  const [flippedCards, setFlippedCards] = useState({ player: [], banker: [] });
+
+  // Confirmation Modal Popup
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Result overlay & payouts
+  const [showWinModal, setShowWinModal] = useState(false);
+  const [winPayout, setWinPayout] = useState(0);
+  const [winSummary, setWinSummary] = useState([]);
+  const [winningZones, setWinningZones] = useState([]);
+  const [prevBalance, setPrevBalance] = useState(0);
+
+  // Audio Context
+  const audioCtxRef = useRef(null);
+
+  // Sync user balance with app-wide events & localStorage
+  useEffect(() => {
+    const handleSync = () => {
+      const localUserStr = localStorage.getItem("base44_local_user");
+      if (localUserStr) {
+        try {
+          const u = JSON.parse(localUserStr);
+          if (u && u.balance !== undefined) {
+            setBalance(Number(u.balance));
+            return;
+          }
+        } catch (e) {}
+      }
+      if (user?.balance !== undefined) {
+        setBalance(Number(user.balance));
+      }
+    };
+
+    handleSync();
+    window.addEventListener("vinclub:balance_updated", handleSync);
+    window.addEventListener("storage", handleSync);
+
+    return () => {
+      window.removeEventListener("vinclub:balance_updated", handleSync);
+      window.removeEventListener("storage", handleSync);
+    };
+  }, [user]);
+
+  const updateGlobalBalance = useCallback((newBal) => {
+    const safeBal = Math.max(0, Number(newBal) || 0);
+    setBalance(safeBal);
+    localStorage.setItem("vinclub_xito_balance", String(safeBal));
+
+    if (user?.id) {
+      updateUserBalance(user.id, safeBal);
+    } else {
+      try {
+        const localUserStr = localStorage.getItem("base44_local_user");
+        if (localUserStr) {
+          const localUser = JSON.parse(localUserStr);
+          localUser.balance = safeBal;
+          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
+        }
+      } catch (e) {}
+      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+    }
+  }, [user]);
+
+  // Timer countdown (4:59 reset loop)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimerSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // When timer reaches 00:00: If bet is locked/confirmed, start dealing & revealing cards to evaluate reward!
+  useEffect(() => {
+    if (timerSeconds === 0) {
+      if (phase === "waiting_timer") {
+        triggerDealAndReveal();
+      } else if (phase === "betting") {
+        // Automatically reset timer to 299 (04:59) for new round
+        setTimerSeconds(299);
+      }
+    }
+  }, [timerSeconds, phase]);
+
+  const formatTimer = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const initAudio = () => {
+    if (!audioCtxRef.current) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) audioCtxRef.current = new AudioCtx();
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+  };
+
+  const playChipSound = () => {
+    if (!audioCtxRef.current) return;
+    try {
+      const ctx = audioCtxRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1200, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } catch (e) {}
+  };
+
+  const getCurrentChipAmount = () => {
+    const chipConfig = CHIP_VALUES[selectedChipIndex];
+    if (chipConfig.isPercent) {
+      return Math.max(10000, Math.floor(balance * chipConfig.value));
+    }
+    return chipConfig.value;
+  };
+
+  const handlePlaceBet = (zoneKey) => {
+    if (phase !== "betting") return;
+    initAudio();
+
+    const amount = getCurrentChipAmount();
+    const totalCurrentBets = Object.values(bets).reduce((a, b) => a + b, 0);
+
+    if (totalCurrentBets + amount > balance) {
+      toast.error("Số dư ví không đủ để đặt cược thêm!");
+      return;
+    }
+
+    playChipSound();
+    setBets((prev) => ({
+      ...prev,
+      [zoneKey]: prev[zoneKey] + amount,
+    }));
+  };
+
+  const handleCancelBets = () => {
+    initAudio();
+    if (phase !== "betting") return;
+    setBets({
+      player: 0,
+      banker: 0,
+      tie: 0,
+      tiger: 0,
+      player_pair: 0,
+      banker_pair: 0,
+    });
+    toast.info("Đã hủy tất cả cược!");
+  };
+
+  // Open Bet Confirmation Modal when user taps XÁC NHẬN
+  const handleConfirmBets = () => {
+    initAudio();
+    const totalBet = Object.values(bets).reduce((a, b) => a + b, 0);
+
+    if (totalBet === 0) {
+      toast.warning("Vui lòng chọn chip và đặt vào ít nhất 1 ô cược!");
+      return;
+    }
+
+    if (totalBet > balance) {
+      toast.error("Số dư không đủ để đặt ván cược này!");
+      return;
+    }
+
+    setShowConfirmModal(true);
+  };
+
+  // Executed when user agrees on the confirmation modal
+  const executeGameRound = () => {
+    setShowConfirmModal(false);
+    const totalBet = Object.values(bets).reduce((a, b) => a + b, 0);
+
+    const newBalAfterBet = balance - totalBet;
+    updateGlobalBalance(newBalAfterBet);
+
+    if (user?.id) {
+      base44.entities.WalletTransaction.create({
+        user_id: user.id,
+        type: "withdrawal",
+        amount: totalBet,
+        note: `Đặt cược ${gameTitle}`,
+        category: "Cược Casino",
+        status: "approved",
+      }).catch(() => null);
+    }
+
+    // Record bet in local ledger
+    recordCasinoBet(gameSlug, gameTitle, bets, totalBet);
+
+    // Set phase to waiting_timer. Game will deal and calculate results when timer reaches 00:00!
+    setPhase("waiting_timer");
+    toast.success("Đã khóa cược thành công! Đang chờ đồng hồ về 00:00 để lật bài & mở kết quả.");
+  };
+
+  // Called when timer reaches 00:00 (or user clicks skip to 00:00)
+  const triggerDealAndReveal = () => {
+    setPhase("dealing");
+    setShowWinModal(false);
+    setFlippedCards({ player: [], banker: [] });
+
+    // Check Admin forced outcome configuration for Tiger Baccarat / Baccarat Long Hổ
+    const gameSlug = location.pathname.includes("long-ho") ? "baccarat-long-ho" : "tiger-baccarat";
+    const casinoCfg = getCasinoConfig();
+    const gameSettings = casinoCfg.games[gameSlug] || {};
+    const forcedOutcome = gameSettings.forcedOutcome || "auto";
+
+    // Build & Deal
+    let deck = buildDeck();
+    let pHand = [deck.pop(), deck.pop()];
+    let bHand = [deck.pop(), deck.pop()];
+
+    let pScore = getHandScore(pHand);
+    let bScore = getHandScore(bHand);
+
+    // Natural Check (8 or 9)
+    if (pScore < 8 && bScore < 8) {
+      let p3 = null;
+      if (pScore <= 5) {
+        p3 = deck.pop();
+        pHand.push(p3);
+        pScore = getHandScore(pHand);
+      }
+
+      if (!p3) {
+        if (bScore <= 5) {
+          const b3 = deck.pop();
+          bHand.push(b3);
+          bScore = getHandScore(bHand);
+        }
+      } else {
+        const p3Val = p3.value;
+        let bankerDraws = false;
+        if (bScore <= 2) bankerDraws = true;
+        else if (bScore === 3 && p3Val !== 8) bankerDraws = true;
+        else if (bScore === 4 && [2, 3, 4, 5, 6, 7].includes(p3Val)) bankerDraws = true;
+        else if (bScore === 5 && [4, 5, 6, 7].includes(p3Val)) bankerDraws = true;
+        else if (bScore === 6 && [6, 7].includes(p3Val)) bankerDraws = true;
+
+        if (bankerDraws) {
+          const b3 = deck.pop();
+          bHand.push(b3);
+          bScore = getHandScore(bHand);
+        }
+      }
+    }
+
+    // APPLY ADMIN FORCED OUTCOME OVERRIDE & FEATURE RULES
+    if (forcedOutcome === "player") {
+      // Force Player win: give Player 9 and Banker 5
+      pHand = [
+        { rank: "9", suit: SUITS[1], value: 9 },
+        { rank: "K", suit: SUITS[0], value: 0 },
+      ];
+      bHand = [
+        { rank: "5", suit: SUITS[2], value: 5 },
+        { rank: "J", suit: SUITS[3], value: 0 },
+      ];
+    } else if (forcedOutcome === "banker") {
+      // Force Banker win: give Banker 9 and Player 4
+      pHand = [
+        { rank: "4", suit: SUITS[0], value: 4 },
+        { rank: "Q", suit: SUITS[1], value: 0 },
+      ];
+      bHand = [
+        { rank: "9", suit: SUITS[2], value: 9 },
+        { rank: "K", suit: SUITS[3], value: 0 },
+      ];
+    } else if (forcedOutcome === "tie") {
+      // Force Tie: give both Player & Banker 8
+      pHand = [
+        { rank: "8", suit: SUITS[1], value: 8 },
+        { rank: "10", suit: SUITS[0], value: 0 },
+      ];
+      bHand = [
+        { rank: "8", suit: SUITS[2], value: 8 },
+        { rank: "J", suit: SUITS[3], value: 0 },
+      ];
+    } else if (forcedOutcome === "tiger") {
+      // Force Tiger win (Banker wins with 6)
+      pHand = [
+        { rank: "5", suit: SUITS[1], value: 5 },
+        { rank: "10", suit: SUITS[0], value: 0 },
+      ];
+      bHand = [
+        { rank: "6", suit: SUITS[2], value: 6 },
+        { rank: "Q", suit: SUITS[3], value: 0 },
+      ];
+    }
+
+    // Recalculate scores after forced outcome
+    pScore = getHandScore(pHand);
+    bScore = getHandScore(bHand);
+
+    // If admin feature (odds205) is enabled, ensure result in table is strictly Player or Banker
+    const isOdds205 = !!gameSettings?.odds205;
+    if (isOdds205 && (forcedOutcome === "auto" || pScore === bScore)) {
+      if (pScore === bScore || Math.random() > 0.5) {
+        // Player win
+        pHand = [
+          { rank: "9", suit: SUITS[1], value: 9 },
+          { rank: "K", suit: SUITS[0], value: 0 },
+        ];
+        bHand = [
+          { rank: "5", suit: SUITS[2], value: 5 },
+          { rank: "J", suit: SUITS[3], value: 0 },
+        ];
+      } else {
+        // Banker win
+        pHand = [
+          { rank: "4", suit: SUITS[0], value: 4 },
+          { rank: "Q", suit: SUITS[1], value: 0 },
+        ];
+        bHand = [
+          { rank: "9", suit: SUITS[2], value: 9 },
+          { rank: "K", suit: SUITS[3], value: 0 },
+        ];
+      }
+      pScore = getHandScore(pHand);
+      bScore = getHandScore(bHand);
+    }
+
+    setPlayerCards(pHand);
+    setBankerCards(bHand);
+
+    // Staggered card flip animation
+    const flipDelay = 300;
+    pHand.forEach((_, idx) => {
+      setTimeout(() => {
+        setFlippedCards((prev) => ({ ...prev, player: [...prev.player, idx] }));
+      }, (idx + 1) * flipDelay);
+    });
+
+    bHand.forEach((_, idx) => {
+      setTimeout(() => {
+        setFlippedCards((prev) => ({ ...prev, banker: [...prev.banker, idx] }));
+      }, (pHand.length + idx + 1) * flipDelay);
+    });
+
+    // Reveal result after all flips
+    const totalFlipTime = (pHand.length + bHand.length + 1) * flipDelay + 300;
+    setTimeout(() => {
+      setPhase("revealed");
+
+      const winners = [];
+      const winsList = [];
+      let totalPayout = 0;
+
+      const playerPairWin = isPair(pHand);
+      const bankerPairWin = isPair(bHand);
+
+      if (playerPairWin) {
+        winners.push("player_pair");
+        if (bets.player_pair > 0) {
+          const pay = bets.player_pair * 11 + bets.player_pair;
+          totalPayout += pay;
+          winsList.push(`PLAYER PAIR (11:1): +${fmt(pay)}`);
+        }
+      }
+
+      if (bankerPairWin) {
+        winners.push("banker_pair");
+        if (bets.banker_pair > 0) {
+          const pay = bets.banker_pair * 11 + bets.banker_pair;
+          totalPayout += pay;
+          winsList.push(`BANKER PAIR (11:1): +${fmt(pay)}`);
+        }
+      }
+
+      const isOdds205 = !!gameSettings?.odds205;
+
+      if (pScore > bScore) {
+        winners.push("player");
+        if (bets.player > 0) {
+          const pay = isOdds205 
+            ? Math.floor(bets.player * 2.05) 
+            : (bets.player * 1 + bets.player);
+          totalPayout += pay;
+          winsList.push(`PLAYER thắng (${isOdds205 ? "2.05:1" : "1:1"}): +${fmt(pay)}`);
+        }
+      } else if (bScore > pScore) {
+        winners.push("banker");
+        if (bets.banker > 0) {
+          const pay = isOdds205 
+            ? Math.floor(bets.banker * 2.05) 
+            : (Math.floor(bets.banker * 0.95) + bets.banker);
+          totalPayout += pay;
+          winsList.push(`BANKER thắng (${isOdds205 ? "2.05:1" : "0.95:1"}): +${fmt(pay)}`);
+        }
+
+        if (bScore === 6) {
+          winners.push("tiger");
+          if (bets.tiger > 0) {
+            const tigerPay = bets.tiger * 40 + bets.tiger;
+            totalPayout += tigerPay;
+            winsList.push(`TIGER BACCARAT 6 ĐIỂM (40:1): +${fmt(tigerPay)}`);
+          }
+        }
+      } else {
+        winners.push("tie");
+        if (bets.tie > 0) {
+          const pay = bets.tie * 8 + bets.tie;
+          totalPayout += pay;
+          winsList.push(`TIE Hòa (8:1): +${fmt(pay)}`);
+        } else {
+          if (bets.player > 0) totalPayout += bets.player;
+          if (bets.banker > 0) totalPayout += bets.banker;
+        }
+      }
+
+      setWinningZones(winners);
+      setWinPayout(totalPayout);
+      setWinSummary(winsList);
+
+      // Resolve pending bet in ledger
+      resolveLatestCasinoBet(gameSlug, totalPayout, winsList.join(" | ") || `Player (${pScore}) vs Banker (${bScore})`);
+
+      if (totalPayout > 0) {
+        // Get current balance from localStorage to ensure synced balance addition
+        const currentBal = (() => {
+          const local = localStorage.getItem("vinclub_xito_balance");
+          return local ? parseInt(local) : balance;
+        })();
+        setPrevBalance(currentBal);
+        updateGlobalBalance(currentBal + totalPayout);
+        setShowWinModal(true);
+
+        if (user?.id) {
+          base44.entities.WalletTransaction.create({
+            user_id: user.id,
+            type: "deposit",
+            amount: totalPayout,
+            note: `Thắng ${gameTitle}`,
+            category: "Thắng Casino",
+            status: "approved",
+          }).catch(() => null);
+        }
+      } else {
+        toast.error(`Kết quả: Player (${pScore}) - Banker (${bScore}). Chúc bạn may mắn ván sau!`);
+      }
+
+      // Automatically reset timer to 299 for next round after 8 seconds
+      setTimeout(() => {
+        setTimerSeconds(299);
+      }, 8000);
+    }, totalFlipTime);
+  };
+
+  const handleNextRound = () => {
+    initAudio();
+    setShowWinModal(false);
+    setPhase("betting");
+    setPlayerCards([]);
+    setBankerCards([]);
+    setFlippedCards({ player: [], banker: [] });
+    setBets({
+      player: 0,
+      banker: 0,
+      tie: 0,
+      tiger: 0,
+      player_pair: 0,
+      banker_pair: 0,
+    });
+    setWinningZones([]);
+  };
+
+  const totalPlacedBet = Object.values(bets).reduce((a, b) => a + b, 0);
+  const pScore = getHandScore(playerCards);
+  const bScore = getHandScore(bankerCards);
+
+  return (
+    <div className="bg-black text-white h-screen w-screen overflow-hidden flex justify-center items-center font-['Be_Vietnam_Pro',sans-serif]">
+      {/* CSS Styles injection for exact perspective grid & card flips */}
+      <style>{`
+        .perspective-grid {
+          transform: perspective(600px) rotateX(45deg);
+          transform-origin: bottom;
+        }
+        .text-shadow-strong {
+          text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        }
+        .glow-effect {
+          box-shadow: 0 0 15px rgba(57, 255, 20, 0.6);
+        }
+        .card-container {
+          perspective: 1000px;
+        }
+        .card-flipper {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          transition: transform 0.6s;
+          transform-style: preserve-3d;
+        }
+        .card-container.flip .card-flipper {
+          transform: rotateY(180deg);
+        }
+        .card-front, .card-back {
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+        .card-back {
+          transform: rotateY(180deg);
+        }
+      `}</style>
+
+      {/* BEGIN: Game Container */}
+      <main
+        className="relative w-full max-w-[420px] h-full max-h-[952px] bg-cover bg-center overflow-hidden flex flex-col justify-between select-none"
+        style={{
+          backgroundImage: `url("${bgImage}")`,
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
+        }}
+      >
+        {/* Dark overlay */}
+        <div className="absolute inset-0 bg-black/20 pointer-events-none" />
+
+        {/* BEGIN: Header Section */}
+        <header className="relative z-10 flex justify-between items-center p-4">
+          {/* Player Info */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/casino")}
+              className="w-10 h-10 rounded-full bg-black/50 border border-white/20 flex items-center justify-center backdrop-blur-sm active:scale-95 transition-transform"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M15.75 19.5L8.25 12l7.5-7.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <div className="flex flex-col">
+              <span className="text-xs font-bold tracking-wider text-white/90">VIP PLAYER</span>
+              <span className="text-[#d4af37] font-bold text-lg leading-tight">{fmt(balance)}</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowMyBets(true)}
+              title="Sổ Lệnh Giao Dịch Cược"
+              className="px-3 h-10 rounded-full bg-black/60 border border-[#d4af37]/40 text-amber-300 font-bold text-xs flex items-center gap-1.5 backdrop-blur-sm active:scale-95 transition-transform cursor-pointer shadow-md"
+            >
+              <Receipt className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">Sổ Lệnh</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Synchronized Countdown Timer */}
+        <GameCountdownTimer
+          phase={phase}
+          onTimeZero={() => {
+            if (phase === "waiting_timer") {
+              triggerDealAndReveal();
+            }
+          }}
+          manualFastForward={triggerDealAndReveal}
+          gameTitle={gameTitle}
+        />
+        {/* END: Header Section */}
+
+        {/* Spacer */}
+        <div className="flex-grow" />
+
+        {/* BEGIN: Betting Area Bottom */}
+        <div className="relative z-10 w-full flex flex-col items-center pb-6">
+          {/* Cards Display Row */}
+          <div className="flex flex-col gap-3 mb-6 relative z-10">
+            <div className="flex justify-center gap-8">
+              {/* PLAYER CARDS */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+                  PLAYER {phase === "revealed" && playerCards.length > 0 ? `(${pScore} nút)` : ""}
+                </span>
+                <div className="flex -space-x-8">
+                  {(playerCards.length > 0 ? playerCards : [null, null, null]).map((card, idx) => {
+                    const isFlipped = flippedCards.player.includes(idx);
+                    return (
+                      <div key={idx} className={`card-container w-14 h-20 ${isFlipped ? "flip" : ""}`}>
+                        <div className="card-flipper">
+                          {/* Front face (Card Back) */}
+                          <div className="card-front bg-white rounded shadow-md border border-gray-200 flex items-center justify-center p-1">
+                            <div className="w-full h-full rounded bg-gradient-to-br from-amber-600 via-amber-700 to-amber-900 border border-yellow-400 flex items-center justify-center">
+                              <span className="text-[#f2ca50] text-[18px]">♦</span>
+                            </div>
+                          </div>
+                          {/* Back face (Card Front) */}
+                          <div className="card-back bg-white rounded shadow-md border border-gray-200 flex flex-col justify-between p-1">
+                            {card ? (
+                              <>
+                                <div className={`text-[12px] font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                  {card.rank}{card.suit.symbol}
+                                </div>
+                                <div className={`text-[20px] self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                  {card.suit.symbol}
+                                </div>
+                                <div className={`text-[12px] font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                  {card.rank}{card.suit.symbol}
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* BANKER CARDS */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                  BANKER {phase === "revealed" && bankerCards.length > 0 ? `(${bScore} nút)` : ""}
+                </span>
+                <div className="flex -space-x-8">
+                  {(bankerCards.length > 0 ? bankerCards : [null, null, null]).map((card, idx) => {
+                    const isFlipped = flippedCards.banker.includes(idx);
+                    return (
+                      <div key={idx} className={`card-container w-14 h-20 ${isFlipped ? "flip" : ""}`}>
+                        <div className="card-flipper">
+                          {/* Front face (Card Back) */}
+                          <div className="card-front bg-white rounded shadow-md border border-gray-200 flex items-center justify-center p-1">
+                            <div className="w-full h-full rounded bg-gradient-to-br from-red-700 via-red-800 to-red-950 border border-red-400 flex items-center justify-center">
+                              <span className="text-white text-[18px]">♠</span>
+                            </div>
+                          </div>
+                          {/* Back face (Card Front) */}
+                          <div className="card-back bg-white rounded shadow-md border border-gray-200 flex flex-col justify-between p-1">
+                            {card ? (
+                              <>
+                                <div className={`text-[12px] font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                  {card.rank}{card.suit.symbol}
+                                </div>
+                                <div className={`text-[20px] self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                  {card.suit.symbol}
+                                </div>
+                                <div className={`text-[12px] font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                  {card.rank}{card.suit.symbol}
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Betting Grid (3D Perspective) */}
+          <div className="w-[90%] perspective-grid mb-5">
+            <div className="grid grid-cols-3 grid-rows-2 border-2 border-[#39ff14]/50 bg-[rgba(0,100,0,0.4)] backdrop-blur-[2px] divide-x-2 divide-y-2 divide-[#39ff14]/30">
+              {/* TOP ROW */}
+              {/* PLAYER PAIR */}
+              <button
+                onClick={() => handlePlaceBet("player_pair")}
+                className={`relative flex flex-col items-center justify-center p-2 text-center transition-all ${
+                  winningZones.includes("player_pair") ? "bg-emerald-500/50 animate-pulse" : "hover:bg-white/10"
+                }`}
+              >
+                <span className="text-blue-400 font-bold text-xs uppercase tracking-wider text-shadow-strong">
+                  Player Pair
+                </span>
+                <span className="text-white text-[10px]">11:1</span>
+                {bets.player_pair > 0 && (
+                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
+                    {fmtShort(bets.player_pair)}
+                  </span>
+                )}
+              </button>
+
+              {/* TIE (Hòa) */}
+              <button
+                onClick={() => handlePlaceBet("tie")}
+                className={`relative flex flex-col items-center justify-center p-2 text-center transition-all ${
+                  winningZones.includes("tie") ? "bg-emerald-500/50 animate-pulse" : "hover:bg-white/10"
+                }`}
+              >
+                <span className="text-green-400 font-bold text-xs uppercase tracking-wider text-shadow-strong">
+                  Tie (Hòa)
+                </span>
+                <span className="text-white text-[10px]">8:1</span>
+                {bets.tie > 0 && (
+                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
+                    {fmtShort(bets.tie)}
+                  </span>
+                )}
+              </button>
+
+              {/* BANKER PAIR */}
+              <button
+                onClick={() => handlePlaceBet("banker_pair")}
+                className={`relative flex flex-col items-center justify-center p-2 text-center transition-all ${
+                  winningZones.includes("banker_pair") ? "bg-emerald-500/50 animate-pulse" : "hover:bg-white/10"
+                }`}
+              >
+                <span className="text-red-400 font-bold text-xs uppercase tracking-wider text-shadow-strong">
+                  Banker Pair
+                </span>
+                <span className="text-white text-[10px]">11:1</span>
+                {bets.banker_pair > 0 && (
+                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
+                    {fmtShort(bets.banker_pair)}
+                  </span>
+                )}
+              </button>
+
+              {/* BOTTOM ROW */}
+              {/* PLAYER */}
+              <button
+                onClick={() => handlePlaceBet("player")}
+                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center border-t-2 border-[#39ff14]/30 transition-all ${
+                  winningZones.includes("player") ? "bg-blue-600/50 animate-pulse" : "hover:bg-white/10"
+                }`}
+              >
+                <span className="text-blue-500 font-black text-lg uppercase tracking-widest text-shadow-strong">
+                  Player
+                </span>
+                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold animate-pulse" : "text-white/80"}`}>
+                  {odds205 ? "2.05:1" : "1:1"}
+                </span>
+                {bets.player > 0 && (
+                  <span className="absolute top-1 right-1 bg-[#38bdf8] text-[#002117] font-mono text-[9px] font-black px-1 rounded-full shadow">
+                    {fmtShort(bets.player)}
+                  </span>
+                )}
+              </button>
+
+              {/* TIGER (40:1) */}
+              <button
+                onClick={() => handlePlaceBet("tiger")}
+                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center border-t-2 border-[#39ff14]/30 transition-all ${
+                  winningZones.includes("tiger") ? "bg-amber-500/50 animate-pulse" : "hover:bg-white/10"
+                }`}
+              >
+                <span className="text-[#d4af37] font-black text-lg uppercase tracking-widest text-shadow-strong">
+                  Tiger
+                </span>
+                <span className="text-white/80 text-[10px]">40:1</span>
+                {bets.tiger > 0 && (
+                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
+                    {fmtShort(bets.tiger)}
+                  </span>
+                )}
+              </button>
+
+              {/* BANKER */}
+              <button
+                onClick={() => handlePlaceBet("banker")}
+                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center border-t-2 border-[#39ff14]/30 transition-all ${
+                  winningZones.includes("banker") ? "bg-red-600/50 animate-pulse" : "hover:bg-white/10"
+                }`}
+              >
+                <span className="text-red-500 font-black text-lg uppercase tracking-widest text-shadow-strong">
+                  Banker
+                </span>
+                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold animate-pulse" : "text-white/80"}`}>
+                  {odds205 ? "2.05:1" : "0.95:1"}
+                </span>
+                {bets.banker > 0 && (
+                  <span className="absolute top-1 right-1 bg-[#f87171] text-white font-mono text-[9px] font-black px-1 rounded-full shadow">
+                    {fmtShort(bets.banker)}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Chip Selector */}
+          <div className="flex justify-center items-center gap-2 mb-5 w-full px-4">
+            {CHIP_VALUES.map((chip, idx) => {
+              const isSelected = selectedChipIndex === idx;
+              return (
+                <button
+                  key={chip.label}
+                  onClick={() => {
+                    initAudio();
+                    setSelectedChipIndex(idx);
+                  }}
+                  className={`rounded-full border-2 border-dashed flex items-center justify-center shadow-[0_4px_4px_rgba(0,0,0,0.5)] transform transition-transform ${chip.bgClass} ${
+                    isSelected
+                      ? "w-16 h-16 border-white shadow-[0_0_15px_rgba(57,255,20,0.6)] scale-110 glow-effect ring-2 ring-[#39ff14]"
+                      : "w-12 h-12 hover:scale-105 opacity-90"
+                  }`}
+                >
+                  <span className={isSelected ? "text-white font-black text-base" : ""}>
+                    {chip.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex w-full px-4 gap-3">
+            <button
+              onClick={handleCancelBets}
+              disabled={phase !== "betting" || totalPlacedBet === 0}
+              className="flex-1 py-3 rounded-lg bg-gradient-to-b from-[#555] to-[#333] border border-gray-500 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
+            >
+              <span className="text-white font-bold text-sm uppercase tracking-wider text-shadow-strong">
+                HỦY CƯỢC
+              </span>
+            </button>
+
+            <button
+              onClick={handleConfirmBets}
+              disabled={phase !== "betting"}
+              className="flex-1 py-3 rounded-lg bg-gradient-to-b from-[#e1c05d] to-[#b38822] border border-yellow-600 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
+            >
+              <span className="text-white font-bold text-sm uppercase tracking-wider text-shadow-strong">
+                {phase === "waiting_timer"
+                  ? "ĐÃ KHÓA CƯỢC"
+                  : phase === "dealing"
+                  ? "ĐANG CHIA BÀI..."
+                  : "XÁC NHẬN"}
+              </span>
+            </button>
+          </div>
+        </div>
+        {/* END: Betting Area Bottom */}
+      </main>
+
+      {/* BET CONFIRMATION MODAL (BẢNG XÁC NHẬN CƯỢC CHUẨN NGÂN HÀNG) */}
+      <BetConfirmationModal
+        open={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        onConfirm={executeGameRound}
+        gameTitle={gameTitle}
+        bets={bets}
+        totalPlacedBet={totalPlacedBet}
+        balance={balance}
+        timerSeconds={timerSeconds}
+        phase={phase}
+      />
+
+      <AnimatePresence>
+        {showWinModal && (
+          <WinAnimationOverlay
+            winAmount={winPayout}
+            oldBalance={prevBalance}
+            newBalance={balance}
+            winSummary={winSummary}
+            onClose={handleNextRound}
+            title={`CHIẾN THẮNG ${gameTitle.toUpperCase()}!`}
+          />
+        )}
+
+        {/* My Bets Drawer Ledger */}
+        <MyBetsDrawer
+          open={showMyBets}
+          onClose={() => setShowMyBets(false)}
+          currentTimerSeconds={timerSeconds}
+          gameFilter={gameSlug}
+        />
+
+        {/* Banking Compliant Maintenance Overlay Screen */}
+        {isMaintenance && (
+          <BankingDowntimeScreen
+            message={maintenanceMessage}
+            gameTitle={gameTitle}
+            onRetry={() => window.location.reload()}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

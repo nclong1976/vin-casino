@@ -1,0 +1,470 @@
+import React, { useState, useEffect } from "react";
+import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock } from "lucide-react";
+import { base44 } from "@/api/base44Client";
+import { toast } from "sonner";
+
+export default function ProjectsTab() {
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+
+  const fetch = () => {
+    base44.entities.Project
+      .list("-created_date", 100)
+      .then(setProjects)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetch();
+    // Subscribe to real-time project updates from base44 entity client
+    const unsubscribe = base44.entities.Project.subscribe((updatedItems) => {
+      if (Array.isArray(updatedItems)) {
+        setProjects(updatedItems);
+      }
+    });
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, []);
+
+  const toggleActive = async (p) => {
+    try {
+      const nextStatus = !p.is_active;
+      await base44.entities.Project.update(p.id, { is_active: nextStatus });
+      toast.success(
+        nextStatus 
+          ? `Đã BẬT mở đầu tư: "${p.title || p.name}"` 
+          : `Đã TẮT tạm khóa đầu tư: "${p.title || p.name}"`
+      );
+      fetch();
+    } catch (e) {
+      toast.error("Không thể cập nhật trạng thái dự án");
+    }
+  };
+
+  const handleSave = async (data) => {
+    try {
+      if (editing?.id) {
+        await base44.entities.Project.update(editing.id, data);
+        toast.success(`Đã cập nhật dự án "${data.title}" thành công`);
+      } else {
+        await base44.entities.Project.create(data);
+        toast.success(`Đã tạo mới dự án "${data.title}"`);
+      }
+      setEditing(null);
+      setShowAdd(false);
+      fetch();
+    } catch (e) {
+      toast.error("Không thể lưu thông tin dự án");
+    }
+  };
+
+  // Filter logic
+  const filtered = projects.filter((p) => {
+    const title = (p.title || p.name || "").toLowerCase();
+    const loc = (p.location || "").toLowerCase();
+    const cat = (p.category || "").toLowerCase();
+    const q = search.toLowerCase();
+    const matchesSearch = title.includes(q) || loc.includes(q) || cat.includes(q);
+
+    if (categoryFilter === "ALL") return matchesSearch;
+    if (categoryFilter === "PROJECT") {
+      return matchesSearch && (cat === "dự án" || cat.includes("xe điện") || cat.includes("thương mại") || cat.includes("công nghệ") || (!cat.includes("vinhomes") && !cat.includes("đất") && !cat.includes("nghỉ dưỡng") && !cat.includes("chứng khoán")));
+    }
+    if (categoryFilter === "VINHOMES") {
+      return matchesSearch && (cat === "vinhomes" || cat.includes("đất") || cat.includes("bất động sản") || title.includes("vinhomes"));
+    }
+    if (categoryFilter === "RESORT") {
+      return matchesSearch && (cat.includes("nghỉ dưỡng") || cat.includes("resort") || title.includes("vinpearl"));
+    }
+    if (categoryFilter === "STOCKS") {
+      return matchesSearch && (cat.includes("chứng khoán") || cat.includes("cổ phiếu") || title.includes("cổ phiếu") || title.includes("phần"));
+    }
+    return matchesSearch;
+  });
+
+  const getCategoryBadgeStyle = (category = "") => {
+    const c = category.toLowerCase();
+    if (c === "vinhomes" || c.includes("đất") || c.includes("bất động sản")) {
+      return "bg-amber-50 text-[#837046] border-amber-200";
+    }
+    if (c.includes("nghỉ dưỡng") || c.includes("resort")) {
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    }
+    if (c.includes("chứng khoán") || c.includes("cổ phiếu")) {
+      return "bg-indigo-50 text-indigo-700 border-indigo-200";
+    }
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  };
+
+  if (loading)
+    return <div className="text-center py-8 text-[12px] text-gray-400">Đang tải danh mục dự án...</div>;
+
+  return (
+    <div className="space-y-3">
+      {/* Header Bar & Actions */}
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[13px] font-bold text-black flex items-center gap-1.5">
+            <Building2 className="w-4 h-4 text-[#948154]" /> Quản lý 4 Mục Đầu tư ({projects.length})
+          </h2>
+          <p className="text-[9.5px] text-gray-400">Đồng bộ hai chiều trực tiếp với giao diện người dùng</p>
+        </div>
+        <button
+          onClick={() => { setEditing(null); setShowAdd(true); }}
+          className="px-3 py-1.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[10.5px] font-bold flex items-center gap-1 shadow-xs shrink-0 cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5" /> Thêm dự án
+        </button>
+      </div>
+
+      {/* Search & Category Filter Bar */}
+      <div className="space-y-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm theo tên dự án, vị trí, danh mục..."
+            className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 bg-white text-[11px] focus:outline-none focus:border-[#948154]"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black">
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
+          {[
+            ["ALL", "Tất cả"],
+            ["PROJECT", "1. Dự Án"],
+            ["VINHOMES", "2. VinHomes"],
+            ["RESORT", "3. Đầu tư nghỉ dưỡng"],
+            ["STOCKS", "4. Đầu tư chứng khoán"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setCategoryFilter(key)}
+              className={`px-2.5 py-1 rounded-lg text-[9.5px] font-bold shrink-0 transition-all cursor-pointer ${
+                categoryFilter === key
+                  ? "bg-[#948154] text-white shadow-xs"
+                  : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-100"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Project Cards List */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-8 text-[12px] text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
+          Không tìm thấy dự án phù hợp
+        </div>
+      ) : (
+        filtered.map((p) => {
+          const isActive = p.is_active ?? true;
+          return (
+            <div
+              key={p.id}
+              className={`bg-white rounded-xl p-3 shadow-xs border transition-all ${
+                isActive ? "border-gray-100" : "border-amber-200/80 bg-amber-50/20"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="relative w-16 h-16 rounded-lg overflow-hidden shrink-0 border border-gray-200">
+                  <img src={p.image} alt={p.title || p.name} className="w-full h-full object-cover" />
+                  {!isActive && (
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px] flex items-center justify-center text-white">
+                      <Lock className="w-4 h-4 text-amber-300" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <h3 className="text-[12px] font-bold text-black truncate">{p.title || p.name}</h3>
+                    <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${getCategoryBadgeStyle(p.category)}`}>
+                      {p.category || "Dự Án"}
+                    </span>
+                  </div>
+
+                  {p.location && (
+                    <p className="text-[9.5px] text-gray-500 flex items-center gap-0.5 mt-0.5">
+                      <MapPin className="w-2.5 h-2.5 text-red-500" /> {p.location}
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-1 mt-1.5 p-1.5 rounded-lg bg-gray-50 text-[9px]">
+                    <div>
+                      <span className="text-gray-400 block text-[8px]">Đơn giá:</span>
+                      <span className="font-bold text-[#948154]">{p.priceStr || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫/m²` : "Linh hoạt")}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block text-[8px]">Lãi suất:</span>
+                      <span className="font-bold text-red-600">{p.rate || "12%/năm"}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block text-[8px]">Diện tích:</span>
+                      <span className="font-bold text-gray-800">{p.area || "Tiêu chuẩn"}</span>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className="text-[8.5px] text-gray-400 shrink-0">Tiến độ:</span>
+                    <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#948154] rounded-full" style={{ width: `${p.progress || 0}%` }} />
+                    </div>
+                    <span className="text-[8.5px] font-bold text-black">{p.progress || 0}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Toolbar: Edit & Investment Toggle Switch */}
+              <div className="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-gray-100">
+                <button
+                  onClick={() => setEditing(p)}
+                  className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10.5px] font-bold flex items-center gap-1 transition-all"
+                >
+                  <Pencil className="w-3 h-3 text-[#948154]" /> Chỉnh sửa
+                </button>
+
+                {/* Toggle Switch */}
+                <div className="flex items-center gap-2">
+                  <span className={`text-[9.5px] font-bold ${isActive ? "text-green-700" : "text-amber-800"}`}>
+                    {isActive ? "Mở đầu tư (Bật)" : "Tạm khóa (Tắt)"}
+                  </span>
+                  <button
+                    onClick={() => toggleActive(p)}
+                    title={isActive ? "Khóa nhận vốn đầu tư" : "Mở nhận vốn đầu tư"}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                      isActive ? "bg-green-600" : "bg-gray-300"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        isActive ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      {/* Edit / Create Project Modal */}
+      {(editing || showAdd) && (
+        <ProjectEditModal
+          project={editing}
+          onClose={() => { setEditing(null); setShowAdd(false); }}
+          onSave={handleSave}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProjectEditModal({ project, onClose, onSave }) {
+  const [form, setForm] = useState({
+    title: project?.title || project?.name || "",
+    name: project?.name || project?.title || "",
+    category: project?.category || "VinHomes",
+    location: project?.location || "",
+    priceStr: project?.priceStr || "",
+    price_per_m2: project?.price_per_m2 || 35000000,
+    rate: project?.rate || "12%/năm",
+    area: project?.area || "80-120m²",
+    progress: project?.progress ?? 85,
+    description: project?.description || "",
+    image: project?.image || "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&h=400&fit=crop",
+    minAmount: project?.minAmount || "2800000000",
+    duration: project?.duration || "64800",
+    scale: project?.scale || "",
+    is_active: project?.is_active ?? true,
+  });
+
+  const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v, ...(k === "title" ? { name: v } : {}) }));
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-2" onClick={onClose}>
+      <div className="w-full max-w-[325px] bg-white rounded-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-gray-200" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 bg-white flex items-center justify-between px-3.5 py-3 border-b border-gray-100">
+          <h2 className="text-[13px] font-bold text-black flex items-center gap-1.5">
+            <Building2 className="w-4 h-4 text-[#948154]" />
+            {project?.id ? "Chỉnh sửa dự án" : "Thêm dự án mới"}
+          </h2>
+          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-3.5 space-y-3">
+          {/* Tên dự án */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Tên dự án (*):</label>
+            <input
+              value={form.title}
+              onChange={(e) => set("title", e.target.value)}
+              placeholder="Ví dụ: Vinhomes Ocean Park"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+            />
+          </div>
+
+          {/* Danh mục 4 Mục Đầu tư */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Danh mục Phân loại Đầu tư (4 Mục):</label>
+            <select
+              value={form.category}
+              onChange={(e) => set("category", e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white font-semibold"
+            >
+              <option value="Dự Án">1. Dự Án (Thương mại, Hạ tầng, VinFast)</option>
+              <option value="VinHomes">2. VinHomes (Bất động sản & Đất nền)</option>
+              <option value="Đầu tư nghỉ dưỡng">3. Đầu tư nghỉ dưỡng (Vinpearl Resort & Condotel)</option>
+              <option value="Đầu tư chứng khoán">4. Đầu tư chứng khoán (Cổ phiếu & Tài chính)</option>
+            </select>
+          </div>
+
+          {/* Địa điểm / Khu vực */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Khu vực / Địa điểm:</label>
+            <input
+              value={form.location}
+              onChange={(e) => set("location", e.target.value)}
+              placeholder="Ví dụ: Gia Lâm, Hà Nội"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+            />
+          </div>
+
+          {/* Price & Rate Grid */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Đơn giá niêm yết:</label>
+              <input
+                value={form.priceStr}
+                onChange={(e) => set("priceStr", e.target.value)}
+                placeholder="35 triệu/m²"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Lãi suất (%/giờ hoặc %/ngày):</label>
+              <input
+                value={form.rate}
+                onChange={(e) => set("rate", e.target.value)}
+                placeholder="0.025%/giờ"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+          </div>
+
+          {/* Area & Progress Grid */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Diện tích tiêu chuẩn:</label>
+              <input
+                value={form.area}
+                onChange={(e) => set("area", e.target.value)}
+                placeholder="80-120m²"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Tiến độ hoàn thiện (%):</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={form.progress}
+                onChange={(e) => set("progress", parseInt(e.target.value) || 0)}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+          </div>
+
+          {/* Image URL */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">URL Hình ảnh minh họa:</label>
+            <input
+              value={form.image}
+              onChange={(e) => set("image", e.target.value)}
+              placeholder="https://images.unsplash.com/..."
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+            />
+            {form.image && (
+              <div className="mt-1.5 h-20 rounded-lg overflow-hidden border border-gray-200">
+                <img src={form.image} alt="Preview" className="w-full h-full object-cover" />
+              </div>
+            )}
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Mô tả chi tiết dự án:</label>
+            <textarea
+              value={form.description}
+              onChange={(e) => set("description", e.target.value)}
+              rows={2}
+              placeholder="Mô tả đặc điểm nổi bật, tiềm năng tăng trưởng, pháp lý..."
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] resize-none"
+            />
+          </div>
+
+          {/* Min Amount & Scale */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Số tiền tối thiểu (₫):</label>
+              <input
+                value={form.minAmount}
+                onChange={(e) => set("minAmount", e.target.value)}
+                placeholder="2800000000"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Quy mô dự án:</label>
+              <input
+                value={form.scale}
+                onChange={(e) => set("scale", e.target.value)}
+                placeholder="420 ha"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+          </div>
+
+          {/* Is Active Checkbox */}
+          <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-black">Mở nhận vốn đầu tư (Bật)</p>
+              <p className="text-[9px] text-gray-500">Cho phép hiển thị & ký hợp đồng trên ứng dụng</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={form.is_active}
+              onChange={(e) => set("is_active", e.target.checked)}
+              className="w-4 h-4 accent-[#948154] cursor-pointer"
+            />
+          </div>
+
+          {/* Submit */}
+          <button
+            onClick={() => onSave(form)}
+            className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[11px] font-bold shadow-md transition-all flex items-center justify-center gap-1.5 mt-2"
+          >
+            <Check className="w-4 h-4" /> Lưu thông tin dự án
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
