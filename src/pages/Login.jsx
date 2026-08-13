@@ -365,9 +365,9 @@ export default function Login() {
         {/* Title / Logo Text */}
         <div className="mb-8 flex justify-center w-full">
           <img
-            src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTSSX-h8b4UJdFQyFhQEQ87ytofeClyeb_-zTYgM4zEbA&s"
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuD2W88SSbkvFUpE7qEo9PrSBtBIjCijg5KRSEhU4FiD3VSuG47YzRANIOJMasJynVTQGxMt0PFWcKS0ijjraTbX087Cj35wNmeXKwhSdoHElgbtkKZFxmjKB8jLHKnZirjvQGGJTfktSN3zbXsP-csJ9gvKllPAzPretg7k4dn4YrybZNrQR1IYiT6p8cNYRihjqsad0t_gAFQoc_mhvjwfrFgwE6dW9yNO1-8eu7622uNIAzfd1I6XEyZB-C3FRatd_aHAIlEznRYeMDM"
             alt="Vinclub Logo"
-            className="max-h-[120px] w-auto object-contain rounded-xl shadow-md"
+            className="max-h-[120px] w-auto object-contain"
           />
         </div>
 
