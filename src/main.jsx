@@ -19,6 +19,15 @@ try {
 // Initialize Socket.io and TanStack Query automatic sync
 initSocketSync();
 
+// Register the minimal service worker so "Add to Home Screen" satisfies
+// Chrome/Android's installability criteria and actually launches fullscreen
+// instead of falling back to a plain bookmark shortcut.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <App />
 )
