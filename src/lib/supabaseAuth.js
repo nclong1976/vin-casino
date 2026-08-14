@@ -138,6 +138,7 @@ export function mapSupabaseUser(supaUser, extraData = {}) {
     name: meta.full_name || meta.name || supaUser.email?.split('@')[0] || 'Hội viên VinClub',
     phone: meta.phone || '',
     role: meta.role || 'user',
+    is_super_admin: !!meta.is_super_admin,
     balance: Number(meta.balance || 0),
     total_deposited: Number(meta.total_deposited || 0),
     membership_tier: meta.membership_tier || 'Member',

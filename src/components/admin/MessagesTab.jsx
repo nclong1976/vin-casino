@@ -9,10 +9,12 @@ import {
   Maximize2,
   X,
   FileText,
-  UserCheck
+  UserCheck,
+  Trash2
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
 
 const fileType = (url) => {
   if (!url) return "file";
@@ -24,6 +26,8 @@ const fileType = (url) => {
 };
 
 export default function MessagesTab() {
+  const { user } = useAuth();
+  const isSuperAdmin = !!user?.is_super_admin;
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -168,6 +172,33 @@ export default function MessagesTab() {
     });
   };
 
+  const handleDeleteMessage = async (m) => {
+    if (!isSuperAdmin) return;
+    if (!window.confirm("Xóa tin nhắn này? Hành động không thể hoàn tác.")) return;
+    setMessages((prev) => prev.filter((msg) => msg.id !== m.id));
+    try {
+      await base44.entities.Message.delete(m.id);
+    } catch (e) {
+      toast.error("Không thể xóa tin nhắn");
+      fetchData();
+    }
+  };
+
+  const handleDeleteConversation = async () => {
+    if (!isSuperAdmin || !currentConv) return;
+    if (!window.confirm(`Xóa toàn bộ ${currentConv.messages.length} tin nhắn với ${currentConv.userName}? Hành động không thể hoàn tác.`)) return;
+    const idsToDelete = currentConv.messages.map((m) => m.id);
+    setMessages((prev) => prev.filter((msg) => !idsToDelete.includes(msg.id)));
+    setSelectedUser(null);
+    try {
+      await Promise.all(idsToDelete.map((id) => base44.entities.Message.delete(id)));
+      toast.success("Đã xóa toàn bộ hội thoại");
+    } catch (e) {
+      toast.error("Không thể xóa hết tin nhắn");
+      fetchData();
+    }
+  };
+
   const handlePaste = (e) => {
     const items = Array.from(e.clipboardData?.items || []);
     const pastedImages = [];
@@ -286,9 +317,20 @@ export default function MessagesTab() {
               <p className="text-[9.5px] text-gray-400">{currentConv.userEmail}</p>
             </div>
           </div>
-          <span className="text-[8.5px] bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-bold">
-            Trực tuyến
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[8.5px] bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-bold">
+              Trực tuyến
+            </span>
+            {isSuperAdmin && (
+              <button
+                onClick={handleDeleteConversation}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                title="Xóa toàn bộ hội thoại (Super Admin)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Chat Messages */}
@@ -319,6 +361,15 @@ export default function MessagesTab() {
                         <Copy className="w-3 h-3" />
                       )}
                     </button>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => handleDeleteMessage(m)}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-600 transition-opacity"
+                        title="Xóa tin nhắn (Super Admin)"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
 
                   <div

@@ -552,6 +552,11 @@ class LocalEntityClient {
     this.notifySubscribers();
 
     try {
+      if (this.entityName === 'Message') {
+        import('@/lib/rtdbSync').then(({ deleteMessageFromRTDB }) => {
+          deleteMessageFromRTDB(id);
+        });
+      }
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
         pushEntityToFirestore(this.entityName, id, {}, 'delete');
       });

@@ -1,4 +1,4 @@
-import { ref, set, update, onValue, onDisconnect } from "firebase/database";
+import { ref, set, update, remove, onValue, onDisconnect } from "firebase/database";
 import { rtdb, firebaseAuthReady } from "./firebase";
 import { base44 } from "@/api/base44Client";
 
@@ -447,14 +447,33 @@ export async function pushMessageToRTDB(msg) {
   return pushGenericEntityToRTDB("Message", msg.id, msg);
 }
 
+/**
+ * Xóa 1 tin nhắn khỏi RTDB (cả 2 node entities/Message và messages legacy)
+ * để việc xóa thực sự lan truyền tới mọi thiết bị khác đang subscribe, thay
+ * vì chỉ biến mất trên máy admin đang bấm xóa.
+ */
+export async function deleteMessageFromRTDB(id) {
+  if (!id) return false;
+  await firebaseAuthReady;
+  try {
+    await remove(ref(rtdb, `entities/Message/${id}`));
+    await remove(ref(rtdb, `messages/${id}`));
+    return true;
+  } catch (e) {
+    console.error("[RTDB] Failed to delete message:", e);
+    return false;
+  }
+}
+
 export function subscribeMessagesFromRTDB(onMessagesReceived) {
   return deferredSubscribe(() => {
   const messagesRef = ref(rtdb, "entities/Message");
   const legacyMessagesRef = ref(rtdb, "messages");
 
-  const notify = (msgMap) => {
-    if (!msgMap) return;
-    const msgList = Object.values(msgMap);
+  const notify = (msgMap, isEmpty = false) => {
+    if (!msgMap && !isEmpty) return;
+    const msgList = msgMap ? Object.values(msgMap) : [];
+    const remoteIds = new Set(msgList.map(m => m.id));
     try {
       const rawMsgs = localStorage.getItem("base44_entity_Message");
       let localMsgs = rawMsgs ? JSON.parse(rawMsgs) : [];
@@ -473,6 +492,15 @@ export function subscribeMessagesFromRTDB(onMessagesReceived) {
         }
       });
 
+      // Loại bỏ tin nhắn đã bị admin xóa ở RTDB nhưng vẫn còn sót trong cache
+      // cục bộ của thiết bị này (trước đây notify() chỉ thêm/cập nhật, không
+      // bao giờ xóa, nên hành động xóa của admin không lan truyền được).
+      const prunedMsgs = localMsgs.filter(lm => remoteIds.has(lm.id));
+      if (prunedMsgs.length !== localMsgs.length) {
+        localMsgs = prunedMsgs;
+        modified = true;
+      }
+
       if (modified) {
         localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
         localStorage.setItem("vinclub_msg_update", Date.now().toString());
@@ -488,11 +516,11 @@ export function subscribeMessagesFromRTDB(onMessagesReceived) {
   };
 
   const unsub1 = onValue(messagesRef, (snapshot) => {
-    if (snapshot.exists()) notify(snapshot.val());
+    notify(snapshot.exists() ? snapshot.val() : null, !snapshot.exists());
   });
 
   const unsub2 = onValue(legacyMessagesRef, (snapshot) => {
-    if (snapshot.exists()) notify(snapshot.val());
+    notify(snapshot.exists() ? snapshot.val() : null, !snapshot.exists());
   });
 
   return () => {
