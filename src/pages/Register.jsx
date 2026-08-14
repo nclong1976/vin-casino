@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
+import { isIdentifierTaken } from "@/lib/supabaseDb";
 import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleIcon from "@/components/GoogleIcon";
@@ -16,6 +17,7 @@ export default function Register() {
   const [referralCode, setReferralCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingIdentifier, setCheckingIdentifier] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   // Terms and Conditions Modal state
@@ -23,7 +25,7 @@ export default function Register() {
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Form submit -> Show terms modal first
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     setError("");
     if (password !== confirmPassword) {
@@ -39,6 +41,15 @@ export default function Register() {
 
     if (cleanRefCode !== "E-CUV") {
       setError("Mã giới thiệu không hợp lệ hoặc đã hết hạn. Vui lòng liên hệ Admin để nhận mã.");
+      return;
+    }
+
+    // Chặn đăng ký trùng tên tài khoản / SĐT / email đã tồn tại trên hệ thống
+    setCheckingIdentifier(true);
+    const taken = await isIdentifierTaken(email.trim());
+    setCheckingIdentifier(false);
+    if (taken) {
+      setError("Tên đăng nhập hoặc số điện thoại này đã được sử dụng. Vui lòng chọn tên khác.");
       return;
     }
 
@@ -87,7 +98,11 @@ export default function Register() {
           base44.auth.setToken(result.access_token);
         }
       } catch (legacyErr) {
-        // Legacy có thể thất bại nếu đã tồn tại, bỏ qua
+        // Nếu tài khoản đã tồn tại (lớp kiểm tra dự phòng, độc lập với
+        // isIdentifierTaken phía trên) thì chặn lại thay vì âm thầm bỏ qua
+        if ((legacyErr.message || "").includes("đã tồn tại")) {
+          throw legacyErr;
+        }
         console.warn("[Register] base44 register warning:", legacyErr.message);
       }
 
@@ -116,9 +131,8 @@ export default function Register() {
     }
   };
 
-  const handleGoogle = () => {
-    base44.auth.loginWithProvider("google", "/");
-  };
+  // Đăng ký Google đã bị vô hiệu hóa - nút chỉ giữ lại để trang trí giao diện
+  const handleGoogle = () => {};
 
   return (
     <div className="bg-black text-white min-h-screen w-full relative overflow-x-hidden flex flex-col justify-end">
@@ -238,11 +252,15 @@ export default function Register() {
           <button
             className="w-full bg-button-bg text-white font-medium text-[17px] rounded-[12px] py-4 flex items-center justify-center transition-all hover:bg-[#6c5847] active:opacity-80 disabled:opacity-60 mt-1"
             type="submit"
-            disabled={loading}
+            disabled={loading || checkingIdentifier}
           >
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-5 h-5 animate-spin" /> Đang xử lý...
+              </span>
+            ) : checkingIdentifier ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" /> Đang kiểm tra tài khoản...
               </span>
             ) : (
               "Đăng ký"

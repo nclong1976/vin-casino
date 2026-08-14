@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
 import { updateUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
-import GameCountdownTimer, { getSyncedTimerSeconds } from "@/components/GameCountdownTimer";
+import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
 import { getCasinoConfig } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
@@ -197,7 +197,7 @@ export default function TigerBaccarat() {
 
   // Sync timer with real-time epoch every second
   useEffect(() => {
-    const interval = setInterval(() => {
+    const stop = scheduleSecondAlignedTicker(() => {
       const synced = getSyncedTimerSeconds();
       setTimerSeconds(synced);
 
@@ -205,8 +205,8 @@ export default function TigerBaccarat() {
       if (synced === 0 && phase === "waiting_timer") {
         triggerDealAndReveal();
       }
-    }, 1000);
-    return () => clearInterval(interval);
+    });
+    return stop;
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatTimer = (secs) => {

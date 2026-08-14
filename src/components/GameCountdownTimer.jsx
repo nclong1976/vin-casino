@@ -14,6 +14,25 @@ export function getSyncedTimerSeconds() {
   return 299 - elapsedInCycle;
 }
 
+/**
+ * Chạy `callback` đúng vào mỗi mốc giây thực tế (thay vì setInterval thô
+ * chạy lệch pha ngẫu nhiên tùy thời điểm mount), để đồng hồ đổi số đúng
+ * lúc giây thực đổi trên mọi thiết bị - tạo cảm giác mượt & đồng bộ thật.
+ */
+export function scheduleSecondAlignedTicker(callback) {
+  let timeoutId;
+  let intervalId;
+  const msUntilNextSecond = 1000 - (Date.now() % 1000);
+  timeoutId = setTimeout(() => {
+    callback();
+    intervalId = setInterval(callback, 1000);
+  }, msUntilNextSecond);
+  return () => {
+    clearTimeout(timeoutId);
+    clearInterval(intervalId);
+  };
+}
+
 export default function GameCountdownTimer({
   phase,
   onTimeZero,
@@ -24,7 +43,7 @@ export default function GameCountdownTimer({
   const [isManualOverride, setIsManualOverride] = useState(false);
 
   useEffect(() => {
-    const timer = setInterval(() => {
+    const stop = scheduleSecondAlignedTicker(() => {
       if (!isManualOverride) {
         const synced = getSyncedTimerSeconds();
         setSecondsLeft(synced);
@@ -33,9 +52,9 @@ export default function GameCountdownTimer({
           onTimeZero();
         }
       }
-    }, 1000);
+    });
 
-    return () => clearInterval(timer);
+    return stop;
   }, [isManualOverride, onTimeZero]);
 
   // Handle manual skip for testing/instant resolution
@@ -102,7 +121,7 @@ export default function GameCountdownTimer({
                 : "bg-gradient-to-r from-[#39ff14] to-emerald-400"
             }`}
             animate={{ width: `${progressPercent}%` }}
-            transition={{ duration: 0.5, ease: "linear" }}
+            transition={{ duration: 1, ease: "linear" }}
           />
         </div>
       </div>

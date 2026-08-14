@@ -91,6 +91,32 @@ export async function upsertSupabaseUser(user) {
   }
 }
 
+/**
+ * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
+ * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu
+ * chung, dùng chung cho mọi thiết bị) hay chưa, để chặn đăng ký trùng lặp.
+ */
+export async function isIdentifierTaken(identifier) {
+  const clean = (identifier || '').trim();
+  if (!clean) return false;
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .or(`identifier.eq.${clean},email.eq.${clean},phone.eq.${clean}`)
+      .limit(1);
+
+    if (error) {
+      console.warn('[SupabaseDb] isIdentifierTaken error:', error.message);
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (e) {
+    console.warn('[SupabaseDb] isIdentifierTaken exception:', e);
+    return false;
+  }
+}
+
 export async function updateSupabaseUser(id, updates) {
   if (!id || !updates) return null;
   try {

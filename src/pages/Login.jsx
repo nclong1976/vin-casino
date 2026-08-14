@@ -193,15 +193,9 @@ export default function Login() {
     }
   };
 
-  const handleGoogle = async () => {
+  // Đăng nhập Google đã bị vô hiệu hóa - nút chỉ giữ lại để trang trí giao diện
+  const handleGoogle = () => {
     triggerSound("click");
-    base44.auth.loginWithProvider("google", "/");
-    const currentUser = await base44.auth.me();
-    if (currentUser?.role === "admin") {
-      window.location.href = "/admin";
-    } else {
-      window.location.href = "/";
-    }
   };
 
   if (step === "otp") {
