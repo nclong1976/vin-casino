@@ -1,117 +1,99 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, FileText, TrendingUp, Calendar, CheckCircle2 } from "lucide-react";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
-export default function TransactionList({ txs, loading }) {
-  if (loading)
+const formatCompactDate = (dateStr) => {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+  } catch (e) {
+    return dateStr;
+  }
+};
+
+export default function TransactionList({ txs = [], loading = false }) {
+  const [showAll, setShowAll] = useState(false);
+
+  if (loading) {
     return (
-      <div className="text-center py-4 text-[11px] text-gray-400">Đang tải...</div>
-    );
-  if (txs.length === 0)
-    return (
-      <div className="bg-white rounded-xl p-4 text-center text-[11px] text-gray-400 shadow-sm">
-        Chưa có giao dịch nào
+      <div className="bg-white rounded-xl p-4 text-center text-[11px] text-gray-400 border border-gray-100">
+        Đang tải danh sách hợp đồng...
       </div>
     );
+  }
 
-  const totalInvested = txs.reduce((s, t) => s + (t.amount || 0), 0);
-  const totalProfit = txs.reduce((s, t) => s + (t.profit || 0), 0);
+  if (txs.length === 0) {
+    return (
+      <div className="bg-white rounded-xl p-4 text-center text-[11px] text-gray-400 border border-gray-100">
+        Chưa có giao dịch đầu tư nào
+      </div>
+    );
+  }
+
+  const displayList = showAll ? txs : txs.slice(0, 4);
 
   return (
-    <div className="space-y-2">
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-white rounded-xl p-2.5 shadow-sm text-center">
-          <p className="text-[8px] text-gray-400">Giao dịch</p>
-          <p className="text-[13px] font-bold text-black">{txs.length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-2.5 shadow-sm text-center">
-          <p className="text-[8px] text-gray-400">Đã đầu tư</p>
-          <p className="text-[11px] font-bold text-black leading-tight">
-            {fmt(totalInvested)}
-          </p>
-        </div>
-        <div className="bg-white rounded-xl p-2.5 shadow-sm text-center">
-          <p className="text-[8px] text-gray-400">Lãi dự kiến</p>
-          <p className="text-[11px] font-bold text-[#D32F2F] leading-tight">
-            {fmt(totalProfit)}
-          </p>
-        </div>
-      </div>
+    <div className="space-y-2 font-heading">
+      <div className="bg-white rounded-xl shadow-xs border border-gray-100 divide-y divide-gray-50 overflow-hidden">
+        {displayList.map((t) => (
+          <div key={t.id} className="p-3 hover:bg-gray-50/80 transition-colors">
+            {/* Header: Project name & status */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <FileText className="w-3.5 h-3.5 text-[#948154] shrink-0" />
+                <p className="text-[11.5px] font-bold text-gray-900 truncate">
+                  {t.project_title || "Hợp đồng đầu tư"}
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0">
+                <CheckCircle2 className="w-2.5 h-2.5" />
+                {t.contract_status === "approved" || !t.contract_status ? "Hoàn tất" : t.contract_status}
+              </span>
+            </div>
 
-      {txs.map((t) => (
-        <div key={t.id} className="bg-white rounded-xl p-3 shadow-sm">
-          <div className="flex justify-between items-start">
-            <div className="min-w-0">
-              <p className="text-[12px] font-semibold text-black truncate">
-                {t.project_title}
-              </p>
-              <p className="text-[10px] text-gray-400">
-                {new Date(t.created_date).toLocaleDateString("vi-VN")} · {t.method}
-              </p>
-            </div>
-            <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-600 shrink-0">
-              HOÀN TẤT
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[11px]">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Số tiền</span>
-              <span className="font-bold text-black">{fmt(t.amount)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Lãi/ngày</span>
-              <span className="font-semibold text-black">{t.rate?.toFixed(2)}%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Thời gian</span>
-              <span className="font-semibold text-black">{t.duration_days} ngày</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Lãi dự kiến</span>
-              <span className="font-bold text-[#D32F2F]">{fmt(t.profit)}</span>
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
-            <span className="text-[11px] text-gray-500">Tổng nhận</span>
-            <span className="text-[13px] font-bold text-[#948154]">
-              {fmt(t.total)} VNĐ
-            </span>
-          </div>
-
-          {t.signature_content && (
-            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-100">
-              <span className="text-[9px] text-gray-400 shrink-0">Chữ ký:</span>
-              <div className="h-8 flex items-center">
-                {t.signature_type === "draw" ? (
-                  <img
-                    src={t.signature_content}
-                    alt="sig"
-                    className="h-8 object-contain"
-                  />
-                ) : (
-                  <span
-                    style={{ fontFamily: "'Great Vibes', cursive" }}
-                    className="text-[16px] text-[#16100b]"
-                  >
-                    {t.signature_content}
-                  </span>
-                )}
+            {/* Compact grid stats */}
+            <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-dashed border-gray-100 text-[10.5px]">
+              <div>
+                <span className="text-[9.5px] text-gray-400 block">Đầu tư</span>
+                <span className="font-extrabold text-gray-900">{fmt(t.amount)} đ</span>
+              </div>
+              <div className="text-center">
+                <span className="text-[9.5px] text-gray-400 block">Lợi nhuận</span>
+                <span className="font-extrabold text-rose-600">+{fmt(t.profit)} đ</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[9.5px] text-gray-400 block">Thời hạn</span>
+                <span className="font-semibold text-gray-700">{t.duration_days || 0} ngày</span>
               </div>
             </div>
-          )}
-          <Link
-            to={`/contract/${t.id}`}
-            className="flex items-center justify-center gap-1 mt-2 pt-2 border-t border-gray-100 text-[10px] font-medium text-[#948154]"
-          >
-            Xem hợp đồng <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
-      ))}
+
+            {/* Footer action */}
+            <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-50">
+              <span className="text-[9.5px] text-gray-400">
+                {formatCompactDate(t.created_date)}
+              </span>
+              <Link
+                to={`/contract/${t.id}`}
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#948154] hover:text-[#7d6d45] transition-colors"
+              >
+                Xem chi tiết hợp đồng <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {txs.length > 4 && (
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="w-full py-1.5 text-center text-[10px] font-bold text-[#948154] hover:text-[#7d6d45] transition-colors"
+        >
+          {showAll ? "Thu gọn danh sách ▲" : `Xem thêm ${txs.length - 4} hợp đồng khác ▼`}
+        </button>
+      )}
     </div>
   );
-}
+}
