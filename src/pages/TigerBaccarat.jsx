@@ -11,7 +11,7 @@ import { getCasinoConfig } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
-import { Receipt } from "lucide-react";
+import { Receipt, Sparkles } from "lucide-react";
 
 // Card Definitions
 const SUITS = [
@@ -817,6 +817,21 @@ export default function TigerBaccarat() {
               </div>
             </div>
           </div>
+
+          {/* Special 1.1:1 Odds Banner */}
+          {odds205 && (
+            <div className="w-[90%] mb-2.5 py-1.5 px-3 rounded-xl bg-gradient-to-r from-amber-500/25 via-yellow-400/35 to-amber-500/25 border-2 border-yellow-400/80 flex items-center justify-between text-yellow-300 shadow-[0_0_12px_rgba(234,179,8,0.35)] animate-pulse">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-yellow-400 animate-spin" />
+                <span className="text-[10.5px] font-black uppercase tracking-wider text-yellow-200">
+                  TỶ LỆ TRẢ THƯỞNG ĐẶC BIỆT: 1.1:1
+                </span>
+              </div>
+              <span className="text-[9.5px] font-black text-black bg-yellow-400 px-2 py-0.5 rounded-full shadow-xs">
+                PLAYER & BANKER
+              </span>
+            </div>
+          )}
 
           {/* Betting Grid (3D Perspective) */}
           <div className="w-[90%] perspective-grid mb-5">

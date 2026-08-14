@@ -115,27 +115,72 @@ export default function BaiCao() {
 
   const deal = useCallback(() => {
     if (bet > balance) {
-      toast.error("Số dư không đủ");
+      toast.error("Số dư không đủ để đặt cược!");
       return;
     }
     setBusy(true);
+
+    // Trừ tiền cược vào ví ngay khi đặt cược thành công
+    const newBal = balance - bet;
+    persist(newBal);
+
+    if (user?.id) {
+      base44.entities.WalletTransaction.create({
+        user_id: user.id,
+        type: "withdrawal",
+        amount: bet,
+        note: `Đặt cược Bài Cào`,
+        category: "Cược Casino",
+        status: "approved",
+      }).catch(() => null);
+    }
+
     const deck = buildDeck();
     setPlayer(draw(deck, 3));
     setDealer(draw(deck, 3));
     setResult(null);
     setPhase("dealt");
     setBusy(false);
-  }, [bet, balance]);
+    toast.success(`Đã đặt cược ${fmt(bet)} VNĐ thành công!`);
+  }, [bet, balance, user]);
 
   const reveal = useCallback(() => {
     const r = compare(player, dealer);
-    let payout = 0;
-    if (r === "win") payout = isCao(player) ? bet * 2 : bet;
-    else if (r === "lose") payout = -bet;
-    persist(balance + payout);
-    setResult({ type: r, payout });
+    let winPayout = 0;
+    
+    // Lấy số dư ví hiện tại sau khi đã trừ cược ở bước deal
+    const currentBal = (() => {
+      const local = localStorage.getItem("baicao_balance");
+      return local ? parseInt(local) : balance;
+    })();
+
+    if (r === "win") {
+      // Thắng: Trả lại vốn (1x) + Lợi nhuận (1x hoặc 2x nếu là sáp/cao)
+      winPayout = isCao(player) ? bet * 3 : bet * 2;
+      persist(currentBal + winPayout);
+
+      if (user?.id) {
+        base44.entities.WalletTransaction.create({
+          user_id: user.id,
+          type: "deposit",
+          amount: winPayout,
+          note: `Thắng Bài Cào ${isCao(player) ? "(3 Tiên)" : ""}`,
+          category: "Thắng Casino",
+          status: "approved",
+        }).catch(() => null);
+      }
+    } else if (r === "tie") {
+      // Hòa: Hoàn trả lại tiền cược
+      winPayout = bet;
+      persist(currentBal + winPayout);
+    } else {
+      // Thua: Tiền đã trừ lúc đặt cược, không cộng thêm
+      winPayout = 0;
+    }
+
+    setResult({ type: r, payout: r === "win" ? winPayout : r === "lose" ? -bet : 0 });
     setPhase("result");
-  }, [player, dealer, bet, balance]);
+  }, [player, dealer, bet, balance, user]);
 
   const newRound = useCallback(() => {
     setPhase("betting");
