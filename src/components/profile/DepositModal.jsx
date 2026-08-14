@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { X, ArrowDownToLine } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
@@ -13,7 +12,6 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
   const { user } = useAuth();
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
-  const navigate = useNavigate();
 
   const numAmount = parseInt(amount) || 0;
 
@@ -26,24 +24,46 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
     setSaving(true);
     try {
       const userName = user?.full_name || user?.email || "thành viên";
-      const content = `Tôi ${userName} muốn góp vốn đầu tư ${fmt(numAmount)} VND vào quỹ đầu tư nội bộ tại VinClub. Tôi xin cam đoan số tiền trên là hợp pháp.`;
+      const code = "VCD" + Date.now().toString().slice(-8);
+
+      await base44.entities.WalletTransaction.create({
+        type: "deposit",
+        amount: numAmount,
+        status: "pending",
+        user_id: user.id,
+        description: `Yêu cầu nạp tiền vào ví VinClub (${code})`,
+        code,
+      });
+
+      const content = `Tôi ${userName} muốn góp vốn đầu tư ${fmt(numAmount)} VND vào quỹ đầu tư nội bộ tại VinClub. Tôi xin cam đoan số tiền trên là hợp pháp. Mã GD: ${code}`;
       await base44.entities.Message.create({
         sender: "user",
         conversation_id: user.id,
         content,
         attachments: [],
       });
+
       await base44.entities.Notification.create({
-        title: "Yêu cầu góp vốn đã gửi",
-        content: `Yêu cầu góp vốn ${fmt(numAmount)} VNĐ vào quỹ đầu tư nội bộ VinClub đã được gửi đến CSKH. Vui lòng chờ xác nhận từ chuyên viên.`,
+        title: "Yêu cầu nạp tiền đang chờ phê duyệt",
+        content: `Yêu cầu nạp ${fmt(numAmount)} VNĐ vào ví VinClub đang chờ Admin phê duyệt. Mã GD: ${code}`,
         type: "deposit",
         user_id: user.id,
         is_read: false,
       });
-      toast.success("Đang chuyển đến CSKH...");
+
+      try {
+        await base44.entities.Notification.create({
+          title: "Yêu cầu nạp tiền mới cần phê duyệt",
+          content: `Hội viên ${userName} vừa yêu cầu nạp ${fmt(numAmount)} VNĐ vào ví. Mã GD: ${code}`,
+          type: "admin",
+          user_id: "admin",
+          is_read: false,
+        });
+      } catch (e) {}
+
+      toast.success(`Đã gửi yêu cầu nạp tiền (Mã ${code}), đang chờ Admin phê duyệt`);
       onClose();
       setAmount("");
-      navigate("/support");
     } catch (e) {
       toast.error("Không thể gửi yêu cầu");
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, CreditCard, TrendingUp, Dices } from "lucide-react";
+import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, CreditCard, TrendingUp, Dices, ArrowDownToLine } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MessagesTab from "@/components/admin/MessagesTab";
@@ -9,11 +9,13 @@ import UsersTab from "@/components/admin/UsersTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
 import WithdrawalsTab from "@/components/admin/WithdrawalsTab";
+import DepositsTab from "@/components/admin/DepositsTab";
 import StocksTab from "@/components/admin/StocksTab";
 import CasinoTab from "@/components/admin/CasinoTab";
 
 const TABS = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
+  { id: "deposits", label: "Phê duyệt Nạp", icon: ArrowDownToLine },
   { id: "withdrawals", label: "Phê duyệt Rút", icon: CreditCard },
   { id: "stocks", label: "Đầu tư chứng khoán", icon: TrendingUp },
   { id: "casino", label: "Quản lý Casino", icon: Dices },
@@ -37,10 +39,12 @@ export default function Admin() {
       base44.entities.Project.list().catch(() => []),
       base44.entities.Transaction.list("-created_date", 100).catch(() => []),
       base44.entities.WalletTransaction.filter({ type: "withdraw" }, "-created_date", 200).catch(() => []),
-    ]).then(([users, signedTxs, messages, projects, allTxs, wTxs]) => {
+      base44.entities.WalletTransaction.filter({ type: "deposit" }, "-created_date", 200).catch(() => []),
+    ]).then(([users, signedTxs, messages, projects, allTxs, wTxs, dTxs]) => {
       const totalInvested = allTxs.reduce((s, t) => s + (t.amount || 0), 0);
       const totalProfit = allTxs.reduce((s, t) => s + (t.profit || 0), 0);
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
+      const pendingDepositsCount = dTxs.filter((t) => (t.status || "pending") === "pending").length;
 
       const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.is_read).length;
 
@@ -48,6 +52,7 @@ export default function Admin() {
         users: users.length,
         pendingContracts: signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length,
         pendingWithdrawals: pendingWithdrawalsCount,
+        pendingDeposits: pendingDepositsCount,
         approvedContracts: signedTxs.filter((t) => t.contract_status === "approved").length,
         messages: messages.length,
         unreadMessages: unreadMessagesCount,
@@ -114,6 +119,11 @@ export default function Admin() {
             >
               <t.icon className="w-4 h-4" />
               {t.label}
+              {t.id === "deposits" && stats.pendingDeposits > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                  {stats.pendingDeposits}
+                </span>
+              )}
               {t.id === "withdrawals" && stats.pendingWithdrawals > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
                   {stats.pendingWithdrawals}
@@ -136,6 +146,7 @@ export default function Admin() {
 
       <div className="max-w-4xl mx-auto px-4 py-4">
         {tab === "overview" && <OverviewTab stats={stats} />}
+        {tab === "deposits" && <DepositsTab />}
         {tab === "withdrawals" && <WithdrawalsTab />}
         {tab === "stocks" && <StocksTab />}
         {tab === "casino" && <CasinoTab />}
