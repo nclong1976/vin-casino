@@ -14,7 +14,6 @@ const DEFAULT_GAMES_MAINTENANCE = {
     minBet: 10000, 
     maxBet: 500000000, 
     forcedOutcome: "auto", // 'auto', 'player', 'banker', 'tie', 'tiger'
-    winRate: 50, // 50% standard
     odds205: false, // Tỷ lệ trả thưởng Player & Banker 1.1x (kh\u00f4ng H\u00f2a)
     totalBets: 1250000000,
     totalPayout: 1140000000
@@ -25,7 +24,6 @@ const DEFAULT_GAMES_MAINTENANCE = {
     minBet: 10000, 
     maxBet: 500000000, 
     forcedOutcome: "auto", // 'auto', 'player', 'banker', 'tie', 'tiger'
-    winRate: 50,
     odds205: false, // Tỷ lệ trả thưởng Player & Banker 1.1x (kh\u00f4ng H\u00f2a)
     totalBets: 980000000,
     totalPayout: 890000000
@@ -77,6 +75,32 @@ export function saveCasinoConfig(newConfig) {
     }).catch(() => null);
   } catch (e) {
     console.error("Failed to save casino config", e);
+  }
+}
+
+/**
+ * Cộng dồn tiền cược/tiền trả thưởng thật của 1 ván vừa kết thúc vào thống
+ * kê doanh thu của game đó, để màn Admin hiển thị số liệu thật thay vì số
+ * tĩnh gán sẵn. Đọc config mới nhất tại thời điểm gọi để giảm khả năng ghi
+ * đè giữa các ván diễn ra gần nhau.
+ */
+export function incrementGameStats(gameKey, betDelta = 0, payoutDelta = 0) {
+  if (!gameKey || (!betDelta && !payoutDelta)) return;
+  try {
+    const cfg = getCasinoConfig();
+    const current = cfg.games[gameKey];
+    if (!current) return;
+    const updatedGames = {
+      ...cfg.games,
+      [gameKey]: {
+        ...current,
+        totalBets: (current.totalBets || 0) + (betDelta || 0),
+        totalPayout: (current.totalPayout || 0) + (payoutDelta || 0),
+      },
+    };
+    saveCasinoConfig({ ...cfg, games: updatedGames });
+  } catch (e) {
+    console.error("Failed to increment game stats", e);
   }
 }
 

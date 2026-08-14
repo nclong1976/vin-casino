@@ -7,7 +7,7 @@ import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
-import { getCasinoConfig } from "@/lib/casinoConfig";
+import { getCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
@@ -585,6 +585,10 @@ export default function TigerBaccarat() {
 
       // Resolve pending bet in ledger
       resolveLatestCasinoBet(gameSlug, totalPayout, winsList.join(" | ") || `Player (${pScore}) vs Banker (${bScore})`);
+
+      // Cộng dồn tiền cược/trả thưởng thật của ván này vào thống kê doanh thu hiển thị bên Admin
+      const roundTotalBet = Object.values(bets).reduce((a, b) => a + b, 0);
+      incrementGameStats(gameSlug, roundTotalBet, totalPayout);
 
       if (totalPayout > 0) {
         // Get current balance from localStorage to ensure synced balance addition

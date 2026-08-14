@@ -251,25 +251,6 @@ export default function CasinoTab() {
               </p>
             </div>
 
-            {/* Win Rate Control */}
-            <div>
-              <div className="flex justify-between text-[11px] font-bold text-gray-300 mb-1">
-                <span>Tỷ lệ thắng nhà cái (House Edge):</span>
-                <span className="text-amber-400">{activeSpecialGameData.winRate || 50}%</span>
-              </div>
-              <input
-                type="range"
-                min="10"
-                max="90"
-                step="5"
-                value={activeSpecialGameData.winRate || 50}
-                onChange={(e) =>
-                  handleUpdateSpecialGameSetting(selectedSpecialGame, "winRate", parseInt(e.target.value))
-                }
-                className="w-full accent-amber-500 cursor-pointer"
-              />
-            </div>
-
             {/* 2.05 PAYOUT ODDS TOGGLE CONTROL */}
             <div className="pt-2 border-t border-[#d4af37]/20">
               <div className="flex items-center justify-between bg-gradient-to-r from-amber-950/80 via-yellow-950/50 to-black p-3 rounded-xl border border-amber-500/60 shadow-md">
