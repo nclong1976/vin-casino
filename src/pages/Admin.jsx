@@ -41,12 +41,15 @@ export default function Admin() {
       const totalProfit = allTxs.reduce((s, t) => s + (t.profit || 0), 0);
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
 
+      const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.is_read).length;
+
       setStats({
         users: users.length,
         pendingContracts: signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length,
         pendingWithdrawals: pendingWithdrawalsCount,
         approvedContracts: signedTxs.filter((t) => t.contract_status === "approved").length,
         messages: messages.length,
+        unreadMessages: unreadMessagesCount,
         totalProjects: projects.length,
         activeProjects: projects.filter((p) => p.is_active).length,
         totalTransactions: allTxs.length,
@@ -113,6 +116,11 @@ export default function Admin() {
               {t.id === "contracts" && stats.pendingContracts > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
                   {stats.pendingContracts}
+                </span>
+              )}
+              {t.id === "messages" && stats.unreadMessages > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                  {stats.unreadMessages}
                 </span>
               )}
             </button>

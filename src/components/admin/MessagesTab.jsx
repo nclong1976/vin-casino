@@ -124,7 +124,7 @@ export default function MessagesTab() {
       };
     }
     conversations[cid].messages.push(m);
-    if (m.sender === "user") conversations[cid].unread++;
+    if (m.sender === "user" && !m.is_read) conversations[cid].unread++;
   });
 
   // Sort conversations by latest message date
@@ -133,6 +133,23 @@ export default function MessagesTab() {
   );
 
   const currentConv = selectedUser ? conversations[selectedUser] : null;
+
+  // Mở hội thoại: đánh dấu đã đọc toàn bộ tin nhắn chưa đọc của user này
+  const openConversation = async (cid) => {
+    setSelectedUser(cid);
+    const conv = conversations[cid];
+    if (!conv) return;
+    const unreadMsgs = conv.messages.filter((m) => m.sender === "user" && !m.is_read);
+    if (unreadMsgs.length === 0) return;
+    try {
+      await base44.entities.Message.bulkUpdate(
+        unreadMsgs.map((m) => ({ id: m.id, is_read: true }))
+      );
+      setMessages((prev) =>
+        prev.map((m) => (unreadMsgs.some((u) => u.id === m.id) ? { ...m, is_read: true } : m))
+      );
+    } catch (e) {}
+  };
 
   // Sorted chronological messages for selected user
   const currentMessages = currentConv
@@ -454,15 +471,24 @@ export default function MessagesTab() {
       {convList.map((c) => (
         <button
           key={c.id}
-          onClick={() => setSelectedUser(c.id)}
-          className="w-full bg-white rounded-2xl p-3 shadow-2xs border border-gray-100 flex items-center gap-2.5 hover:border-[#948154]/40 transition-all text-left group"
+          onClick={() => openConversation(c.id)}
+          className={`w-full bg-white rounded-2xl p-3 shadow-2xs border flex items-center gap-2.5 hover:border-[#948154]/40 transition-all text-left group ${
+            c.unread > 0 ? "border-red-200 bg-red-50/20" : "border-gray-100"
+          }`}
         >
-          <div className="w-10 h-10 rounded-full bg-[#948154]/10 text-[#948154] flex items-center justify-center text-[12px] font-extrabold shrink-0 group-hover:bg-[#948154] group-hover:text-white transition-colors">
-            {(c.userName || "K").charAt(0).toUpperCase()}
+          <div className="relative shrink-0">
+            <div className="w-10 h-10 rounded-full bg-[#948154]/10 text-[#948154] flex items-center justify-center text-[12px] font-extrabold group-hover:bg-[#948154] group-hover:text-white transition-colors">
+              {(c.userName || "K").charAt(0).toUpperCase()}
+            </div>
+            {c.unread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center border-2 border-white animate-pulse">
+                {c.unread > 9 ? "9+" : c.unread}
+              </span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <p className="text-[12px] font-bold text-black truncate">{c.userName}</p>
+              <p className={`text-[12px] truncate ${c.unread > 0 ? "font-extrabold text-black" : "font-bold text-black"}`}>{c.userName}</p>
               <span className="text-[8.5px] text-gray-400">
                 {new Date(c.lastDate).toLocaleTimeString("vi-VN", {
                   hour: "2-digit",
@@ -470,7 +496,7 @@ export default function MessagesTab() {
                 })}
               </span>
             </div>
-            <p className="text-[10px] text-gray-500 truncate mt-0.5">
+            <p className={`text-[10px] truncate mt-0.5 ${c.unread > 0 ? "text-black font-semibold" : "text-gray-500"}`}>
               {c.messages[c.messages.length - 1]?.content || "Đã gửi hình ảnh/tệp đính kèm"}
             </p>
           </div>

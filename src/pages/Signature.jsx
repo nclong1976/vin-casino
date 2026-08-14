@@ -15,11 +15,14 @@ export default function Signature() {
   const [saved, setSaved] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [user, setUser] = useState(null);
   const padRef = useRef(null);
 
-  const load = async () => {
+  const load = async (userId) => {
     try {
-      const list = await base44.entities.Signature.list("-created_date", 50);
+      const list = userId
+        ? await base44.entities.Signature.filter({ user_id: userId }, "-created_date", 50)
+        : await base44.entities.Signature.list("-created_date", 50);
       setSaved(list);
     } catch (e) {
       // ignore
@@ -29,7 +32,10 @@ export default function Signature() {
   };
 
   useEffect(() => {
-    load();
+    base44.auth.me().then((me) => {
+      setUser(me);
+      load(me?.id);
+    }).catch(() => load());
   }, []);
 
   const canSave = mode === "draw" ? !!drawData : typedName.trim().length > 0;
@@ -46,13 +52,14 @@ export default function Signature() {
         type: mode,
         content,
         label: label.trim() || (mode === "draw" ? "Chữ ký vẽ tay" : typedName.trim()),
+        user_id: user?.id,
       });
       toast.success("Đã lưu chữ ký");
       setLabel("");
       setTypedName("");
       setDrawData(null);
       padRef.current?.clear();
-      load();
+      load(user?.id);
     } catch (e) {
       toast.error("Không thể lưu chữ ký");
     } finally {

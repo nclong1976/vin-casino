@@ -534,6 +534,9 @@ class LocalEntityClient {
         import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
           pushEntityToFirestore(this.entityName, id, updated, 'upsert');
         });
+        import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
+          pushGenericEntityToRTDB(this.entityName, id, updated);
+        });
       } catch (e) {
         console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (update):", e);
       }
