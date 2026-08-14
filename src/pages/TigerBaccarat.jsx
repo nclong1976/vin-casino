@@ -64,9 +64,6 @@ const fmtShort = (n) => {
 
 // Neutral Preset Chip Values (Không ưu tiên gợi ý - Đồng đều, sang trọng)
 const CHIP_VALUES = [
-  { label: "10K", value: 10000, bgClass: "bg-blue-700 border-blue-400/70 text-white font-bold" },
-  { label: "50K", value: 50000, bgClass: "bg-red-700 border-red-400/70 text-white font-bold" },
-  { label: "100K", value: 100000, bgClass: "bg-emerald-700 border-emerald-400/70 text-white font-bold" },
   { label: "500K", value: 500000, bgClass: "bg-amber-700 border-amber-400/70 text-white font-bold" },
   { label: "2M", value: 2000000, bgClass: "bg-purple-800 border-purple-400/70 text-white font-bold" },
   { label: "5M", value: 5000000, bgClass: "bg-rose-900 border-rose-400/70 text-white font-bold" },

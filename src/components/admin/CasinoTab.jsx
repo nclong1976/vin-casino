@@ -65,6 +65,15 @@ export default function CasinoTab() {
   const handleToggleOdds205 = (gameKey) => {
     const current = config.games[gameKey] || {};
     const nextVal = !current.odds205;
+
+    if (nextVal) {
+      const confirmed = window.confirm(
+        `Xác nhận BẬT tỷ lệ trả thưởng 1.1x cho ${current.name || gameKey}?\n\n` +
+        `Thao tác này áp dụng NGAY LẬP TỨC cho bàn cược thật: mọi ván tiếp theo sẽ luôn ra kết quả PLAYER hoặc BANKER (không Hòa) và trả thưởng thật 1.1x cho khách đang chơi.`
+      );
+      if (!confirmed) return;
+    }
+
     const updatedGames = {
       ...config.games,
       [gameKey]: { 

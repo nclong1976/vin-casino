@@ -35,6 +35,7 @@ import Resort from './pages/Resort';
 import News from './pages/News';
 import MembershipCard from './pages/MembershipCard';
 import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
+import IntroSplash from '@/components/IntroSplash';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -109,6 +110,7 @@ function App() {
           <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <AuthenticatedApp />
           </Router>
+          <IntroSplash />
           <Toaster />
         </QueryClientProvider>
       </AuthProvider>
