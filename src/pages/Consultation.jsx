@@ -312,10 +312,10 @@ export default function Consultation() {
   };
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <PageHeader title="Tham vấn phúc lợi" />
 
-      <div className="px-3 py-3 pb-20 space-y-4">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {/* Banner Welcome & User Tier Status */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#948154] via-[#7d6c43] to-[#594c2e] p-3.5 text-white shadow-md">
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none" />

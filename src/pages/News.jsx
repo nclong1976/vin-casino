@@ -39,10 +39,10 @@ export default function News() {
   const featured = filtered.find((n) => n.featured) || filtered[0];
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading pb-20">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading pb-24">
       <PageHeader title="Tin Tức & Thị Trường" />
 
-      <div className="px-3 py-3 space-y-3">
+      <div className="max-w-4xl mx-auto px-4 py-4 space-y-4">
         {/* Market Search Bar */}
         <MarketSearchBar placeholder="Tìm tin tức Vinpearl, BĐS, cổ phiếu..." />
 

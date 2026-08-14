@@ -48,9 +48,9 @@ export default function Goals() {
   const totalCurrent = goals.reduce((s, g) => s + g.current, 0);
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <PageHeader title="Mục tiêu" />
-      <div className="px-3 py-4 pb-20 space-y-3">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[13px] font-bold text-black flex items-center gap-1.5">

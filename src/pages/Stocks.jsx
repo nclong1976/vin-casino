@@ -57,10 +57,10 @@ export default function Stocks() {
   });
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#0d1117] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#0d1117] overflow-x-hidden font-heading">
       <StockHeader />
 
-      <div className="px-3 py-4 pb-20 space-y-3">
+      <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
         <MarketSummary />
 
         {/* Live Market & Stock Search Grounding */}

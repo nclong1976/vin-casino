@@ -16,9 +16,9 @@ const BENEFITS = [
 
 export default function Benefits() {
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <PageHeader title="Ưu đãi phúc lợi" />
-      <div className="px-3 py-4 pb-20 space-y-3">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         <div className="bg-gradient-to-br from-[#948154] to-[#6b5e3e] rounded-2xl p-4 text-white">
           <Gift className="w-6 h-6 mb-2" />
           <h2 className="text-[14px] font-bold">Đặc quyền thành viên VIP</h2>

@@ -34,7 +34,7 @@ export default function Home() {
   };
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-background overflow-clip font-heading selection:bg-secondary/50">
+    <main className="relative w-full min-h-screen bg-background overflow-x-hidden font-heading selection:bg-secondary/50">
       {/* Global Backgrounds */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <img
@@ -55,7 +55,7 @@ export default function Home() {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="relative z-10 flex flex-col h-full pb-20">
+        className="relative z-10 flex flex-col h-full pb-20 max-w-4xl mx-auto w-full">
         
         {/* Header */}
         <motion.header variants={itemVariants} className="flex items-center justify-between px-3.5 pt-[19px]">

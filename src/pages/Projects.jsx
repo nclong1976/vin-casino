@@ -55,10 +55,10 @@ export default function Projects() {
   });
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <ProjectsHeader />
 
-      <div className="px-3 py-3.5 pb-20 space-y-3.5">
+      <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
         {/* Banner Header for VinClub Small Projects & Internal Funds */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#948154] via-[#7d6c43] to-[#594c2e] p-3.5 text-white shadow-md">
           <div className="relative z-10 space-y-1">

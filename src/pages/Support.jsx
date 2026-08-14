@@ -137,10 +137,10 @@ export default function Support() {
   };
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading flex flex-col">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading flex flex-col justify-between">
       <SupportHeader />
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
+      <div ref={scrollRef} className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto px-4 py-4 space-y-3 pb-24">
         {loading ? (
           <div className="text-center py-10 text-[11px] text-gray-400">
             Đang tải tin nhắn CSKH...
