@@ -1,5 +1,6 @@
 -- ====================================================================
--- SUPABASE DATABASE SCHEMA CHO VINCLUB CASINO & BẤT ĐỘNG SẢN
+-- SUPABASE DATABASE SCHEMA CHO VINCLUB CASINO & BẤT ĐỘNG SẢN (BẢN AN TOÀN)
+-- Tự động thêm cột nếu bảng đã tồn tại từ trước để không bị lỗi column does not exist
 -- ====================================================================
 
 -- 1. BẢNG USERS
@@ -26,11 +27,31 @@ CREATE TABLE IF NOT EXISTS public.users (
   metadata JSONB DEFAULT '{}'::jsonb
 );
 
+-- Đảm bảo tất cả cột trong bảng users luôn tồn tại
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS identifier TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT 'Hội viên VinClub';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT 'Hội viên VinClub';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS total_deposited BIGINT DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS membership_tier TEXT DEFAULT 'VIP 1 - Gold';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS vip_level TEXT DEFAULT 'VIP 1';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS bank_name TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS account_number TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS referral_code TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+
 -- 2. BẢNG WALLET_TRANSACTIONS
 CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  type TEXT NOT NULL,
+  user_id TEXT,
+  type TEXT DEFAULT 'deposit',
   amount BIGINT NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'completed',
   code TEXT,
@@ -46,32 +67,63 @@ CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Đảm bảo tất cả cột trong wallet_transactions tồn tại
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'deposit';
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS amount BIGINT DEFAULT 0;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS bank_name TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS account_holder TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS approved_by TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejected_by TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+
 -- 3. BẢNG NOTIFICATIONS
 CREATE TABLE IF NOT EXISTS public.notifications (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  title TEXT NOT NULL,
+  user_id TEXT,
+  title TEXT,
   content TEXT,
   type TEXT DEFAULT 'system',
   is_read BOOLEAN DEFAULT FALSE,
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'system';
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+
 -- 4. BẢNG MESSAGES
 CREATE TABLE IF NOT EXISTS public.messages (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
+  user_id TEXT,
   sender TEXT NOT NULL DEFAULT 'user',
-  text TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT '',
   images JSONB DEFAULT '[]'::jsonb,
   is_read BOOLEAN DEFAULT FALSE,
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender TEXT DEFAULT 'user';
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS text TEXT DEFAULT '';
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+
 -- 5. BẢNG INVESTMENT_PROJECTS
 CREATE TABLE IF NOT EXISTS public.investment_projects (
   id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
+  title TEXT,
   name TEXT,
   category TEXT DEFAULT 'VinHomes',
   location TEXT DEFAULT '',
@@ -89,6 +141,24 @@ CREATE TABLE IF NOT EXISTS public.investment_projects (
   description TEXT DEFAULT '',
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'VinHomes';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS image TEXT;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS price_per_m2 NUMERIC DEFAULT 0;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS price_str TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS rate TEXT DEFAULT '0.5%/ngày';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS annual_yield NUMERIC DEFAULT 0.5;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS area TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS progress NUMERIC DEFAULT 80;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS min_amount NUMERIC DEFAULT 1000000;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS duration TEXT DEFAULT '30 ngày';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS scale TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
 
 -- ====================================================================
 -- CHỈ MỤC (INDEXES)
