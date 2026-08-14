@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, CreditCard, Wallet, QrCode, Check, ChevronRight, ChevronLeft, PenTool, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance } from "@/lib/balanceSync";
 import ContractDocument from "@/components/projects/ContractDocument";
 import SignaturePicker from "@/components/signature/SignaturePicker";
 
@@ -176,9 +176,8 @@ export default function DepositModal({ project, onClose }) {
     }
 
     try {
-      const newBal = Math.max(0, userBalance - amount);
       if (user?.id) {
-        updateUserBalance(user.id, newBal);
+        await adjustUserBalance(user.id, -amount);
       }
 
       await base44.entities.Transaction.create({

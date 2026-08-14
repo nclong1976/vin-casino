@@ -240,3 +240,30 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ====================================================================
+-- CỘNG/TRỪ SỐ DƯ NGUYÊN TỬ (ATOMIC) — tránh mất dữ liệu khi 2 thao tác
+-- cộng/trừ tiền xảy ra gần như đồng thời (2 thiết bị khác nhau, hoặc
+-- admin + user cùng lúc). Thay vì đọc số dư -> tính số dư mới -> ghi đè
+-- (2 bước tách rời, có thể xen kẽ và ghi đè lẫn nhau), hàm này để chính
+-- Postgres cộng trực tiếp "balance = balance + delta" trong 1 câu lệnh
+-- UPDATE duy nhất - Postgres tự khóa dòng đó trong lúc cập nhật nên 2
+-- lệnh gọi đồng thời luôn cộng dồn đúng, không lệnh nào bị mất.
+-- ====================================================================
+CREATE OR REPLACE FUNCTION public.increment_user_balance(
+  p_user_id TEXT,
+  p_delta BIGINT,
+  p_total_deposited_delta BIGINT DEFAULT 0
+)
+RETURNS TABLE (balance BIGINT, total_deposited BIGINT) AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE public.users
+  SET
+    balance = GREATEST(0, public.users.balance + p_delta),
+    total_deposited = public.users.total_deposited + p_total_deposited_delta,
+    last_active = NOW()
+  WHERE id = p_user_id
+  RETURNING public.users.balance, public.users.total_deposited;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

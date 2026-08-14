@@ -92,6 +92,41 @@ export async function upsertSupabaseUser(user) {
 }
 
 /**
+ * Cộng/trừ số dư NGUYÊN TỬ qua hàm Postgres increment_user_balance (xem
+ * supabase_schema.sql). Postgres khóa dòng trong lúc UPDATE nên 2 lệnh
+ * gọi gần như đồng thời (khác thiết bị, hoặc admin + user cùng lúc) luôn
+ * cộng dồn đúng - không còn kiểu "đọc số dư cũ rồi ghi đè" khiến lệnh sau
+ * xoá mất kết quả của lệnh trước.
+ * @returns {Promise<{balance: number, total_deposited: number} | null>}
+ *   Số dư THẬT sau khi cộng/trừ (đọc trực tiếp từ kết quả UPDATE), null
+ *   nếu RPC lỗi (ví dụ chưa chạy migration supabase_schema.sql mới nhất).
+ */
+export async function incrementUserBalance(userId, delta, totalDepositedDelta = 0) {
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase.rpc('increment_user_balance', {
+      p_user_id: userId,
+      p_delta: Math.trunc(Number(delta) || 0),
+      p_total_deposited_delta: Math.trunc(Number(totalDepositedDelta) || 0),
+    });
+
+    if (error) {
+      console.warn('[SupabaseDb] incrementUserBalance error:', error.message);
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return {
+      balance: Number(row.balance || 0),
+      total_deposited: Number(row.total_deposited || 0),
+    };
+  } catch (e) {
+    console.warn('[SupabaseDb] incrementUserBalance exception:', e);
+    return null;
+  }
+}
+
+/**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu
  * chung, dùng chung cho mọi thiết bị) hay chưa, để chặn đăng ký trùng lặp.

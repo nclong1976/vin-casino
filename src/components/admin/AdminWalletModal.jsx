@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Plus, Minus, Wallet, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 
 const QUICK = [100000, 500000, 1000000, 5000000, 10000000, 50000000];
@@ -33,17 +33,16 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
 
     setSaving(true);
     try {
-      // Đọc số dư mới nhất tại thời điểm bấm nút (không dùng state `balance`
-      // đã cache từ lúc mở modal) để 2 lần điều chỉnh liên tiếp cho cùng 1
-      // user không ghi đè lên nhau và làm mất phần thay đổi trước đó
-      const currentBal = getFreshUserBalance(user.id) || balance;
-      if (mode === "subtract" && numAmount > currentBal) {
+      // Cảnh báo sớm cho UX (không phải nguồn sự thật) - việc cộng/trừ thật
+      // sự chạy nguyên tử (atomic) trên Postgres bên dưới nên vẫn đúng dù
+      // giá trị đọc ở đây có hơi cũ
+      const currentBalForWarning = getFreshUserBalance(user.id) || balance;
+      if (mode === "subtract" && numAmount > currentBalForWarning) {
         toast.error("Số trừ vượt quá số dư hiện tại");
         setSaving(false);
         return;
       }
-      const newBal = mode === "add" ? currentBal + numAmount : Math.max(0, currentBal - numAmount);
-      updateUserBalance(user.id, newBal, mode === "add" ? numAmount : 0);
+      await adjustUserBalance(user.id, mode === "add" ? numAmount : -numAmount, mode === "add" ? numAmount : 0);
 
       await base44.entities.WalletTransaction.create({
         user_id: user.id,

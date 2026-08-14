@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import { getBankLogo } from "@/constants/banks";
 import { Link } from "react-router-dom";
@@ -177,9 +177,7 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
     setCreatedTimeStr(timeFormatted);
 
     try {
-      const currentBal = Number(user?.balance || 0);
-      const newBal = Math.max(0, currentBal - numAmount);
-      updateUserBalance(user?.id, newBal);
+      await adjustUserBalance(user?.id, -numAmount);
 
       const tx = await base44.entities.WalletTransaction.create({
         type: "withdraw",

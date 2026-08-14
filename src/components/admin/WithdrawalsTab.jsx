@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -262,11 +262,11 @@ export default function WithdrawalsTab() {
         rejected_by: adminUser?.email || "Admin",
       });
 
-      // Hoàn tiền về ví người dùng - đọc số dư mới nhất tại thời điểm xử lý
-      // (không dùng userInfo.balance từ state cache) để 2 lệnh từ chối liên
-      // tiếp của cùng 1 user không ghi đè và làm mất khoản hoàn của nhau
-      const currentBal = getFreshUserBalance(userId);
-      updateUserBalance(userId, currentBal + amount);
+      // Hoàn tiền về ví người dùng - cộng nguyên tử (atomic) trực tiếp trên
+      // Postgres thay vì đọc-rồi-ghi ở client, để 2 lệnh từ chối liên tiếp
+      // của cùng 1 user (hoặc từ 2 thiết bị/admin khác nhau) không còn thể
+      // ghi đè và làm mất khoản hoàn của nhau
+      await adjustUserBalance(userId, amount);
 
       await base44.entities.WalletTransaction.create({
         user_id: userId,
