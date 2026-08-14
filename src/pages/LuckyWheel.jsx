@@ -5,6 +5,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
 import { updateUserBalance } from "@/lib/balanceSync";
+import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
 const PRIZES = [
@@ -19,11 +20,11 @@ const PRIZES = [
 const SEGMENT_ANGLE = 360 / PRIZES.length;
 
 export default function LuckyWheel() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState(null);
-  
+
   const [spinsLeft, setSpinsLeft] = useState(0);
   const [earnedSpins, setEarnedSpins] = useState(0);
   const [todayDeposit, setTodayDeposit] = useState(0);
@@ -31,8 +32,7 @@ export default function LuckyWheel() {
 
   const loadUserDataAndSpins = useCallback(async () => {
     try {
-      const me = await base44.auth.me().catch(() => null);
-      setUser(me);
+      const me = user;
       if (!me) {
         setLoading(false);
         return;
@@ -80,7 +80,7 @@ export default function LuckyWheel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     loadUserDataAndSpins();

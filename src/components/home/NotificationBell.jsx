@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
@@ -22,15 +23,11 @@ function timeAgo(dateStr) {
 }
 
 export default function NotificationBell() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const ref = useRef(null);
-
-  useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
 
   const fetchNotifs = () => {
     if (!user) return;

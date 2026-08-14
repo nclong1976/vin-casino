@@ -4,19 +4,16 @@ import { X, ArrowDownToLine } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
 
 const QUICK_AMOUNTS = [500000, 1000000, 5000000, 10000000, 50000000, 100000000];
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
 export default function DepositModal({ open, onClose, banks, onDone }) {
+  const { user } = useAuth();
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
-  const [user, setUser] = useState(null);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
 
   const numAmount = parseInt(amount) || 0;
 

@@ -25,6 +25,7 @@ import {
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo } from "@/lib/membershipUtils";
 import { toast } from "sonner";
 
@@ -252,7 +253,7 @@ const METHODS = [
 ];
 
 export default function Consultation() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [depositSum, setDepositSum] = useState(0);
 
   // Selected Tier Tab for Privilege Inspection
@@ -271,8 +272,7 @@ export default function Consultation() {
 
   useEffect(() => {
     (async () => {
-      const me = await base44.auth.me().catch(() => null);
-      setUser(me);
+      const me = user;
       if (me) {
         const walletTxs = await base44.entities.WalletTransaction.filter(
           { $or: [{ user_id: me.id }, { created_by_id: me.id }] },
@@ -289,7 +289,7 @@ export default function Consultation() {
         setSelectedTierKey(userTierInfo.tier);
       }
     })();
-  }, []);
+  }, [user]);
 
   const currentTierInfo = getCardTierInfo(depositSum);
   const selectedPrivilegeData = TIER_PRIVILEGES[selectedTierKey] || TIER_PRIVILEGES.MEMBER;

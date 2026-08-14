@@ -19,6 +19,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { adjustUserBalance } from "@/lib/balanceSync";
+import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -32,12 +33,12 @@ const REJECT_REASONS = [
 ];
 
 export default function WithdrawalsTab() {
+  const { user: adminUser } = useAuth();
   const [withdrawals, setWithdrawals] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("pending"); // "pending" | "completed" | "rejected" | "all"
   const [searchQuery, setSearchQuery] = useState("");
-  const [adminUser, setAdminUser] = useState(null);
 
   // Modal States
   const [rejectingTx, setRejectingTx] = useState(null);
@@ -47,11 +48,6 @@ export default function WithdrawalsTab() {
   const [processing, setProcessing] = useState(false);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
-
-  // Load Admin User
-  useEffect(() => {
-    base44.auth.me().then(setAdminUser).catch(() => {});
-  }, []);
 
   // Ref để chặn subscription ghi đè khi đang xử lý approve/reject
   const isProcessingRef = useRef(false);

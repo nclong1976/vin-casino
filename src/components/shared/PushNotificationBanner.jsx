@@ -14,6 +14,7 @@ import {
 import { base44 } from "@/api/base44Client";
 import { playSound } from "@/lib/soundFx";
 import { useConfig } from "@/lib/ConfigContext";
+import { useAuth } from "@/lib/AuthContext";
 
 const TYPE_STYLES = {
   deposit: {
@@ -55,17 +56,12 @@ const TYPE_STYLES = {
 };
 
 export default function PushNotificationBanner() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [currentPush, setCurrentPush] = useState(null);
   const seenIdsRef = useRef(new Set());
   const initialFetchDone = useRef(false);
   const timerRef = useRef(null);
   const { config } = useConfig();
-
-  // Load current user
-  useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
 
   // Request browser notification permission silently if requested
   useEffect(() => {

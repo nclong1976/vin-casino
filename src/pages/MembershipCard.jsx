@@ -4,13 +4,14 @@ import { QrCode, Copy, ShieldCheck, Star, Wallet, Sparkles, CheckCircle2 } from 
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo, ALL_CARD_TIERS } from "@/lib/membershipUtils";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
 export default function MembershipCard() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [walletTxs, setWalletTxs] = useState([]);
   const [txs, setTxs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,8 +19,7 @@ export default function MembershipCard() {
 
   useEffect(() => {
     (async () => {
-      const me = await base44.auth.me().catch(() => null);
-      setUser(me);
+      const me = user;
       if (me) {
         const [wt, t] = await Promise.all([
           base44.entities.WalletTransaction.filter(
@@ -34,7 +34,7 @@ export default function MembershipCard() {
       }
       setLoading(false);
     })();
-  }, []);
+  }, [user]);
 
   // Calculate total deposited amount
   const depositSum = walletTxs

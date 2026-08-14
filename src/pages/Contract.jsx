@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
 import ContractDocument from "@/components/projects/ContractDocument";
 import SignaturePicker from "@/components/signature/SignaturePicker";
 import BottomNav from "@/components/BottomNav";
@@ -10,14 +11,13 @@ import BottomNav from "@/components/BottomNav";
 export default function Contract() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [tx, setTx] = useState(null);
-  const [user, setUser] = useState(null);
   const [signature, setSignature] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
     base44.entities.Transaction.get(id)
       .then((t) => {
         setTx(t);

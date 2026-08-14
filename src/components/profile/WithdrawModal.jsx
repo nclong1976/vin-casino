@@ -21,6 +21,7 @@ import { adjustUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import { getBankLogo } from "@/constants/banks";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/lib/AuthContext";
 
 const QUICK_AMOUNTS = [500000, 1000000, 5000000, 10000000, 50000000, 100000000];
 const MIN_WITHDRAW = 100000;
@@ -28,12 +29,12 @@ const MIN_WITHDRAW = 100000;
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
 export default function WithdrawModal({ open, onClose, banks = [], balance = 0, onDone, onAddBank }) {
+  const { user } = useAuth();
   // Steps: "input" | "pin" | "tracking"
   const [step, setStep] = useState("input");
 
   const [amount, setAmount] = useState("");
   const [selectedBankId, setSelectedBankId] = useState(null);
-  const [user, setUser] = useState(null);
 
   // PIN state
   const [pinDigits, setPinDigits] = useState(["", "", "", "", "", ""]);
@@ -50,7 +51,6 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
 
   useEffect(() => {
     if (open) {
-      base44.auth.me().then(setUser).catch(() => {});
       // Auto-select default bank account if available
       const defaultBank = banks.find((b) => b.is_default) || banks[0];
       if (defaultBank) {

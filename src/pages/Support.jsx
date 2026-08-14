@@ -2,21 +2,18 @@ import React, { useState, useEffect, useRef } from "react";
 import { Headphones, Sparkles, ShieldCheck } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
 import SupportHeader from "@/components/support/SupportHeader";
 import MessageBubble from "@/components/support/MessageBubble";
 import ChatInput from "@/components/support/ChatInput";
 
 export default function Support() {
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const scrollRef = useRef(null);
   const greetingCreatedRef = useRef(false);
-
-  useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
 
   const loadMessages = async (userId, currentUser) => {
     if (!userId) return;

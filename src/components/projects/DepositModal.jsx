@@ -5,6 +5,7 @@ import { X, CreditCard, Wallet, QrCode, Check, ChevronRight, ChevronLeft, PenToo
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { adjustUserBalance } from "@/lib/balanceSync";
+import { useAuth } from "@/lib/AuthContext";
 import ContractDocument from "@/components/projects/ContractDocument";
 import SignaturePicker from "@/components/signature/SignaturePicker";
 
@@ -45,10 +46,10 @@ export default function DepositModal({ project, onClose }) {
   const days = useMemo(() => (isDaily ? durationVal : Math.round(durationVal / 1440) || 1), [isDaily, durationVal]);
   const hours = useMemo(() => (isHourly ? durationVal : Math.round(durationVal / 60) || 1), [isHourly, durationVal]);
 
+  const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [amount, setAmount] = useState(min);
   const [method, setMethod] = useState("wallet");
-  const [user, setUser] = useState(null);
   const [signature, setSignature] = useState(null);
   const [done, setDone] = useState(false);
 
@@ -58,18 +59,16 @@ export default function DepositModal({ project, onClose }) {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
-  // Auto fetch user & real-time balance when opening the project
+  // Auto fetch real-time balance when opening the project
   useEffect(() => {
-    if (!project) return;
+    if (!project || !user) return;
     let isMounted = true;
     setLoadingBalance(true);
 
-    async function loadUserAndBalance() {
+    async function loadBalance() {
       try {
-        const me = await base44.auth.me().catch(() => null);
-        if (me && isMounted) {
-          setUser(me);
-          const currentTotal = Number(me.balance || 0);
+        if (isMounted) {
+          const currentTotal = Number(user.balance || 0);
 
           setUserBalance(currentTotal);
 
@@ -90,12 +89,12 @@ export default function DepositModal({ project, onClose }) {
       }
     }
 
-    loadUserAndBalance();
+    loadBalance();
 
     return () => {
       isMounted = false;
     };
-  }, [project]);
+  }, [project, user]);
 
   // Countdown timer for smooth auto-redirection
   useEffect(() => {
