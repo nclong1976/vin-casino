@@ -1,9 +1,8 @@
 -- ====================================================================
 -- SUPABASE DATABASE SCHEMA CHO VINCLUB CASINO & BẤT ĐỘNG SẢN
--- Chạy đoạn mã này trong Supabase Dashboard -> SQL Editor -> Run
 -- ====================================================================
 
--- 1. BẢNG USERS (Lưu trữ thông tin tài khoản, số dư, quyền hạn)
+-- 1. BẢNG USERS
 CREATE TABLE IF NOT EXISTS public.users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE,
@@ -27,13 +26,13 @@ CREATE TABLE IF NOT EXISTS public.users (
   metadata JSONB DEFAULT '{}'::jsonb
 );
 
--- 2. BẢNG WALLET_TRANSACTIONS (Lịch sử nạp, rút, đầu tư, hoàn tiền)
+-- 2. BẢNG WALLET_TRANSACTIONS
 CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  type TEXT NOT NULL, -- 'deposit' | 'withdraw' | 'investment' | 'reward' | 'refund'
+  type TEXT NOT NULL,
   amount BIGINT NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'completed', -- 'pending' | 'completed' | 'rejected' | 'failed'
+  status TEXT NOT NULL DEFAULT 'completed',
   code TEXT,
   description TEXT,
   bank_name TEXT,
@@ -47,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. BẢNG NOTIFICATIONS (Thông báo đẩy trong ứng dụng)
+-- 3. BẢNG NOTIFICATIONS
 CREATE TABLE IF NOT EXISTS public.notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -58,18 +57,18 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. BẢNG MESSAGES (Tin nhắn hỗ trợ CSKH)
+-- 4. BẢNG MESSAGES
 CREATE TABLE IF NOT EXISTS public.messages (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  sender TEXT NOT NULL DEFAULT 'user', -- 'user' | 'support' | 'admin'
+  sender TEXT NOT NULL DEFAULT 'user',
   text TEXT NOT NULL,
   images JSONB DEFAULT '[]'::jsonb,
   is_read BOOLEAN DEFAULT FALSE,
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. BẢNG INVESTMENT_PROJECTS (Dự án BĐS & Cổ phiếu)
+-- 5. BẢNG INVESTMENT_PROJECTS
 CREATE TABLE IF NOT EXISTS public.investment_projects (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -92,7 +91,7 @@ CREATE TABLE IF NOT EXISTS public.investment_projects (
 );
 
 -- ====================================================================
--- TẠO CHỈ MỤC (INDEXES) ĐỂ TỐI ƯU HÓA TỐC ĐỘ TRUY VẤN
+-- CHỈ MỤC (INDEXES)
 -- ====================================================================
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON public.users(role);
@@ -104,7 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_i
 CREATE INDEX IF NOT EXISTS idx_messages_user ON public.messages(user_id);
 
 -- ====================================================================
--- BẬT ROW LEVEL SECURITY (RLS) VỚI CÁC CHÍNH SÁCH MỞ / BẢO VỆ
+-- ROW LEVEL SECURITY (RLS) & POLICIES
 -- ====================================================================
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
@@ -112,7 +111,6 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.investment_projects ENABLE ROW LEVEL SECURITY;
 
--- Cho phép đọc / ghi công khai (Client-side App có thể truy cập qua anon/public key)
 DROP POLICY IF EXISTS "Public access users" ON public.users;
 CREATE POLICY "Public access users" ON public.users FOR ALL USING (true) WITH CHECK (true);
 
@@ -129,15 +127,7 @@ DROP POLICY IF EXISTS "Public access investment_projects" ON public.investment_p
 CREATE POLICY "Public access investment_projects" ON public.investment_projects FOR ALL USING (true) WITH CHECK (true);
 
 -- ====================================================================
--- BẬT REALTIME REPLICATION TRÊN CÁC BẢNG QUAN TRỌNG
--- ====================================================
-ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.wallet_transactions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
-
--- ====================================================================
--- TỰ ĐỘNG ĐỒNG BỘ KHI CÓ USER MỚI ĐĂNG KÝ QUA SUPABASE AUTH
+-- TRIGGER AUTH KHI CÓ USER MỚI ĐĂNG KÝ
 -- ====================================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
