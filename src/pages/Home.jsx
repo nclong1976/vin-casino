@@ -55,7 +55,7 @@ export default function Home() {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="relative z-10 flex flex-col h-full pb-16">
+        className="relative z-10 flex flex-col h-full pb-20">
         
         {/* Header */}
         <motion.header variants={itemVariants} className="flex items-center justify-between px-3.5 pt-[19px]">
