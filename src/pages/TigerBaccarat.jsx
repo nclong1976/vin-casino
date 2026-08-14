@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
@@ -28,12 +28,11 @@ function buildDeck() {
   for (let d = 0; d < 8; d++) {
     for (const suit of SUITS) {
       for (const rank of RANKS) {
-        let value = 0;
-        if (["10", "J", "Q", "K"].includes(rank)) value = 0;
-        else if (rank === "A") value = 1;
-        else value = parseInt(rank);
-
-        deck.push({ rank, suit, value });
+        deck.push({
+          suit,
+          rank,
+          value: ["10", "J", "Q", "K"].includes(rank) ? 0 : rank === "A" ? 1 : parseInt(rank),
+        });
       }
     }
   }
@@ -55,18 +54,20 @@ function isPair(cards) {
   return cards[0].rank === cards[1].rank;
 }
 
-const fmt = (n) => new Intl.NumberFormat("vi-VN").format(n) + " VNĐ";
+const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 const fmtShort = (n) => {
-  if (n >= 1000000) return (n / 1000000) + "M";
-  if (n >= 1000) return (n / 1000) + "K";
-  return n;
+  if (!n) return "0";
+  if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + "K";
+  return n.toString();
 };
 
-// Preset Chip Values matching prompt chips (50% chip placed in the center at index 2)
+// Preset Chip Values
 const CHIP_VALUES = [
-  { label: "10K", value: 10000, bgClass: "bg-[#b0b0b0] border-gray-400 text-black font-bold text-xs" },
-  { label: "100K", value: 100000, bgClass: "bg-[#388e3c] border-white text-white font-bold text-sm" },
-  { label: "50%", value: 0.5, isPercent: true, bgClass: "bg-[#1976d2] border-white/60 text-white font-bold text-sm" },
+  { label: "10K", value: 10000, bgClass: "bg-[#1976d2] border-white/60 text-white font-bold text-xs" },
+  { label: "50K", value: 50000, bgClass: "bg-[#e53935] border-white/60 text-white font-bold text-xs" },
+  { label: "100K", value: 100000, bgClass: "bg-[#43a047] border-white/60 text-white font-bold text-xs" },
+  { label: "500K", value: 500000, bgClass: "bg-[#f57c00] border-white/60 text-white font-bold text-xs" },
   { label: "2M", value: 2000000, bgClass: "bg-[#7b1fa2] border-white/60 text-white font-bold text-xs" },
   { label: "5M", value: 5000000, bgClass: "bg-[#d32f2f] border-white/60 text-white font-bold text-sm" },
 ];
@@ -92,6 +93,10 @@ export default function TigerBaccarat() {
 
   // Balance Management
   const [balance, setBalance] = useState(() => {
+    if (user?.id) {
+      const fresh = getFreshUserBalance(user.id);
+      if (fresh !== undefined && fresh !== 0) return fresh;
+    }
     if (user?.balance !== undefined) return Number(user.balance);
     const localUserStr = localStorage.getItem("base44_local_user");
     if (localUserStr) {
@@ -108,7 +113,7 @@ export default function TigerBaccarat() {
     return 0;
   });
 
-  // Selected Chip (default index 2: 100K green chip)
+  // Selected Chip (default index 2: 100K)
   const [selectedChipIndex, setSelectedChipIndex] = useState(2);
 
   // Placed Bets per zone
@@ -121,27 +126,21 @@ export default function TigerBaccarat() {
     banker_pair: 0,
   });
 
-  // Game Phase: 'betting' | 'dealing' | 'revealed'
+  // Game Phases: 'betting' -> 'waiting_timer' -> 'dealing' -> 'result'
   const [phase, setPhase] = useState("betting");
-
-  // === SYNCED REAL-TIME TIMER (epoch-based, identical to GameCountdownTimer) ===
   const [timerSeconds, setTimerSeconds] = useState(() => getSyncedTimerSeconds());
-
-  // Dealt Cards
-  const [playerCards, setPlayerCards] = useState([]);
-  const [bankerCards, setBankerCards] = useState([]);
-
-  // Flip states for cards
-  const [flippedCards, setFlippedCards] = useState({ player: [], banker: [] });
-
-  // Confirmation Modal Popup
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // Result overlay & payouts
-  const [showWinModal, setShowWinModal] = useState(false);
+  // Card Deal State
+  const [playerCards, setPlayerCards] = useState([]);
+  const [bankerCards, setBankerCards] = useState([]);
+  const [flippedCards, setFlippedCards] = useState({ player: [], banker: [] });
+
+  // Outcome
+  const [winningZones, setWinningZones] = useState([]);
   const [winPayout, setWinPayout] = useState(0);
   const [winSummary, setWinSummary] = useState([]);
-  const [winningZones, setWinningZones] = useState([]);
+  const [showWinModal, setShowWinModal] = useState(false);
   const [prevBalance, setPrevBalance] = useState(0);
 
   // Audio Context
@@ -150,6 +149,13 @@ export default function TigerBaccarat() {
   // Sync user balance with app-wide events & localStorage
   useEffect(() => {
     const handleSync = () => {
+      if (user?.id) {
+        const fresh = getFreshUserBalance(user.id);
+        if (fresh !== undefined) {
+          setBalance(fresh);
+          return;
+        }
+      }
       const localUserStr = localStorage.getItem("base44_local_user");
       if (localUserStr) {
         try {
@@ -184,11 +190,11 @@ export default function TigerBaccarat() {
       updateUserBalance(user.id, safeBal);
     } else {
       try {
-        const localUserStr = localStorage.getItem("base44_local_user");
+        const localUserStr = localStorage.getItem('base44_local_user');
         if (localUserStr) {
           const localUser = JSON.parse(localUserStr);
           localUser.balance = safeBal;
-          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
+          localStorage.setItem('base44_local_user', JSON.stringify(localUser));
         }
       } catch (e) {}
       window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
@@ -255,24 +261,41 @@ export default function TigerBaccarat() {
     if (phase !== "betting") return;
     initAudio();
 
-    const amount = getCurrentChipAmount();
-    const totalCurrentBets = Object.values(bets).reduce((a, b) => a + b, 0);
+    if (user?.is_locked) {
+      toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+      return;
+    }
 
-    if (totalCurrentBets + amount > balance) {
+    const amount = getCurrentChipAmount();
+    if (amount <= 0) return;
+
+    if (amount > balance) {
       toast.error("Số dư ví không đủ để đặt cược thêm!");
       return;
     }
 
     playChipSound();
+
+    // Trừ số tiền cược vào ví ngay khi người chơi đặt chip lên bàn
+    const nextBal = balance - amount;
+    updateGlobalBalance(nextBal);
+
     setBets((prev) => ({
       ...prev,
-      [zoneKey]: prev[zoneKey] + amount,
+      [zoneKey]: (prev[zoneKey] || 0) + amount,
     }));
   };
 
   const handleCancelBets = () => {
     initAudio();
     if (phase !== "betting") return;
+    const totalCurrentBets = Object.values(bets).reduce((a, b) => a + b, 0);
+    if (totalCurrentBets <= 0) return;
+
+    // Hoàn trả toàn bộ số tiền cược đang đặt trên bàn về ví
+    const nextBal = balance + totalCurrentBets;
+    updateGlobalBalance(nextBal);
+
     setBets({
       player: 0,
       banker: 0,
@@ -281,7 +304,7 @@ export default function TigerBaccarat() {
       player_pair: 0,
       banker_pair: 0,
     });
-    toast.info("Đã hủy tất cả cược!");
+    toast.info(`Đã hủy cược và hoàn lại ${fmt(totalCurrentBets)} VNĐ về ví!`);
   };
 
   // Open Bet Confirmation Modal when user taps XÁC NHẬN
@@ -300,11 +323,6 @@ export default function TigerBaccarat() {
       return;
     }
 
-    if (totalBet > balance) {
-      toast.error("Số dư không đủ để đặt ván cược này!");
-      return;
-    }
-
     setShowConfirmModal(true);
   };
 
@@ -312,9 +330,6 @@ export default function TigerBaccarat() {
   const executeGameRound = () => {
     setShowConfirmModal(false);
     const totalBet = Object.values(bets).reduce((a, b) => a + b, 0);
-
-    const newBalAfterBet = balance - totalBet;
-    updateGlobalBalance(newBalAfterBet);
 
     if (user?.id) {
       base44.entities.WalletTransaction.create({
@@ -698,7 +713,7 @@ export default function TigerBaccarat() {
 
             <div className="flex flex-col">
               <span className="text-xs font-bold tracking-wider text-white/90">VIP PLAYER</span>
-              <span className="text-[#d4af37] font-bold text-lg leading-tight">{fmt(balance)}</span>
+              <span className="text-[#d4af37] font-bold text-lg leading-tight">{fmt(balance)} VNĐ</span>
             </div>
           </div>
 
@@ -817,6 +832,7 @@ export default function TigerBaccarat() {
               </div>
             </div>
           </div>
+
 
           {/* Betting Grid (3D Perspective) */}
           <div className="w-[90%] perspective-grid mb-5">
