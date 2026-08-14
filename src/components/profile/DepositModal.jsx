@@ -21,6 +21,9 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
   const numAmount = parseInt(amount) || 0;
 
   const handleSubmit = async () => {
+    if (user?.is_locked) {
+      return toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+    }
     if (numAmount < 10000) return toast.error("Số tiền tối thiểu 10.000 VNĐ");
 
     setSaving(true);

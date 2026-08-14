@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Plus, Minus, Wallet, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 
 const QUICK = [100000, 500000, 1000000, 5000000, 10000000, 50000000];
@@ -30,12 +30,19 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
 
   const handleSubmit = async () => {
     if (numAmount < 1000) return toast.error("Số tiền tối thiểu 1.000 VNĐ");
-    if (mode === "subtract" && numAmount > balance)
-      return toast.error("Số trừ vượt quá số dư hiện tại");
 
     setSaving(true);
     try {
-      const newBal = mode === "add" ? balance + numAmount : Math.max(0, balance - numAmount);
+      // Đọc số dư mới nhất tại thời điểm bấm nút (không dùng state `balance`
+      // đã cache từ lúc mở modal) để 2 lần điều chỉnh liên tiếp cho cùng 1
+      // user không ghi đè lên nhau và làm mất phần thay đổi trước đó
+      const currentBal = getFreshUserBalance(user.id) || balance;
+      if (mode === "subtract" && numAmount > currentBal) {
+        toast.error("Số trừ vượt quá số dư hiện tại");
+        setSaving(false);
+        return;
+      }
+      const newBal = mode === "add" ? currentBal + numAmount : Math.max(0, currentBal - numAmount);
       updateUserBalance(user.id, newBal, mode === "add" ? numAmount : 0);
 
       await base44.entities.WalletTransaction.create({

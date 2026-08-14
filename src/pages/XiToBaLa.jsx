@@ -369,6 +369,10 @@ export default function XiToBaLa() {
 
   // Initial Deal
   const dealNewRound = useCallback(() => {
+    if (user?.is_locked) {
+      toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+      return;
+    }
     if (betAmount > balance) {
       toast.error("Số dư ví không đủ để đặt cược!");
       return;
@@ -389,7 +393,7 @@ export default function XiToBaLa() {
 
     // Deduct initial bet
     updateGlobalBalance(balance - betAmount);
-  }, [betAmount, balance, updateGlobalBalance]);
+  }, [betAmount, balance, updateGlobalBalance, user?.is_locked]);
 
   // Auto deal on first mount
   useEffect(() => {

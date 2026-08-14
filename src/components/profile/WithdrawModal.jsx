@@ -76,6 +76,9 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
 
   // Validate form before moving to PIN verification
   const handleProceedToPin = () => {
+    if (user?.is_locked) {
+      return toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+    }
     if (banks.length === 0) {
       toast.error("Vui lòng liên kết tài khoản ngân hàng trước");
       if (onAddBank) onAddBank();

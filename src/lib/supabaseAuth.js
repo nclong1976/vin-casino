@@ -134,7 +134,7 @@ export function mapSupabaseUser(supaUser, extraData = {}) {
   return {
     id: supaUser.id,
     email: supaUser.email,
-    identifier: supaUser.email,
+    identifier: meta.identifier || supaUser.email,
     full_name: meta.full_name || meta.name || supaUser.email?.split('@')[0] || 'Hội viên VinClub',
     name: meta.full_name || meta.name || supaUser.email?.split('@')[0] || 'Hội viên VinClub',
     phone: meta.phone || '',

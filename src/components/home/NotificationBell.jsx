@@ -37,7 +37,11 @@ export default function NotificationBell() {
     base44.entities.Notification
       .list("-created_date", 50)
       .then((list) => {
-        const userNotifs = (list || []).filter(n => !n.user_id || n.user_id === user.id);
+        // "admin" là giá trị đặc biệt dùng khi user gửi thông báo tới toàn
+        // bộ quản trị viên (không phải id thật) - mọi admin đều cần thấy nó
+        const userNotifs = (list || []).filter(
+          n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin")
+        );
         setNotifs(userNotifs);
       })
       .catch(() => {})

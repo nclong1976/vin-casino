@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
 import { isIdentifierTaken } from "@/lib/supabaseDb";
+import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier";
 import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleIcon from "@/components/GoogleIcon";
@@ -71,16 +72,23 @@ export default function Register() {
 
     setLoading(true);
     try {
-      // (Ưu tiên) Đăng ký qua Supabase Auth
+      const rawIdentifier = email.trim();
+      const authEmail = normalizeIdentifierToAuthEmail(rawIdentifier);
+
+      // (Ưu tiên) Đăng ký qua Supabase Auth - dùng email đã chuẩn hóa để
+      // tài khoản luôn được tạo thật trên Supabase (đăng nhập được từ mọi
+      // thiết bị) kể cả khi người dùng nhập số điện thoại/tên đăng nhập
       let supaData = null;
       try {
-        supaData = await supaSignUp(email, password, {
+        supaData = await supaSignUp(authEmail, password, {
           full_name: fullName,
           name: fullName,
           role: "user",
           balance: 0,
           membership_tier: "VIP 1 - Gold",
           referral_code: referralCode,
+          identifier: rawIdentifier,
+          phone: isPhoneNumber(rawIdentifier) ? rawIdentifier : "",
         });
       } catch (supaErr) {
         console.warn("[Register] Supabase signUp warning:", supaErr.message);

@@ -26,17 +26,31 @@ export default function ContractsTab() {
 
   useEffect(() => {
     fetch();
+
+    // Đăng ký realtime: trước đây tab này chỉ tải 1 lần lúc mount, không có
+    // subscribe nào nên hợp đồng mới từ thiết bị khác không hiện ra cho tới
+    // khi Admin tự tải lại trang
+    const unsub = base44.entities.Transaction.subscribe(() => fetch());
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeTransactionsFromRTDB }) => {
+      unsubRTDB = subscribeTransactionsFromRTDB(() => fetch());
+    }).catch(() => null);
+
+    return () => {
+      unsub();
+      if (typeof unsubRTDB === "function") unsubRTDB();
+    };
   }, []);
 
   const handleAction = async (tx, action) => {
     try {
       await base44.entities.Transaction.update(tx.id, { contract_status: action });
-      if (action === "approved" && tx.created_by_id) {
+      if (action === "approved" && tx.user_id) {
         await base44.entities.Notification.create({
           title: "Hợp đồng đã được duyệt",
           content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã được Admin phê duyệt. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ.`,
           type: "contract",
-          user_id: tx.created_by_id,
+          user_id: tx.user_id,
           is_read: false,
         });
       }

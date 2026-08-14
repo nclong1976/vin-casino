@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
-import { signIn as supaSignIn, mapSupabaseUser } from "@/lib/supabaseAuth";
+import { signIn as supaSignIn, signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
+import { upsertSupabaseUser } from "@/lib/supabaseDb";
+import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier";
 import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff, CheckCircle2, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -74,16 +76,41 @@ export default function Login() {
 
     setLoading(true);
     try {
-      // Ưu tiên đăng nhập qua Supabase Auth
+      const rawIdentifier = email.trim();
+      const authEmail = normalizeIdentifierToAuthEmail(rawIdentifier);
+
+      // Ưu tiên đăng nhập qua Supabase Auth (dùng email đã chuẩn hóa để
+      // khớp với tài khoản được tạo lúc đăng ký, kể cả khi định danh là
+      // số điện thoại/tên đăng nhập chứ không phải email)
       let loginSuccess = false;
       try {
-        await supaSignIn(email, password);
+        await supaSignIn(authEmail, password);
         loginSuccess = true;
       } catch (supaErr) {
-        // Fallback sang base44 legacy nếu Supabase thất bại
+        // Fallback sang base44 legacy (chỉ tồn tại cục bộ trên thiết bị này)
         try {
-          await base44.auth.loginViaEmailPassword(email, password);
+          const legacyResult = await base44.auth.loginViaEmailPassword(rawIdentifier, password);
           loginSuccess = true;
+
+          // "Bảo lưu" tài khoản cũ: mật khẩu vừa được xác thực đúng nhưng
+          // tài khoản này chưa từng tồn tại thật trên Supabase (chỉ có ở
+          // localStorage thiết bị này) - tạo ngay tài khoản Supabase tương
+          // ứng để từ nay đăng nhập được trên mọi thiết bị, không cần
+          // đăng ký lại. Chạy ngầm, không chặn luồng đăng nhập nếu lỗi.
+          const legacyUser = legacyResult?.user;
+          if (legacyUser) {
+            supaSignUp(authEmail, password, {
+              full_name: legacyUser.full_name || legacyUser.name,
+              name: legacyUser.full_name || legacyUser.name,
+              role: legacyUser.role || "user",
+              balance: legacyUser.balance || 0,
+              total_deposited: legacyUser.total_deposited || 0,
+              membership_tier: legacyUser.membership_tier || "VIP 1 - Gold",
+              identifier: rawIdentifier,
+              phone: isPhoneNumber(rawIdentifier) ? rawIdentifier : (legacyUser.phone || ""),
+            }).catch(() => {});
+            upsertSupabaseUser({ ...legacyUser, identifier: rawIdentifier, email: authEmail }).catch(() => {});
+          }
         } catch (legacyErr) {
           throw new Error(supaErr.message || legacyErr.message || "Tài khoản hoặc mật khẩu không chính xác");
         }

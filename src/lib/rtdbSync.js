@@ -585,3 +585,50 @@ export function subscribeSignaturesFromRTDB(onSigReceived) {
   }, (err) => console.warn("[RTDB Signature Sub] Error:", err));
   });
 }
+
+/**
+ * 8. Node: entities/Transaction
+ * Đồng bộ hợp đồng đầu tư (Transaction) thời gian thực - trước đây Admin
+ * phải tự tải lại trang mới thấy hợp đồng mới do người dùng gửi lên.
+ */
+export function subscribeTransactionsFromRTDB(onTxReceived) {
+  return deferredSubscribe(() => {
+  const txRef = ref(rtdb, "entities/Transaction");
+  return onValue(txRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const txData = snapshot.val();
+      const txList = Object.values(txData || {});
+      try {
+        const rawLocal = localStorage.getItem("base44_entity_Transaction");
+        let localTxs = rawLocal ? JSON.parse(rawLocal) : [];
+        let modified = false;
+
+        txList.forEach(t => {
+          if (!t || !t.id) return;
+          const idx = localTxs.findIndex(lt => lt.id === t.id);
+          if (idx === -1) {
+            localTxs.unshift(t);
+            modified = true;
+          } else {
+            if (JSON.stringify(localTxs[idx]) !== JSON.stringify(t)) {
+              localTxs[idx] = t;
+              modified = true;
+            }
+          }
+        });
+
+        if (modified) {
+          localStorage.setItem("base44_entity_Transaction", JSON.stringify(localTxs));
+          if (base44.entities.Transaction) {
+            base44.entities.Transaction.notifySubscribers();
+          }
+        }
+      } catch (e) {}
+
+      if (typeof onTxReceived === "function") {
+        onTxReceived(txList);
+      }
+    }
+  }, (err) => console.warn("[RTDB Transaction Sub] Error:", err));
+  });
+}

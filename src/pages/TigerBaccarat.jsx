@@ -287,6 +287,12 @@ export default function TigerBaccarat() {
   // Open Bet Confirmation Modal when user taps XÁC NHẬN
   const handleConfirmBets = () => {
     initAudio();
+
+    if (user?.is_locked) {
+      toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+      return;
+    }
+
     const totalBet = Object.values(bets).reduce((a, b) => a + b, 0);
 
     if (totalBet === 0) {

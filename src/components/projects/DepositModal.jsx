@@ -142,6 +142,10 @@ export default function DepositModal({ project, onClose }) {
 
   const next = () => {
     if (step === 0) {
+      if (user?.is_locked) {
+        toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+        return;
+      }
       if (!valid) {
         toast.error(`Số tiền tối thiểu là ${fmt(min)} VNĐ`);
         return;

@@ -70,6 +70,7 @@ export default function Admin() {
       if (rtdb.subscribeMessagesFromRTDB) unsubs.push(rtdb.subscribeMessagesFromRTDB(() => fetchStats()));
       if (rtdb.subscribeSignaturesFromRTDB) unsubs.push(rtdb.subscribeSignaturesFromRTDB(() => fetchStats()));
       if (rtdb.subscribeNotificationsFromRTDB) unsubs.push(rtdb.subscribeNotificationsFromRTDB(() => fetchStats()));
+      if (rtdb.subscribeTransactionsFromRTDB) unsubs.push(rtdb.subscribeTransactionsFromRTDB(() => fetchStats()));
     }).catch(() => null);
 
     return () => {
