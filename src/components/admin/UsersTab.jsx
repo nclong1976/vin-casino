@@ -241,10 +241,10 @@ export default function UsersTab() {
               className="px-2.5 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-700 focus:outline-none"
             >
               <option value="all">Tất cả Hạng thẻ</option>
-              <option value="Member">Member</option>
-              <option value="Gold">Gold</option>
-              <option value="Platinum">Platinum</option>
-              <option value="Diamond">Diamond</option>
+              <option value="Member">Member (VIP 0)</option>
+              <option value="Gold">Gold (VIP 1)</option>
+              <option value="Platinum">Platinum (VIP 2)</option>
+              <option value="Diamond">Diamond (VIP 3)</option>
             </select>
 
             {/* Status Filter */}

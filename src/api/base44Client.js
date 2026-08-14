@@ -800,6 +800,8 @@ class FallbackBase44Client {
           role: 'user',
           balance: 0,
           total_deposited: 0,
+          membership_tier: 'Member',
+          vip_level: 'VIP 0',
           created_at: new Date().toISOString()
         };
 

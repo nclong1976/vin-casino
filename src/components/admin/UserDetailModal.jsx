@@ -338,10 +338,10 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                         onChange={(e) => setTier(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[11.5px] font-bold focus:outline-none focus:border-[#948154]"
                       >
-                        <option value="Member">Member</option>
-                        <option value="Gold">Gold</option>
-                        <option value="Platinum">Platinum</option>
-                        <option value="Diamond">Diamond</option>
+                        <option value="Member">Member (VIP 0)</option>
+                        <option value="Gold">Gold (VIP 1)</option>
+                        <option value="Platinum">Platinum (VIP 2)</option>
+                        <option value="Diamond">Diamond (VIP 3)</option>
                       </select>
                     </div>
                   </div>

@@ -79,7 +79,8 @@ export default function Register() {
           name: fullName,
           role: "user",
           balance: 0,
-          membership_tier: "VIP 1 - Gold",
+          membership_tier: "Member",
+          vip_level: "VIP 0",
           referral_code: referralCode,
         });
       } catch (supaErr) {
@@ -111,7 +112,8 @@ export default function Register() {
         const vinUser = mapSupabaseUser(supaData.user, {
           full_name: fullName,
           balance: 0,
-          membership_tier: "VIP 1 - Gold",
+          membership_tier: "Member",
+          vip_level: "VIP 0",
         });
         pushUserToRTDB(vinUser);
         localStorage.setItem("base44_local_user", JSON.stringify(vinUser));

@@ -69,9 +69,9 @@ export function getCardTierInfo(depositAmount = 0) {
   } else {
     return {
       tier: "MEMBER",
-      name: "Thành viên",
-      tierLabel: "MEMBER",
-      fullName: "Thành viên Khởi đầu",
+      name: "Thẻ Member - VIP 0",
+      tierLabel: "MEMBER - VIP 0",
+      fullName: "Thành viên Member - VIP 0",
       image: "https://statics.vinpearl.com/vinclub-member_1723049424.png",
       min: 0,
       max: 1000000000,
@@ -93,7 +93,7 @@ export function getCardTierInfo(depositAmount = 0) {
 export const ALL_CARD_TIERS = [
   {
     tier: "MEMBER",
-    name: "Thành viên",
+    name: "Thẻ Member - VIP 0",
     dailyRateLabel: "0,2%/ngày",
     range: "Dưới 1 Tỷ ₫",
     image: "https://statics.vinpearl.com/vinclub-member_1723049424.png"
