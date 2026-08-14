@@ -711,26 +711,7 @@ class FallbackBase44Client {
 
         const lowerId = cleanIdentifier.toLowerCase();
 
-        // 1. Special Admin Account Check
-        if (lowerId === 'admin1' || lowerId === 'admin1@gmail.com' || lowerId.startsWith('admin1')) {
-          if (cleanPassword !== '228386') {
-            throw new Error("Tài khoản hoặc mật khẩu không chính xác");
-          }
-          const adminUser = {
-            id: 'u_admin1',
-            email: 'admin1@gmail.com',
-            username: 'admin1',
-            phone: '0999999999',
-            name: 'Quản trị viên (admin1)',
-            role: 'admin',
-            balance: 999999999
-          };
-          localStorage.setItem('base44_local_user', JSON.stringify(adminUser));
-          localStorage.setItem('base44_local_token', 'local_token_' + Date.now());
-          return { access_token: 'local_token_' + Date.now(), user: adminUser };
-        }
-
-        // 2. Check registered accounts (supports username, phone, or email)
+        // Check registered accounts (supports username, phone, or email)
         const registeredUsers = getRegisteredUsers();
         const foundUser = registeredUsers.find(u => {
           if (!u) return false;
@@ -747,7 +728,7 @@ class FallbackBase44Client {
           );
         });
 
-        // 3. Reject unregistered accounts or invalid password
+        // Reject unregistered accounts or invalid password
         if (!foundUser || foundUser.password !== cleanPassword) {
           throw new Error("Tài khoản hoặc mật khẩu không chính xác");
         }
