@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { RefreshCw, Coins } from "lucide-react";
+import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import PlayingCard from "@/components/casino/PlayingCard";
 import { useAuth } from "@/lib/AuthContext";
@@ -46,6 +47,7 @@ const RESULT_TEXT = {
 };
 
 export default function BaiCao() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [balance, setBalance] = useState(() => {
     if (user?.balance !== undefined) return Number(user.balance);
@@ -206,7 +208,14 @@ export default function BaiCao() {
 
       {/* Header */}
       <header className="sticky top-0 z-40 w-full bg-[#120d08]/95 backdrop-blur border-b border-[#3a2c14]">
-        <div className="max-w-3xl mx-auto flex items-center justify-center px-4 py-3">
+        <div className="max-w-3xl mx-auto flex items-center justify-center px-4 py-3 relative">
+          <button
+            onClick={() => navigate(-1)}
+            title="Quay lại"
+            className="absolute left-4 w-7 h-7 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-[#e8c87a] transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+          </button>
           <h1 className="text-[13px] sm:text-sm font-semibold tracking-[0.15em] text-[#e8c87a] text-center">BÀI CÀO</h1>
         </div>
       </header>

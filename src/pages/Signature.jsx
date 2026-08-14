@@ -3,11 +3,13 @@ import { motion } from "framer-motion";
 import { PenTool, Type, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import SignatureHeader from "@/components/signature/SignatureHeader";
 import SignaturePad from "@/components/signature/SignaturePad";
 import BottomNav from "@/components/BottomNav";
 
 export default function Signature() {
+  const { user } = useAuth();
   const [mode, setMode] = useState("draw");
   const [typedName, setTypedName] = useState("");
   const [label, setLabel] = useState("");
@@ -15,7 +17,6 @@ export default function Signature() {
   const [saved, setSaved] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [user, setUser] = useState(null);
   const padRef = useRef(null);
 
   const load = async (userId) => {
@@ -32,11 +33,8 @@ export default function Signature() {
   };
 
   useEffect(() => {
-    base44.auth.me().then((me) => {
-      setUser(me);
-      load(me?.id);
-    }).catch(() => load());
-  }, []);
+    if (user?.id) load(user.id);
+  }, [user?.id]);
 
   const canSave = mode === "draw" ? !!drawData : typedName.trim().length > 0;
 

@@ -11,7 +11,7 @@ import { getCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
-import { Receipt, XCircle, Sparkles } from "lucide-react";
+import { Receipt, XCircle, Sparkles, ArrowLeft } from "lucide-react";
 
 // Card Definitions
 const SUITS = [
@@ -730,6 +730,13 @@ export default function TigerBaccarat() {
         <header className="relative z-10 w-full max-w-5xl mx-auto flex justify-between items-center px-4 py-3 sm:py-4">
           {/* Player Info */}
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              title="Quay lại"
+              className="w-9 h-9 rounded-full bg-black/70 border border-[#d4af37]/60 text-amber-300 flex items-center justify-center backdrop-blur-md active:scale-95 transition-transform cursor-pointer shadow-lg shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
             <div className="flex flex-col">
               <span className="text-[11px] font-bold tracking-wider text-white/80">VIP CASINO</span>
               <span className="text-[#d4af37] font-extrabold text-base sm:text-xl leading-tight drop-shadow-md">

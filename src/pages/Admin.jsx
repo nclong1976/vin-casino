@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, CreditCard, TrendingUp, Dices } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import OverviewTab from "@/components/admin/OverviewTab";
@@ -25,6 +25,7 @@ const TABS = [
 ];
 
 export default function Admin() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState({});
 
@@ -83,6 +84,13 @@ export default function Admin() {
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(-1)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 transition-colors shrink-0"
+              title="Quay lại"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
             <div>
               <h1 className="text-[15px] font-bold text-black">Bảng quản trị</h1>
               <p className="text-[10px] text-gray-400">VinClub Admin Panel</p>

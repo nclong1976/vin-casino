@@ -5,7 +5,7 @@ import { base44 } from "@/api/base44Client";
 import { updateUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
-import { User, Minus, Plus, Ban, Coins } from "lucide-react";
+import { User, Minus, Plus, Ban, Coins, ArrowLeft } from "lucide-react";
 
 // Card Definitions
 const SUITS = [
@@ -607,9 +607,18 @@ export default function XiToBaLa() {
       {/* Header Bar */}
       <header className="sticky top-0 z-50 w-full bg-[#131313]/90 backdrop-blur-xl border-b border-[#353534]">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-          <h1 className="text-[14px] sm:text-base font-extrabold uppercase tracking-wider text-[#f2ca50] truncate">
-            Xì Tố Ba Lá
-          </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => navigate(-1)}
+              title="Quay lại"
+              className="w-7 h-7 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-[#f2ca50] transition-colors shrink-0"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+            </button>
+            <h1 className="text-[14px] sm:text-base font-extrabold uppercase tracking-wider text-[#f2ca50] truncate">
+              Xì Tố Ba Lá
+            </h1>
+          </div>
 
           <div className="flex items-center gap-2">
             <span className="text-[#f2ca50] font-bold text-[12px] sm:text-sm font-mono">
