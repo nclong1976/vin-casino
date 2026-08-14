@@ -122,9 +122,17 @@ export default function Profile() {
     };
     window.addEventListener("vinclub:balance_updated", handleDataUpdate);
     window.addEventListener("vinclub:bank_updated", handleDataUpdate);
+
+    // Đăng ký realtime cho lịch sử giao dịch: khi Admin duyệt/từ chối một
+    // lệnh rút, Firestore đẩy cập nhật về và gọi notifySubscribers() ở đây -
+    // trước đây trang này chỉ tải lại khi số dư đổi, nên riêng hành động
+    // "Phê duyệt" (không đổi số dư) không bao giờ cập nhật màn hình người dùng.
+    const unsubWalletTx = base44.entities.WalletTransaction.subscribe(() => fetchData());
+
     return () => {
       window.removeEventListener("vinclub:balance_updated", handleDataUpdate);
       window.removeEventListener("vinclub:bank_updated", handleDataUpdate);
+      unsubWalletTx();
     };
   }, [user, location.search]);
 

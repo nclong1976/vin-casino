@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -58,14 +58,24 @@ export default function WithdrawalsTab() {
   // Ref lưu danh sách ID đã được xử lý (để lọc ra khỏi list)
   const processedIdsRef = useRef(new Set());
 
-  // Fetch Data
-  const fetchData = async (force = false) => {
+  // Fetch danh sách user - tách riêng khỏi giao dịch vì ít thay đổi hơn
+  // nhiều, không cần tải lại mỗi khi có một giao dịch ví bất kỳ trong hệ thống
+  const fetchUsers = async () => {
+    try {
+      const userList = await base44.entities.User.list().catch(() => []);
+      setUsers(userList);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Fetch lệnh rút tiền + audit log
+  const fetchWithdrawals = async (force = false) => {
     // Bỏ qua nếu đang xử lý approve/reject (trừ khi force=true)
     if (isProcessingRef.current && !force) return;
     try {
-      const [txs, userList, logs] = await Promise.all([
+      const [txs, logs] = await Promise.all([
         base44.entities.WalletTransaction.filter({ type: "withdraw" }, "-created_date", 500).catch(() => []),
-        base44.entities.User.list().catch(() => []),
         base44.entities.AuditLog.list("-created_date", 100).catch(() => []),
       ]);
 
@@ -77,7 +87,6 @@ export default function WithdrawalsTab() {
         merged.sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0));
         return merged;
       });
-      setUsers(userList);
       setAuditLogs(logs);
     } catch (e) {
       console.error(e);
@@ -87,15 +96,13 @@ export default function WithdrawalsTab() {
   };
 
   // Fetch lần đầu (full reset)
-  const fetchDataFull = async () => {
+  const fetchWithdrawalsFull = async () => {
     try {
-      const [txs, userList, logs] = await Promise.all([
+      const [txs, logs] = await Promise.all([
         base44.entities.WalletTransaction.filter({ type: "withdraw" }, "-created_date", 500).catch(() => []),
-        base44.entities.User.list().catch(() => []),
         base44.entities.AuditLog.list("-created_date", 100).catch(() => []),
       ]);
       setWithdrawals(txs);
-      setUsers(userList);
       setAuditLogs(logs);
       processedIdsRef.current.clear();
     } catch (e) {
@@ -106,15 +113,20 @@ export default function WithdrawalsTab() {
   };
 
   useEffect(() => {
-    fetchDataFull();
+    fetchUsers();
+    fetchWithdrawalsFull();
 
     // Subscribe real-time — bỏ qua khi đang xử lý
-    const unsub = base44.entities.WalletTransaction.subscribe(() => {
+    const unsubWt = base44.entities.WalletTransaction.subscribe(() => {
       if (!isProcessingRef.current) {
-        fetchData();
+        fetchWithdrawals();
       }
     });
-    return () => unsub();
+    const unsubUser = base44.entities.User.subscribe(() => fetchUsers());
+    return () => {
+      unsubWt();
+      unsubUser();
+    };
   }, []);
 
   // User lookup map
@@ -206,13 +218,13 @@ export default function WithdrawalsTab() {
       setTimeout(() => {
         isProcessingRef.current = false;
         processedIdsRef.current.delete(txId);
-        fetchDataFull();
+        fetchWithdrawalsFull();
       }, 1500);
     } catch (err) {
       // Rollback
       processedIdsRef.current.delete(txId);
       isProcessingRef.current = false;
-      fetchDataFull();
+      fetchWithdrawalsFull();
       toast.error("Không thể hoàn tất phê duyệt. Vui lòng thử lại.");
     } finally {
       setProcessing(false);
@@ -250,8 +262,10 @@ export default function WithdrawalsTab() {
         rejected_by: adminUser?.email || "Admin",
       });
 
-      // Hoàn tiền về ví người dùng
-      const currentBal = Number(userInfo?.balance || 0);
+      // Hoàn tiền về ví người dùng - đọc số dư mới nhất tại thời điểm xử lý
+      // (không dùng userInfo.balance từ state cache) để 2 lệnh từ chối liên
+      // tiếp của cùng 1 user không ghi đè và làm mất khoản hoàn của nhau
+      const currentBal = getFreshUserBalance(userId);
       updateUserBalance(userId, currentBal + amount);
 
       await base44.entities.WalletTransaction.create({
@@ -288,13 +302,13 @@ export default function WithdrawalsTab() {
       setTimeout(() => {
         isProcessingRef.current = false;
         processedIdsRef.current.delete(txId);
-        fetchDataFull();
+        fetchWithdrawalsFull();
       }, 1500);
     } catch (err) {
       // Rollback
       processedIdsRef.current.delete(txId);
       isProcessingRef.current = false;
-      fetchDataFull();
+      fetchWithdrawalsFull();
       toast.error("Không thể xử lý từ chối. Vui lòng thử lại.");
     } finally {
       setProcessing(false);

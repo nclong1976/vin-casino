@@ -104,3 +104,32 @@ export function getUserBalance(user) {
   if (!user) return 0;
   return Number(user.balance || 0);
 }
+
+/**
+ * Đọc số dư hiện tại của user trực tiếp từ localStorage (nguồn ghi thật sự
+ * của updateUserBalance) thay vì dùng snapshot React state có thể đã cũ.
+ * Dùng trước khi cộng/trừ số dư để tránh 2 thao tác liên tiếp (vd: từ chối
+ * 2 lệnh rút của cùng 1 user trong thời gian ngắn) ghi đè lên nhau và làm
+ * mất phần thay đổi của thao tác trước.
+ */
+export function getFreshUserBalance(userId) {
+  if (!userId) return 0;
+  try {
+    const rawUsers = localStorage.getItem('base44_registered_users');
+    const users = rawUsers ? JSON.parse(rawUsers) : [];
+    const found = users.find(u => u.id === userId || u.email === userId);
+    if (found) return Number(found.balance || 0);
+  } catch (e) {}
+
+  try {
+    const currentLocalStr = localStorage.getItem('base44_local_user');
+    if (currentLocalStr) {
+      const currentLocal = JSON.parse(currentLocalStr);
+      if (currentLocal.id === userId || currentLocal.email === userId) {
+        return Number(currentLocal.balance || 0);
+      }
+    }
+  } catch (e) {}
+
+  return 0;
+}

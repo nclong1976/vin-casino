@@ -526,6 +526,9 @@ class LocalEntityClient {
           });
         } else if (this.entityName === 'WalletTransaction') {
           updateSupabaseWalletTransaction(id, updated).catch(() => null);
+          import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
+            pushWalletTransactionToRTDB(updated);
+          });
         }
 
         import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
