@@ -24,7 +24,7 @@ const defaultConfig = {
   devicePreviewMode: "auto", // "auto" | "mobile" | "tablet" | "desktop"
 };
 
-const ConfigContext = createContext();
+const ConfigContext = createContext(null);
 
 export const ConfigProvider = ({ children }) => {
   const [config, setConfig] = useState(() => {
