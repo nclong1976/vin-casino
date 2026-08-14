@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Home, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import ContractDocument from "@/components/projects/ContractDocument";
@@ -75,20 +75,8 @@ export default function Contract() {
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <header className="sticky top-0 z-40 w-full bg-white border-b border-gray-100">
-        <div className="max-w-4xl mx-auto flex items-center justify-between px-4 py-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-gray-100 cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <h1 className="text-[14px] font-bold text-black">Hợp đồng đầu tư</h1>
-          <Link
-            to="/"
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
-          >
-            <Home className="w-4 h-4" />
-          </Link>
+        <div className="max-w-4xl mx-auto flex items-center justify-center px-4 py-3">
+          <h1 className="text-[14px] sm:text-base font-bold text-black text-center">Hợp đồng đầu tư</h1>
         </div>
       </header>
 

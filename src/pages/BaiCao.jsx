@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Home as HomeIcon, RefreshCw, Coins } from "lucide-react";
+import { RefreshCw, Coins } from "lucide-react";
 import { toast } from "sonner";
 import PlayingCard from "@/components/casino/PlayingCard";
 import { useAuth } from "@/lib/AuthContext";
@@ -207,14 +206,8 @@ export default function BaiCao() {
 
       {/* Header */}
       <header className="sticky top-0 z-40 w-full bg-[#120d08]/95 backdrop-blur border-b border-[#3a2c14]">
-        <div className="max-w-3xl mx-auto flex items-center justify-between px-4 py-3">
-          <Link to="/casino" className="p-1 -m-1 active:scale-90 transition-transform">
-            <ArrowLeft className="w-4 h-4 text-[#e8c87a]" />
-          </Link>
-          <h1 className="text-[13px] sm:text-sm font-semibold tracking-[0.15em] text-[#e8c87a]">BÀI CÀO</h1>
-          <Link to="/" className="p-1 -m-1 active:scale-90 transition-transform">
-            <HomeIcon className="w-4 h-4 text-[#e8c87a]" />
-          </Link>
+        <div className="max-w-3xl mx-auto flex items-center justify-center px-4 py-3">
+          <h1 className="text-[13px] sm:text-sm font-semibold tracking-[0.15em] text-[#e8c87a] text-center">BÀI CÀO</h1>
         </div>
       </header>
 

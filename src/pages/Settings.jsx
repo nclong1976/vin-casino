@@ -72,13 +72,6 @@ export default function Settings() {
       {/* Header bar */}
       <header className="sticky top-0 z-40 bg-[#16181a]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-8 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link 
-            to="/" 
-            onClick={() => triggerSound("click")}
-            className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-white/80" />
-          </Link>
           <div>
             <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2 text-white">
               <Sliders className="w-5 h-5 text-[#c5a070]" style={{ color: config.primaryColor }} />

@@ -83,9 +83,6 @@ export default function Admin() {
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Link to="/" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600">
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
             <div>
               <h1 className="text-[15px] font-bold text-black">Bảng quản trị</h1>
               <p className="text-[10px] text-gray-400">VinClub Admin Panel</p>

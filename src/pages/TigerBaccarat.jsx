@@ -733,15 +733,6 @@ export default function TigerBaccarat() {
         <header className="relative z-10 w-full max-w-5xl mx-auto flex justify-between items-center px-4 py-3 sm:py-4">
           {/* Player Info */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/casino")}
-              className="w-10 h-10 rounded-full bg-black/60 border border-white/30 flex items-center justify-center backdrop-blur-md active:scale-95 transition-transform cursor-pointer"
-            >
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M15.75 19.5L8.25 12l7.5-7.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-
             <div className="flex flex-col">
               <span className="text-[11px] font-bold tracking-wider text-white/80">VIP CASINO</span>
               <span className="text-[#d4af37] font-extrabold text-base sm:text-xl leading-tight drop-shadow-md">

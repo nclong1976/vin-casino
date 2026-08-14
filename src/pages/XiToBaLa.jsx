@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
 import { updateUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
-import { ArrowLeft, User, Minus, Plus, Ban, Coins } from "lucide-react";
+import { User, Minus, Plus, Ban, Coins } from "lucide-react";
 
 // Card Definitions
 const SUITS = [
@@ -608,10 +607,6 @@ export default function XiToBaLa() {
       {/* Header Bar */}
       <header className="sticky top-0 z-50 w-full bg-[#131313]/90 backdrop-blur-xl border-b border-[#353534]">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/casino" className="w-9 h-9 flex items-center justify-center text-[#e5e2e1] active:scale-90 transition-transform">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-
           <h1 className="text-[14px] sm:text-base font-extrabold uppercase tracking-wider text-[#f2ca50] truncate">
             Xì Tố Ba Lá
           </h1>

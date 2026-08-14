@@ -1,23 +1,11 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Home } from "lucide-react";
 
 export default function ProfileHeader() {
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-white/65 backdrop-blur-md border-b border-white/40 shadow-xs transition-all">
-      <Link
-        to="/"
-        className="w-8 h-8 flex items-center justify-center rounded-full text-gray-700 bg-white/40 hover:bg-white/70 backdrop-blur-xs border border-white/30 transition-all"
-      >
-        <ArrowLeft className="w-4 h-4" />
-      </Link>
-      <h1 className="text-[14px] font-bold text-black drop-shadow-2xs">Cá nhân</h1>
-      <Link
-        to="/"
-        className="w-8 h-8 flex items-center justify-center rounded-full text-gray-700 bg-white/40 hover:bg-white/70 backdrop-blur-xs border border-white/30 transition-all"
-      >
-        <Home className="w-4 h-4" />
-      </Link>
+    <header className="sticky top-0 z-40 w-full bg-white/75 backdrop-blur-md border-b border-white/40 shadow-xs transition-all">
+      <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-center">
+        <h1 className="text-[15px] sm:text-base font-bold text-black drop-shadow-2xs text-center">Cá nhân</h1>
+      </div>
     </header>
   );
 }
