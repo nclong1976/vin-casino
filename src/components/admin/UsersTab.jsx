@@ -12,6 +12,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { listSupabaseUsers } from "@/lib/supabaseDb";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
 import { toast } from "sonner";
@@ -45,10 +46,16 @@ export default function UsersTab() {
     setLoading(true);
     Promise.all([
       base44.entities.User.list().catch(() => []),
+      listSupabaseUsers().catch(() => []),
       base44.entities.WalletTransaction.list("-created_date", 1000).catch(() => []),
-    ]).then(([userList, wts]) => {
+    ]).then(([localUserList, supaUserList, wts]) => {
       const mergedMap = {};
-      (userList || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
+      (localUserList || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
+      (supaUserList || []).forEach(su => {
+        if (su && (su.id || su.email)) {
+          mergedMap[su.id || su.email] = { ...(mergedMap[su.id || su.email] || {}), ...su };
+        }
+      });
       (rtdbUsersRef.current || []).forEach(ru => {
         if (ru && (ru.id || ru.email)) {
           mergedMap[ru.id || ru.email] = { ...(mergedMap[ru.id || ru.email] || {}), ...ru };

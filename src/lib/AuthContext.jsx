@@ -5,6 +5,7 @@ import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/lib/rtdbSync';
 import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
+import { startTwoWaySync } from '@/lib/twoWaySync';
 
 const AuthContext = createContext(null);
 
@@ -24,6 +25,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     setAppPublicSettings({ id: appParams.appId || 'vin-investment-app', public_settings: {} });
     setIsLoadingPublicSettings(false);
+
+    // Khởi động hệ thống đồng bộ hai chiều Supabase <-> Firebase RTDB
+    const stopTwoWaySync = startTwoWaySync();
 
     // Kiểm tra session đang tồn tại khi khởi động app
     const initAuth = async () => {
@@ -86,6 +90,7 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       if (typeof unsubSupabase === 'function') unsubSupabase();
+      if (typeof stopTwoWaySync === 'function') stopTwoWaySync();
     };
   }, []);
 

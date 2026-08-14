@@ -1,5 +1,11 @@
 import { appParams } from '@/lib/app-params';
 import { pushUserToRTDB } from '@/lib/rtdbSync';
+import { 
+  upsertSupabaseUser, 
+  updateSupabaseUser, 
+  createSupabaseWalletTransaction, 
+  updateSupabaseWalletTransaction 
+} from '@/lib/supabaseDb';
 
 // LocalStorage fallback implementation
 const entityNames = [
@@ -459,25 +465,21 @@ class LocalEntityClient {
     setLocalStore(this.entityName, items);
     this.notifySubscribers();
 
-    // Đẩy thay đổi lên Firestore & Realtime Database không đồng bộ để giữ UX mượt mà
+    // Đẩy thay đổi lên Supabase Database, Firestore & Realtime Database
     try {
-      import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
-        pushEntityToFirestore(this.entityName, newItem.id, newItem, 'upsert');
-      });
-      import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
-        pushGenericEntityToRTDB(this.entityName, newItem.id, newItem);
-      });
-      if (this.entityName === 'Message') {
-        import('@/lib/rtdbSync').then(({ pushMessageToRTDB }) => {
-          pushMessageToRTDB(newItem);
-        });
-      } else if (this.entityName === 'User') {
+      if (this.entityName === 'User') {
+        upsertSupabaseUser(newItem).catch(() => null);
         import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
           pushUserToRTDB(newItem);
         });
       } else if (this.entityName === 'WalletTransaction') {
+        createSupabaseWalletTransaction(newItem).catch(() => null);
         import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
           pushWalletTransactionToRTDB(newItem);
+        });
+      } else if (this.entityName === 'Message') {
+        import('@/lib/rtdbSync').then(({ pushMessageToRTDB }) => {
+          pushMessageToRTDB(newItem);
         });
       } else if (this.entityName === 'Notification') {
         import('@/lib/rtdbSync').then(({ pushNotificationToRTDB }) => {
@@ -488,8 +490,15 @@ class LocalEntityClient {
           pushProjectToRTDB(newItem);
         });
       }
+
+      import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
+        pushEntityToFirestore(this.entityName, newItem.id, newItem, 'upsert');
+      });
+      import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
+        pushGenericEntityToRTDB(this.entityName, newItem.id, newItem);
+      });
     } catch (e) {
-      console.error("Lỗi đồng bộ Firestore/RTDB (create):", e);
+      console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (create):", e);
     }
 
     return newItem;
@@ -510,16 +519,20 @@ class LocalEntityClient {
 
     if (updated) {
       try {
-        import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
-          pushEntityToFirestore(this.entityName, id, updated, 'upsert');
-        });
         if (this.entityName === 'User') {
+          updateSupabaseUser(id, updated).catch(() => null);
           import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
             pushUserToRTDB(updated);
           });
+        } else if (this.entityName === 'WalletTransaction') {
+          updateSupabaseWalletTransaction(id, updated).catch(() => null);
         }
+
+        import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
+          pushEntityToFirestore(this.entityName, id, updated, 'upsert');
+        });
       } catch (e) {
-        console.error("Lỗi đồng bộ Firestore/RTDB (update):", e);
+        console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (update):", e);
       }
     }
 
@@ -787,8 +800,9 @@ class FallbackBase44Client {
         registeredUsers.push(newUser);
         localStorage.setItem('base44_registered_users', JSON.stringify(registeredUsers));
 
-        // Synchronously push new user to Firebase Realtime Database for instant Admin sync across all devices
+        // Đẩy user lên Supabase Database (PostgreSQL) và Firebase RTDB
         try {
+          upsertSupabaseUser(newUser).catch(() => null);
           await pushUserToRTDB(newUser);
         } catch (e) {
           console.warn("pushUserToRTDB registration error:", e);

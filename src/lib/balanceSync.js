@@ -1,4 +1,5 @@
 import { pushUserToRTDB } from '@/lib/rtdbSync';
+import { syncUserToSupabase } from '@/lib/twoWaySync';
 
 export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
   if (!userId) return null;
@@ -76,6 +77,13 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
       pushUserToRTDB(updatedUser);
     } catch (e) {
       console.warn("pushUserToRTDB error in updateUserBalance:", e);
+    }
+
+    // 4b. Push updated balance to Supabase Database (PostgreSQL)
+    try {
+      syncUserToSupabase(updatedUser, { debounceMs: 0 });
+    } catch (e) {
+      console.warn("syncUserToSupabase error in updateUserBalance:", e);
     }
 
     // 5. Dispatch custom event for real-time UI synchronization across all open pages & components
