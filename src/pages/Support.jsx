@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import SupportHeader from "@/components/support/SupportHeader";
 import MessageBubble from "@/components/support/MessageBubble";
 import ChatInput from "@/components/support/ChatInput";
-import BottomNav from "@/components/BottomNav";
 
 export default function Support() {
   const [user, setUser] = useState(null);
@@ -164,7 +163,6 @@ export default function Support() {
       </div>
 
       <ChatInput onSend={handleSend} sending={sending} />
-      <BottomNav />
     </main>
   );
 }

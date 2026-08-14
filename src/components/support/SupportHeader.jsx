@@ -1,17 +1,19 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Home } from "lucide-react";
 import cskhIcon from "@/assets/images/regenerated_image_1786328347646.png";
 
 export default function SupportHeader() {
+  const navigate = useNavigate();
   return (
     <header className="sticky top-0 z-40 flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-[#948154] via-[#7d6c43] to-[#594c2e] text-white shadow-md">
-      <Link
-        to="/"
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
         className="w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 text-white backdrop-blur-xs transition-all border border-white/20"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-      </Link>
+      </button>
       <div className="flex items-center gap-2" style={{ display: "flex", alignItems: "center", width: "100%", overflow: "hidden" }}>
         <div className="relative shrink-0">
           <div className="w-7 h-7 rounded-full bg-white/20 border border-white/30 flex items-center justify-center p-1">
