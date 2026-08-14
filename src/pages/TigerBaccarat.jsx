@@ -67,6 +67,7 @@ const CHIP_VALUES = [
   { label: "10K", value: 10000, bgClass: "bg-[#1976d2] border-white/60 text-white font-bold text-xs" },
   { label: "50K", value: 50000, bgClass: "bg-[#e53935] border-white/60 text-white font-bold text-xs" },
   { label: "100K", value: 100000, bgClass: "bg-[#43a047] border-white/60 text-white font-bold text-xs" },
+  { label: "50%", value: 0.5, isPercent: true, bgClass: "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 border-white text-black font-black text-xs shadow-md" },
   { label: "500K", value: 500000, bgClass: "bg-[#f57c00] border-white/60 text-white font-bold text-xs" },
   { label: "2M", value: 2000000, bgClass: "bg-[#7b1fa2] border-white/60 text-white font-bold text-xs" },
   { label: "5M", value: 5000000, bgClass: "bg-[#d32f2f] border-white/60 text-white font-bold text-sm" },
@@ -86,10 +87,8 @@ export default function TigerBaccarat() {
   const odds205 = !!gameSettings?.odds205;
   const [showMyBets, setShowMyBets] = useState(false);
 
-  // Dealer image per game variant
-  const bgImage = isLongHo
-    ? "https://lh3.googleusercontent.com/aida-public/AB6AXuAbPyMkkA-oNWH3VWIBa7To7lvUJhBRUmuTxTNIUrZuAdmwGFfkY8wmtzmkx2eQu3qiGbfVgO2Crltli1C7lj6AxmP_9LCYekOJtNIldYWvsNwWpp42r66O2UHcsnKDGkcruchbW8C9nG89pfx1NR0hxK_6vIZY6wA64ZzzhJZmdyv4fMSQjsS_JxqE-8q26tQJL_FrIfZKWpq6l-0R8ij_Wc67nmd0GWwu_o4PrPzmYqjoQZlxu91mZw"
-    : "https://lh3.googleusercontent.com/aida/AP1WRLuJnMCrAeOpa0z00-bz6avUjpMK5SRRy0jSbAoZ3W4weGE_YVk2ZLlYdXNTjbB2rwt2myoMOf4261UcWeOAESD4tJwVxPpEtlBpr_rwWKaF_k6oCM6tzGZm76HxfpKpX_gh0nDE_xXEcNZwV8hm-3SeG-XMxP-Wt5ufZKMIx4aYh4bmWM2z65IJFtfKB03wGamFb0u-HZBalCHYIxMiOfm47IpCa6oKi0iFd3R-jVZvYvfkme3JREBXvl8j";
+  // Dealer image: Khôi phục hình ảnh người đàn ông chia bài chuẩn Casino
+  const bgImage = "https://lh3.googleusercontent.com/aida-public/AB6AXuAbPyMkkA-oNWH3VWIBa7To7lvUJhBRUmuTxTNIUrZuAdmwGFfkY8wmtzmkx2eQu3qiGbfVgO2Crltli1C7lj6AxmP_9LCYekOJtNIldYWvsNwWpp42r66O2UHcsnKDGkcruchbW8C9nG89pfx1NR0hxK_6vIZY6wA64ZzzhJZmdyv4fMSQjsS_JxqE-8q26tQJL_FrIfZKWpq6l-0R8ij_Wc67nmd0GWwu_o4PrPzmYqjoQZlxu91mZw";
 
   // Balance Management
   const [balance, setBalance] = useState(() => {
@@ -954,7 +953,7 @@ export default function TigerBaccarat() {
           </div>
 
           {/* Chip Selector */}
-          <div className="flex justify-center items-center gap-2 mb-5 w-full px-4">
+          <div className="flex items-center justify-start sm:justify-center gap-2 mb-5 w-full px-3 overflow-x-auto no-scrollbar py-1">
             {CHIP_VALUES.map((chip, idx) => {
               const isSelected = selectedChipIndex === idx;
               return (
