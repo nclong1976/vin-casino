@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
 import { updateUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
-import { ArrowLeft, User, Minus, Plus, Ban, Coins } from "lucide-react";
+import { User, Minus, Plus, Ban, Coins } from "lucide-react";
 
 // Card Definitions
 const SUITS = [
@@ -480,7 +479,7 @@ export default function XiToBaLa() {
   };
 
   return (
-    <div className="relative w-full max-w-[340px] mx-auto min-h-screen bg-[#131313] text-[#e5e2e1] font-heading select-none overflow-hidden pb-12">
+    <div className="relative w-full min-h-screen bg-[#131313] text-[#e5e2e1] font-heading select-none overflow-x-hidden pb-16 flex flex-col justify-between">
       {/* CSS Rules */}
       <style>{`
         .perspective { perspective: 1000px; }
@@ -606,30 +605,28 @@ export default function XiToBaLa() {
       )}
 
       {/* Header Bar */}
-      <header className="sticky top-0 z-50 bg-[#131313]/90 backdrop-blur-xl border-b border-[#353534] px-4 h-14 flex items-center justify-between">
-        <Link to="/casino" className="w-9 h-9 flex items-center justify-center text-[#e5e2e1] active:scale-90 transition-transform">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
+      <header className="sticky top-0 z-50 w-full bg-[#131313]/90 backdrop-blur-xl border-b border-[#353534]">
+        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
+          <h1 className="text-[14px] sm:text-base font-extrabold uppercase tracking-wider text-[#f2ca50] truncate">
+            Xì Tố Ba Lá
+          </h1>
 
-        <h1 className="text-[14px] font-extrabold uppercase tracking-wider text-[#f2ca50] truncate">
-          Xì Tố Ba Lá
-        </h1>
-
-        <div className="flex items-center gap-2">
-          <span className="text-[#f2ca50] font-bold text-[12px] font-mono">
-            {fmt(balance)}
-          </span>
-          <div
-            ref={balanceTargetRef}
-            className="w-8 h-8 rounded-full bg-[#f2ca50] flex items-center justify-center ring-2 ring-[#f2ca50]/30 shadow-md transition-transform text-[#3c2f00]"
-          >
-            <User className="w-4 h-4" />
+          <div className="flex items-center gap-2">
+            <span className="text-[#f2ca50] font-bold text-[12px] sm:text-sm font-mono">
+              {fmt(balance)}
+            </span>
+            <div
+              ref={balanceTargetRef}
+              className="w-8 h-8 rounded-full bg-[#f2ca50] flex items-center justify-center ring-2 ring-[#f2ca50]/30 shadow-md transition-transform text-[#3c2f00]"
+            >
+              <User className="w-4 h-4" />
+            </div>
           </div>
         </div>
       </header>
 
       {/* Main Game Table Container */}
-      <main className="relative w-full pt-2 flex flex-col items-center">
+      <main className="relative w-full max-w-2xl mx-auto pt-2 flex flex-col items-center flex-1 justify-between">
         <div className="relative w-full aspect-[3/4] max-h-[580px] flex items-center justify-center p-3">
           {/* Emerald Felt Table */}
           <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 aspect-[4/5] rounded-[130px] shadow-[inset_0_0_90px_rgba(0,0,0,0.85),0_15px_40px_rgba(0,0,0,0.6)] overflow-hidden bg-[#0a4d33]">

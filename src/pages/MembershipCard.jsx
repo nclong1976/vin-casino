@@ -82,10 +82,10 @@ export default function MembershipCard() {
   const neededForNext = nextMin ? Math.max(0, nextMin - depositSum) : 0;
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <PageHeader title="Thẻ thành viên VinClub" />
 
-      <div className="px-3 py-3 pb-20 space-y-4">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {loading ? (
           <div className="text-center py-10 text-[12px] text-gray-400">Đang tải thẻ...</div>
         ) : (

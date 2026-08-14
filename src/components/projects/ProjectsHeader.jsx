@@ -1,19 +1,13 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Home as HomeIcon } from "lucide-react";
 
 export default function ProjectsHeader() {
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-[#1a1410] border-b border-[#2a2218]">
-      <Link to="/" className="p-1 -m-1 active:scale-90 transition-transform">
-        <ArrowLeft className="w-4 h-4 text-[#FDFDFD]" />
-      </Link>
-      <h1 className="text-[14px] font-semibold tracking-wide text-[#FDFDFD]">
-        DỰ ÁN
-      </h1>
-      <Link to="/" className="p-1 -m-1 active:scale-90 transition-transform">
-        <HomeIcon className="w-4 h-4 text-[#FDFDFD]" />
-      </Link>
+    <header className="sticky top-0 z-40 w-full bg-[#1a1410] border-b border-[#2a2218]">
+      <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-center">
+        <h1 className="text-[14px] sm:text-base font-semibold tracking-wide text-[#FDFDFD] text-center">
+          DỰ ÁN
+        </h1>
+      </div>
     </header>
   );
 }

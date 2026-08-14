@@ -36,8 +36,6 @@ import News from './pages/News';
 import MembershipCard from './pages/MembershipCard';
 import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
 
-import RealTimeMonitor from '@/components/shared/RealTimeMonitor';
-
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
@@ -111,7 +109,6 @@ function App() {
           <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <AuthenticatedApp />
           </Router>
-          <RealTimeMonitor />
           <Toaster />
         </QueryClientProvider>
       </AuthProvider>

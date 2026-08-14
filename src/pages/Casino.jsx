@@ -22,24 +22,26 @@ const games = [
 
 export default function Casino() {
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#0c0905] overflow-clip font-heading">
-      <CasinoHeader />
+    <main className="relative w-full min-h-screen bg-[#0c0905] overflow-x-hidden font-heading flex flex-col justify-between">
+      <div className="w-full">
+        <CasinoHeader />
 
-      <div className="px-3 py-4 pb-20">
-        <h2 className="text-[14px] font-bold text-center text-[#e8c87a] tracking-wide mb-1">
-          HỆ THỐNG TRÒ CHƠI TẠI CASINO CORONA
-        </h2>
-        <div className="w-12 h-[2px] bg-[#caa45a] mx-auto mb-4 rounded-full" />
+        <div className="w-full max-w-5xl mx-auto px-4 py-6 pb-24">
+          <h2 className="text-base sm:text-lg font-bold text-center text-[#e8c87a] tracking-wide mb-1.5 uppercase">
+            HỆ THỐNG TRÒ CHƠI TẠI CASINO CORONA
+          </h2>
+          <div className="w-16 h-[2px] bg-[#caa45a] mx-auto mb-6 rounded-full" />
 
-        <div className="grid grid-cols-3 gap-2.5">
-          {games.map((game, index) => (
-            <GameCard key={game.name} game={game} index={index} />
-          ))}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
+            {games.map((game, index) => (
+              <GameCard key={game.name} game={game} index={index} />
+            ))}
+          </div>
+
+          <p className="text-[11px] text-[#8a7550] text-center pt-8 leading-relaxed">
+            Trò chơi mang tính giải trí. Vui chơi có trách nhiệm.
+          </p>
         </div>
-
-        <p className="text-[9px] text-[#8a7550] text-center pt-4 leading-relaxed">
-          Trò chơi mang tính giải trí. Vui chơi có trách nhiệm.
-        </p>
       </div>
 
       <BottomNav />

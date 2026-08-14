@@ -116,9 +116,9 @@ export default function Resort() {
   }, []);
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <PageHeader title="Đầu tư nghỉ dưỡng" />
-      <div className="px-3 py-4 pb-20 space-y-4">
+      <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
         <div className="bg-gradient-to-br from-[#948154] to-[#6b5e3e] rounded-2xl p-4 text-white shadow-md">
           <h2 className="text-[14px] font-bold">Vinpearl Resort & Villa</h2>
           <p className="text-[11px] text-white/80 mt-1">

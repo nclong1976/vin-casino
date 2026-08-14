@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Home, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import ContractDocument from "@/components/projects/ContractDocument";
@@ -57,14 +57,14 @@ export default function Contract() {
 
   if (loading)
     return (
-      <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] font-heading flex items-center justify-center">
+      <main className="relative w-full min-h-screen bg-[#f5f5f5] font-heading flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-gray-200 border-t-[#948154] rounded-full animate-spin" />
       </main>
     );
 
   if (!tx)
     return (
-      <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] font-heading flex flex-col items-center justify-center gap-2">
+      <main className="relative w-full min-h-screen bg-[#f5f5f5] font-heading flex flex-col items-center justify-center gap-2">
         <p className="text-[12px] text-gray-500">Không tìm thấy hợp đồng</p>
         <Link to="/profile" className="text-[11px] text-[#948154]">
           Quay lại
@@ -73,24 +73,14 @@ export default function Contract() {
     );
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
-      <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100">
-        <button
-          onClick={() => navigate(-1)}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <h1 className="text-[14px] font-bold text-black">Hợp đồng đầu tư</h1>
-        <Link
-          to="/"
-          className="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
-        >
-          <Home className="w-4 h-4" />
-        </Link>
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
+      <header className="sticky top-0 z-40 w-full bg-white border-b border-gray-100">
+        <div className="max-w-4xl mx-auto flex items-center justify-center px-4 py-3">
+          <h1 className="text-[14px] sm:text-base font-bold text-black text-center">Hợp đồng đầu tư</h1>
+        </div>
       </header>
 
-      <div className="px-3 py-4 pb-20 space-y-3">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {signed && (
           <div className="flex items-center gap-2 bg-green-50 rounded-xl p-2.5">
             <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />

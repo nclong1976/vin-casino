@@ -11,7 +11,7 @@ import { getCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
-import { Receipt } from "lucide-react";
+import { Receipt, XCircle, Sparkles } from "lucide-react";
 
 // Card Definitions
 const SUITS = [
@@ -62,15 +62,15 @@ const fmtShort = (n) => {
   return n.toString();
 };
 
-// Preset Chip Values
+// Neutral Preset Chip Values (Không ưu tiên gợi ý - Đồng đều, sang trọng)
 const CHIP_VALUES = [
-  { label: "10K", value: 10000, bgClass: "bg-[#1976d2] border-white/60 text-white font-bold text-xs" },
-  { label: "50K", value: 50000, bgClass: "bg-[#e53935] border-white/60 text-white font-bold text-xs" },
-  { label: "100K", value: 100000, bgClass: "bg-[#43a047] border-white/60 text-white font-bold text-xs" },
-  { label: "50%", value: 0.5, isPercent: true, bgClass: "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 border-white text-black font-black text-xs shadow-md" },
-  { label: "500K", value: 500000, bgClass: "bg-[#f57c00] border-white/60 text-white font-bold text-xs" },
-  { label: "2M", value: 2000000, bgClass: "bg-[#7b1fa2] border-white/60 text-white font-bold text-xs" },
-  { label: "5M", value: 5000000, bgClass: "bg-[#d32f2f] border-white/60 text-white font-bold text-sm" },
+  { label: "10K", value: 10000, bgClass: "bg-blue-700 border-blue-400/70 text-white font-bold" },
+  { label: "50K", value: 50000, bgClass: "bg-red-700 border-red-400/70 text-white font-bold" },
+  { label: "100K", value: 100000, bgClass: "bg-emerald-700 border-emerald-400/70 text-white font-bold" },
+  { label: "500K", value: 500000, bgClass: "bg-amber-700 border-amber-400/70 text-white font-bold" },
+  { label: "2M", value: 2000000, bgClass: "bg-purple-800 border-purple-400/70 text-white font-bold" },
+  { label: "5M", value: 5000000, bgClass: "bg-rose-900 border-rose-400/70 text-white font-bold" },
+  { label: "50%", value: 0.5, isPercent: true, bgClass: "bg-yellow-600 border-yellow-300/80 text-black font-extrabold" },
 ];
 
 export default function TigerBaccarat() {
@@ -87,7 +87,7 @@ export default function TigerBaccarat() {
   const odds205 = !!gameSettings?.odds205;
   const [showMyBets, setShowMyBets] = useState(false);
 
-  // Dealer image: Khôi phục hình ảnh người đàn ông chia bài chuẩn Casino
+  // Dealer image: Casino Dealer Background
   const bgImage = "https://lh3.googleusercontent.com/aida-public/AB6AXuAbPyMkkA-oNWH3VWIBa7To7lvUJhBRUmuTxTNIUrZuAdmwGFfkY8wmtzmkx2eQu3qiGbfVgO2Crltli1C7lj6AxmP_9LCYekOJtNIldYWvsNwWpp42r66O2UHcsnKDGkcruchbW8C9nG89pfx1NR0hxK_6vIZY6wA64ZzzhJZmdyv4fMSQjsS_JxqE-8q26tQJL_FrIfZKWpq6l-0R8ij_Wc67nmd0GWwu_o4PrPzmYqjoQZlxu91mZw";
 
   // Balance Management
@@ -112,10 +112,10 @@ export default function TigerBaccarat() {
     return 0;
   });
 
-  // Selected Chip (default index 2: 100K)
-  const [selectedChipIndex, setSelectedChipIndex] = useState(2);
+  // Selected Chip (Trung tính, người dùng tự do chọn bất kỳ mệnh giá nào)
+  const [selectedChipIndex, setSelectedChipIndex] = useState(0);
 
-  // Placed Bets per zone
+  // Placed Bets per zone - Cho phép cược nhiều ô đồng thời không giới hạn
   const [bets, setBets] = useState({
     player: 0,
     banker: 0,
@@ -214,12 +214,6 @@ export default function TigerBaccarat() {
     return stop;
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const formatTimer = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
-
   const initAudio = () => {
     if (!audioCtxRef.current) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -249,13 +243,14 @@ export default function TigerBaccarat() {
   };
 
   const getCurrentChipAmount = () => {
-    const chipConfig = CHIP_VALUES[selectedChipIndex];
+    const chipConfig = CHIP_VALUES[selectedChipIndex] || CHIP_VALUES[0];
     if (chipConfig.isPercent) {
       return Math.max(10000, Math.floor(balance * chipConfig.value));
     }
     return chipConfig.value;
   };
 
+  // Đặt cược vào ô bất kỳ (cho phép cược nhiều ô cùng lúc)
   const handlePlaceBet = (zoneKey) => {
     if (phase !== "betting") return;
     initAudio();
@@ -285,6 +280,53 @@ export default function TigerBaccarat() {
     }));
   };
 
+  // Hủy cược ô cụ thể
+  const handleClearSingleZone = (zoneKey, e) => {
+    if (e) e.stopPropagation();
+    if (phase !== "betting") return;
+    const currentZoneBet = bets[zoneKey] || 0;
+    if (currentZoneBet <= 0) return;
+
+    initAudio();
+    const nextBal = balance + currentZoneBet;
+    updateGlobalBalance(nextBal);
+
+    setBets((prev) => ({
+      ...prev,
+      [zoneKey]: 0,
+    }));
+    toast.info(`Đã hủy cược ô (${fmt(currentZoneBet)} VNĐ)`);
+  };
+
+  // Nhân đôi tất cả các ô đã cược (x2)
+  const handleDoubleAllBets = () => {
+    if (phase !== "betting") return;
+    const totalCurrentBets = Object.values(bets).reduce((a, b) => a + b, 0);
+    if (totalCurrentBets <= 0) {
+      toast.warning("Vui lòng đặt cược trước khi nhân đôi!");
+      return;
+    }
+    if (totalCurrentBets > balance) {
+      toast.error("Số dư ví không đủ để nhân đôi toàn bộ cược!");
+      return;
+    }
+
+    initAudio();
+    playChipSound();
+
+    const nextBal = balance - totalCurrentBets;
+    updateGlobalBalance(nextBal);
+
+    setBets((prev) => {
+      const doubled = {};
+      for (const [k, v] of Object.entries(prev)) {
+        doubled[k] = v * 2;
+      }
+      return doubled;
+    });
+    toast.success("Đã nhân đôi tất cả các ô cược!");
+  };
+
   const handleCancelBets = () => {
     initAudio();
     if (phase !== "betting") return;
@@ -303,7 +345,7 @@ export default function TigerBaccarat() {
       player_pair: 0,
       banker_pair: 0,
     });
-    toast.info(`Đã hủy cược và hoàn lại ${fmt(totalCurrentBets)} VNĐ về ví!`);
+    toast.info(`Đã hủy toàn bộ cược và hoàn lại ${fmt(totalCurrentBets)} VNĐ về ví!`);
   };
 
   // Open Bet Confirmation Modal when user taps XÁC NHẬN
@@ -403,7 +445,6 @@ export default function TigerBaccarat() {
 
     // APPLY ADMIN FORCED OUTCOME OVERRIDE & FEATURE RULES
     if (forcedOutcome === "player") {
-      // Force Player win: give Player 9 and Banker 5
       pHand = [
         { rank: "9", suit: SUITS[1], value: 9 },
         { rank: "K", suit: SUITS[0], value: 0 },
@@ -413,7 +454,6 @@ export default function TigerBaccarat() {
         { rank: "J", suit: SUITS[3], value: 0 },
       ];
     } else if (forcedOutcome === "banker") {
-      // Force Banker win: give Banker 9 and Player 4
       pHand = [
         { rank: "4", suit: SUITS[0], value: 4 },
         { rank: "Q", suit: SUITS[1], value: 0 },
@@ -423,7 +463,6 @@ export default function TigerBaccarat() {
         { rank: "K", suit: SUITS[3], value: 0 },
       ];
     } else if (forcedOutcome === "tie") {
-      // Force Tie: give both Player & Banker 8
       pHand = [
         { rank: "8", suit: SUITS[1], value: 8 },
         { rank: "10", suit: SUITS[0], value: 0 },
@@ -433,7 +472,6 @@ export default function TigerBaccarat() {
         { rank: "J", suit: SUITS[3], value: 0 },
       ];
     } else if (forcedOutcome === "tiger") {
-      // Force Tiger win (Banker wins with 6)
       pHand = [
         { rank: "5", suit: SUITS[1], value: 5 },
         { rank: "10", suit: SUITS[0], value: 0 },
@@ -448,13 +486,11 @@ export default function TigerBaccarat() {
     pScore = getHandScore(pHand);
     bScore = getHandScore(bHand);
 
-    // If admin feature (odds110) is enabled, ensure result is strictly Player or Banker — never Tie
+    // If admin feature (odds205) is enabled
     const isOdds205 = !!gameSettings?.odds205;
     if (isOdds205) {
-      // Always override to non-tie: random 50/50 Player vs Banker regardless of forcedOutcome
       if (pScore === bScore || forcedOutcome === "auto" || forcedOutcome === "tie") {
         if (Math.random() >= 0.5) {
-          // Player win
           pHand = [
             { rank: "9", suit: SUITS[1], value: 9 },
             { rank: "K", suit: SUITS[0], value: 0 },
@@ -464,7 +500,6 @@ export default function TigerBaccarat() {
             { rank: "J", suit: SUITS[3], value: 0 },
           ];
         } else {
-          // Banker win
           pHand = [
             { rank: "4", suit: SUITS[0], value: 4 },
             { rank: "Q", suit: SUITS[1], value: 0 },
@@ -475,7 +510,6 @@ export default function TigerBaccarat() {
           ];
         }
       } else if (pScore === bScore) {
-        // Edge-case: scores still tied after forced outcome — force Player win
         pHand = [
           { rank: "8", suit: SUITS[0], value: 8 },
           { rank: "K", suit: SUITS[1], value: 0 },
@@ -541,7 +575,6 @@ export default function TigerBaccarat() {
       if (pScore > bScore) {
         winners.push("player");
         if (bets.player > 0) {
-          // odds110 mode: trả lại vốn (1x) + lời (1.1x) = 2.1x tổng
           const pay = isOdds205
             ? Math.floor(bets.player * 2.1)
             : (bets.player * 1 + bets.player);
@@ -551,7 +584,6 @@ export default function TigerBaccarat() {
       } else if (bScore > pScore) {
         winners.push("banker");
         if (bets.banker > 0) {
-          // odds110 mode: trả lại vốn (1x) + lời (1.1x) = 2.1x tổng
           const pay = isOdds205
             ? Math.floor(bets.banker * 2.1)
             : (Math.floor(bets.banker * 0.95) + bets.banker);
@@ -586,12 +618,11 @@ export default function TigerBaccarat() {
       // Resolve pending bet in ledger
       resolveLatestCasinoBet(gameSlug, totalPayout, winsList.join(" | ") || `Player (${pScore}) vs Banker (${bScore})`);
 
-      // Cộng dồn tiền cược/trả thưởng thật của ván này vào thống kê doanh thu hiển thị bên Admin
+      // Increment game revenue stats in admin
       const roundTotalBet = Object.values(bets).reduce((a, b) => a + b, 0);
       incrementGameStats(gameSlug, roundTotalBet, totalPayout);
 
       if (totalPayout > 0) {
-        // Get current balance from localStorage to ensure synced balance addition
         const currentBal = (() => {
           const local = localStorage.getItem("vinclub_xito_balance");
           return local ? parseInt(local) : balance;
@@ -614,8 +645,7 @@ export default function TigerBaccarat() {
         toast.error(`Kết quả: Player (${pScore}) - Banker (${bScore}). Chúc bạn may mắn ván sau!`);
       }
 
-
-      // Auto-reset to next betting round after 1 second (timer is epoch-synced, no manual reset needed)
+      // Auto-reset to next betting round after 1 second
       setTimeout(() => {
         setShowWinModal(false);
         setPhase("betting");
@@ -647,22 +677,20 @@ export default function TigerBaccarat() {
   };
 
   const totalPlacedBet = Object.values(bets).reduce((a, b) => a + b, 0);
+  const activeBetZonesCount = Object.values(bets).filter((amt) => amt > 0).length;
   const pScore = getHandScore(playerCards);
   const bScore = getHandScore(bankerCards);
 
   return (
-    <div className="bg-black text-white h-screen w-screen overflow-hidden flex justify-center items-center font-['Be_Vietnam_Pro',sans-serif]">
+    <div className="bg-black text-white min-h-screen w-full overflow-x-hidden flex flex-col font-['Be_Vietnam_Pro',sans-serif]">
       {/* CSS Styles injection for exact perspective grid & card flips */}
       <style>{`
         .perspective-grid {
-          transform: perspective(600px) rotateX(45deg);
+          transform: perspective(700px) rotateX(36deg);
           transform-origin: bottom;
         }
         .text-shadow-strong {
-          text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
-        }
-        .glow-effect {
-          box-shadow: 0 0 15px rgba(57, 255, 20, 0.6);
+          text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
         }
         .card-container {
           perspective: 1000px;
@@ -689,9 +717,9 @@ export default function TigerBaccarat() {
         }
       `}</style>
 
-      {/* BEGIN: Game Container */}
+      {/* BEGIN: Fullscreen Game Container */}
       <main
-        className="relative w-full max-w-[420px] h-full max-h-[952px] bg-cover bg-center overflow-hidden flex flex-col justify-between select-none"
+        className="relative w-full min-h-screen bg-cover bg-center overflow-hidden flex flex-col justify-between select-none"
         style={{
           backgroundImage: `url("${bgImage}")`,
           backgroundSize: "cover",
@@ -699,89 +727,81 @@ export default function TigerBaccarat() {
         }}
       >
         {/* Dark overlay */}
-        <div className="absolute inset-0 bg-black/20 pointer-events-none" />
+        <div className="absolute inset-0 bg-black/40 pointer-events-none" />
 
         {/* BEGIN: Header Section */}
-        <header className="relative z-10 flex justify-between items-center p-4">
+        <header className="relative z-10 w-full max-w-5xl mx-auto flex justify-between items-center px-4 py-3 sm:py-4">
           {/* Player Info */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/casino")}
-              className="w-10 h-10 rounded-full bg-black/50 border border-white/20 flex items-center justify-center backdrop-blur-sm active:scale-95 transition-transform"
-            >
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M15.75 19.5L8.25 12l7.5-7.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-
             <div className="flex flex-col">
-              <span className="text-xs font-bold tracking-wider text-white/90">VIP PLAYER</span>
-              <span className="text-[#d4af37] font-bold text-lg leading-tight">{fmt(balance)} VNĐ</span>
+              <span className="text-[11px] font-bold tracking-wider text-white/80">VIP CASINO</span>
+              <span className="text-[#d4af37] font-extrabold text-base sm:text-xl leading-tight drop-shadow-md">
+                {fmt(balance)} VNĐ
+              </span>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setShowMyBets(true)}
               title="Sổ Lệnh Giao Dịch Cược"
-              className="px-3 h-10 rounded-full bg-black/60 border border-[#d4af37]/40 text-amber-300 font-bold text-xs flex items-center gap-1.5 backdrop-blur-sm active:scale-95 transition-transform cursor-pointer shadow-md"
+              className="px-3.5 h-10 rounded-full bg-black/70 border border-[#d4af37]/60 text-amber-300 font-bold text-xs sm:text-sm flex items-center gap-1.5 backdrop-blur-md active:scale-95 transition-transform cursor-pointer shadow-lg"
             >
               <Receipt className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Sổ Lệnh</span>
+              <span>Sổ Lệnh</span>
             </button>
           </div>
         </header>
 
         {/* Synchronized Countdown Timer */}
-        <GameCountdownTimer
-          phase={phase}
-          onTimeZero={() => {
-            if (phase === "waiting_timer") {
-              triggerDealAndReveal();
-            }
-          }}
-          manualFastForward={triggerDealAndReveal}
-          gameTitle={gameTitle}
-        />
+        <div className="relative z-10 w-full max-w-5xl mx-auto px-4">
+          <GameCountdownTimer
+            phase={phase}
+            onTimeZero={() => {
+              if (phase === "waiting_timer") {
+                triggerDealAndReveal();
+              }
+            }}
+            manualFastForward={triggerDealAndReveal}
+            gameTitle={gameTitle}
+          />
+        </div>
         {/* END: Header Section */}
 
-        {/* Spacer */}
-        <div className="flex-grow" />
-
-        {/* BEGIN: Betting Area Bottom */}
-        <div className="relative z-10 w-full flex flex-col items-center pb-6">
+        {/* Center Table Area (Cards + Dealer View) */}
+        <div className="relative z-10 w-full flex-grow flex flex-col justify-center items-center py-2">
           {/* Cards Display Row */}
-          <div className="flex flex-col gap-3 mb-6 relative z-10">
-            <div className="flex justify-center gap-8">
+          <div className="flex flex-col gap-2 mb-2 relative z-10">
+            <div className="flex justify-center items-center gap-6 sm:gap-14 bg-black/50 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10 shadow-2xl">
               {/* PLAYER CARDS */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+                <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">
                   PLAYER {phase === "revealed" && playerCards.length > 0 ? `(${pScore} nút)` : ""}
                 </span>
-                <div className="flex -space-x-8">
+                <div className="flex -space-x-6 sm:-space-x-8">
                   {(playerCards.length > 0 ? playerCards : [null, null, null]).map((card, idx) => {
                     const isFlipped = flippedCards.player.includes(idx);
                     return (
-                      <div key={idx} className={`card-container w-14 h-20 ${isFlipped ? "flip" : ""}`}>
+                      <div key={idx} className={`card-container w-14 h-20 sm:w-16 sm:h-24 ${isFlipped ? "flip" : ""}`}>
                         <div className="card-flipper">
                           {/* Front face (Card Back) */}
-                          <div className="card-front bg-white rounded shadow-md border border-gray-200 flex items-center justify-center p-1">
+                          <div className="card-front bg-white rounded-lg shadow-md border border-gray-300 flex items-center justify-center p-1">
                             <div className="w-full h-full rounded bg-gradient-to-br from-amber-600 via-amber-700 to-amber-900 border border-yellow-400 flex items-center justify-center">
-                              <span className="text-[#f2ca50] text-[18px]">♦</span>
+                              <span className="text-[#f2ca50] text-lg sm:text-xl">♦</span>
                             </div>
                           </div>
                           {/* Back face (Card Front) */}
-                          <div className="card-back bg-white rounded shadow-md border border-gray-200 flex flex-col justify-between p-1">
+                          <div className="card-back bg-white rounded-lg shadow-md border border-gray-300 flex flex-col justify-between p-1.5">
                             {card ? (
                               <>
-                                <div className={`text-[12px] font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                <div className={`text-xs sm:text-sm font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
                                   {card.rank}{card.suit.symbol}
                                 </div>
-                                <div className={`text-[20px] self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                <div className={`text-xl sm:text-2xl self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
                                   {card.suit.symbol}
                                 </div>
-                                <div className={`text-[12px] font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                <div className={`text-xs sm:text-sm font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
                                   {card.rank}{card.suit.symbol}
                                 </div>
                               </>
@@ -794,34 +814,39 @@ export default function TigerBaccarat() {
                 </div>
               </div>
 
+              {/* VS BADGE */}
+              <div className="flex flex-col items-center">
+                <span className="text-xs font-black text-amber-400 px-2 py-0.5 rounded bg-black/60 border border-amber-400/40">VS</span>
+              </div>
+
               {/* BANKER CARDS */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
                   BANKER {phase === "revealed" && bankerCards.length > 0 ? `(${bScore} nút)` : ""}
                 </span>
-                <div className="flex -space-x-8">
+                <div className="flex -space-x-6 sm:-space-x-8">
                   {(bankerCards.length > 0 ? bankerCards : [null, null, null]).map((card, idx) => {
                     const isFlipped = flippedCards.banker.includes(idx);
                     return (
-                      <div key={idx} className={`card-container w-14 h-20 ${isFlipped ? "flip" : ""}`}>
+                      <div key={idx} className={`card-container w-14 h-20 sm:w-16 sm:h-24 ${isFlipped ? "flip" : ""}`}>
                         <div className="card-flipper">
                           {/* Front face (Card Back) */}
-                          <div className="card-front bg-white rounded shadow-md border border-gray-200 flex items-center justify-center p-1">
+                          <div className="card-front bg-white rounded-lg shadow-md border border-gray-300 flex items-center justify-center p-1">
                             <div className="w-full h-full rounded bg-gradient-to-br from-red-700 via-red-800 to-red-950 border border-red-400 flex items-center justify-center">
-                              <span className="text-white text-[18px]">♠</span>
+                              <span className="text-white text-lg sm:text-xl">♠</span>
                             </div>
                           </div>
                           {/* Back face (Card Front) */}
-                          <div className="card-back bg-white rounded shadow-md border border-gray-200 flex flex-col justify-between p-1">
+                          <div className="card-back bg-white rounded-lg shadow-md border border-gray-300 flex flex-col justify-between p-1.5">
                             {card ? (
                               <>
-                                <div className={`text-[12px] font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                <div className={`text-xs sm:text-sm font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
                                   {card.rank}{card.suit.symbol}
                                 </div>
-                                <div className={`text-[20px] self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                <div className={`text-xl sm:text-2xl self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
                                   {card.suit.symbol}
                                 </div>
-                                <div className={`text-[12px] font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                                <div className={`text-xs sm:text-sm font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
                                   {card.rank}{card.suit.symbol}
                                 </div>
                               </>
@@ -835,63 +860,107 @@ export default function TigerBaccarat() {
               </div>
             </div>
           </div>
+        </div>
 
+        {/* BEGIN: Betting Area Bottom (Full Width & Multi-Zone Responsive Grid) */}
+        <div className="relative z-10 w-full max-w-4xl mx-auto flex flex-col items-center pb-5 px-3">
+          {/* Multi-Bet Status & Quick Stats Bar */}
+          <div className="w-full flex items-center justify-between text-xs mb-2 px-2 bg-black/60 backdrop-blur-md rounded-xl py-1.5 border border-white/10">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-300">Đã cược:</span>
+              <strong className="text-amber-300 font-bold">{activeBetZonesCount} ô</strong>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-300">Tổng cược:</span>
+              <strong className="text-yellow-400 font-mono font-black text-sm">{fmt(totalPlacedBet)} VNĐ</strong>
+            </div>
+          </div>
 
-          {/* Betting Grid (3D Perspective) */}
-          <div className="w-[90%] perspective-grid mb-5">
-            <div className="grid grid-cols-3 grid-rows-2 border-2 border-[#39ff14]/50 bg-[rgba(0,100,0,0.4)] backdrop-blur-[2px] divide-x-2 divide-y-2 divide-[#39ff14]/30">
+          {/* Betting Grid (3D Perspective Table - Cho phép cược nhiều ô cùng lúc) */}
+          <div className="w-full perspective-grid mb-3">
+            <div className="grid grid-cols-3 grid-rows-2 border-2 border-emerald-500/60 bg-emerald-950/70 backdrop-blur-sm rounded-xl overflow-hidden divide-x-2 divide-y-2 divide-emerald-500/40 shadow-[0_10px_30px_rgba(0,0,0,0.8)]">
               {/* TOP ROW */}
               {/* PLAYER PAIR */}
               <button
                 onClick={() => handlePlaceBet("player_pair")}
-                className={`relative flex flex-col items-center justify-center p-2 text-center transition-all ${
-                  winningZones.includes("player_pair") ? "bg-emerald-500/50 animate-pulse" : "hover:bg-white/10"
+                className={`relative flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer select-none ${
+                  winningZones.includes("player_pair") ? "bg-emerald-500/60 animate-pulse" : "hover:bg-white/10 active:bg-white/20"
                 }`}
               >
-                <span className="text-blue-400 font-bold text-xs uppercase tracking-wider text-shadow-strong">
+                <span className="text-blue-300 font-extrabold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
                   Player Pair
                 </span>
-                <span className="text-white text-[10px]">11:1</span>
+                <span className="text-white/90 text-[11px] font-mono">11:1</span>
                 {bets.player_pair > 0 && (
-                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
-                    {fmtShort(bets.player_pair)}
-                  </span>
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <span className="bg-[#f2ca50] text-[#3c2f00] font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                      {fmtShort(bets.player_pair)}
+                    </span>
+                    {phase === "betting" && (
+                      <span
+                        onClick={(e) => handleClearSingleZone("player_pair", e)}
+                        className="text-red-300 hover:text-red-100 p-0.5"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
                 )}
               </button>
 
               {/* TIE (Hòa) */}
               <button
                 onClick={() => handlePlaceBet("tie")}
-                className={`relative flex flex-col items-center justify-center p-2 text-center transition-all ${
-                  winningZones.includes("tie") ? "bg-emerald-500/50 animate-pulse" : "hover:bg-white/10"
+                className={`relative flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer select-none ${
+                  winningZones.includes("tie") ? "bg-emerald-500/60 animate-pulse" : "hover:bg-white/10 active:bg-white/20"
                 }`}
               >
-                <span className="text-green-400 font-bold text-xs uppercase tracking-wider text-shadow-strong">
+                <span className="text-green-300 font-extrabold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
                   Tie (Hòa)
                 </span>
-                <span className="text-white text-[10px]">8:1</span>
+                <span className="text-white/90 text-[11px] font-mono">8:1</span>
                 {bets.tie > 0 && (
-                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
-                    {fmtShort(bets.tie)}
-                  </span>
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <span className="bg-[#f2ca50] text-[#3c2f00] font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                      {fmtShort(bets.tie)}
+                    </span>
+                    {phase === "betting" && (
+                      <span
+                        onClick={(e) => handleClearSingleZone("tie", e)}
+                        className="text-red-300 hover:text-red-100 p-0.5"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
                 )}
               </button>
 
               {/* BANKER PAIR */}
               <button
                 onClick={() => handlePlaceBet("banker_pair")}
-                className={`relative flex flex-col items-center justify-center p-2 text-center transition-all ${
-                  winningZones.includes("banker_pair") ? "bg-emerald-500/50 animate-pulse" : "hover:bg-white/10"
+                className={`relative flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer select-none ${
+                  winningZones.includes("banker_pair") ? "bg-emerald-500/60 animate-pulse" : "hover:bg-white/10 active:bg-white/20"
                 }`}
               >
-                <span className="text-red-400 font-bold text-xs uppercase tracking-wider text-shadow-strong">
+                <span className="text-red-300 font-extrabold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
                   Banker Pair
                 </span>
-                <span className="text-white text-[10px]">11:1</span>
+                <span className="text-white/90 text-[11px] font-mono">11:1</span>
                 {bets.banker_pair > 0 && (
-                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
-                    {fmtShort(bets.banker_pair)}
-                  </span>
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <span className="bg-[#f2ca50] text-[#3c2f00] font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                      {fmtShort(bets.banker_pair)}
+                    </span>
+                    {phase === "betting" && (
+                      <span
+                        onClick={(e) => handleClearSingleZone("banker_pair", e)}
+                        className="text-red-300 hover:text-red-100 p-0.5"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
                 )}
               </button>
 
@@ -899,65 +968,95 @@ export default function TigerBaccarat() {
               {/* PLAYER */}
               <button
                 onClick={() => handlePlaceBet("player")}
-                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center border-t-2 border-[#39ff14]/30 transition-all ${
-                  winningZones.includes("player") ? "bg-blue-600/50 animate-pulse" : "hover:bg-white/10"
+                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center transition-all cursor-pointer select-none ${
+                  winningZones.includes("player") ? "bg-blue-600/60 animate-pulse" : "hover:bg-blue-900/30 active:bg-blue-900/50"
                 }`}
               >
-                <span className="text-blue-500 font-black text-lg uppercase tracking-widest text-shadow-strong">
+                <span className="text-blue-400 font-black text-base sm:text-xl uppercase tracking-widest text-shadow-strong">
                   Player
                 </span>
-                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold" : "text-white/70"}`}>
+                <span className={`text-[11px] font-mono ${odds205 ? "text-amber-300 font-extrabold" : "text-white/80"}`}>
                   {odds205 ? "1.1:1" : "1:1"}
                 </span>
                 {bets.player > 0 && (
-                  <span className="absolute top-1 right-1 bg-[#38bdf8] text-[#002117] font-mono text-[9px] font-black px-1 rounded-full shadow">
-                    {fmtShort(bets.player)}
-                  </span>
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <span className="bg-[#38bdf8] text-[#002117] font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                      {fmtShort(bets.player)}
+                    </span>
+                    {phase === "betting" && (
+                      <span
+                        onClick={(e) => handleClearSingleZone("player", e)}
+                        className="text-red-300 hover:text-red-100 p-0.5"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
                 )}
               </button>
 
               {/* TIGER (40:1) */}
               <button
                 onClick={() => handlePlaceBet("tiger")}
-                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center border-t-2 border-[#39ff14]/30 transition-all ${
-                  winningZones.includes("tiger") ? "bg-amber-500/50 animate-pulse" : "hover:bg-white/10"
+                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center transition-all cursor-pointer select-none ${
+                  winningZones.includes("tiger") ? "bg-amber-500/60 animate-pulse" : "hover:bg-amber-900/30 active:bg-amber-900/50"
                 }`}
               >
-                <span className="text-[#d4af37] font-black text-lg uppercase tracking-widest text-shadow-strong">
+                <span className="text-[#d4af37] font-black text-base sm:text-xl uppercase tracking-widest text-shadow-strong">
                   Tiger
                 </span>
-                <span className="text-white/80 text-[10px]">40:1</span>
+                <span className="text-white/90 text-[11px] font-mono">40:1</span>
                 {bets.tiger > 0 && (
-                  <span className="absolute top-1 right-1 bg-[#f2ca50] text-[#3c2f00] font-mono text-[9px] font-black px-1 rounded-full shadow">
-                    {fmtShort(bets.tiger)}
-                  </span>
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <span className="bg-[#f2ca50] text-[#3c2f00] font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                      {fmtShort(bets.tiger)}
+                    </span>
+                    {phase === "betting" && (
+                      <span
+                        onClick={(e) => handleClearSingleZone("tiger", e)}
+                        className="text-red-300 hover:text-red-100 p-0.5"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
                 )}
               </button>
 
               {/* BANKER */}
               <button
                 onClick={() => handlePlaceBet("banker")}
-                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center border-t-2 border-[#39ff14]/30 transition-all ${
-                  winningZones.includes("banker") ? "bg-red-600/50 animate-pulse" : "hover:bg-white/10"
+                className={`relative flex flex-col items-center justify-center py-4 px-2 text-center transition-all cursor-pointer select-none ${
+                  winningZones.includes("banker") ? "bg-red-600/60 animate-pulse" : "hover:bg-red-900/30 active:bg-red-900/50"
                 }`}
               >
-                <span className="text-red-500 font-black text-lg uppercase tracking-widest text-shadow-strong">
+                <span className="text-red-400 font-black text-base sm:text-xl uppercase tracking-widest text-shadow-strong">
                   Banker
                 </span>
-                <span className={`text-[10px] ${odds205 ? "text-amber-300 font-extrabold" : "text-white/70"}`}>
+                <span className={`text-[11px] font-mono ${odds205 ? "text-amber-300 font-extrabold" : "text-white/80"}`}>
                   {odds205 ? "1.1:1" : "0.95:1"}
                 </span>
                 {bets.banker > 0 && (
-                  <span className="absolute top-1 right-1 bg-[#f87171] text-white font-mono text-[9px] font-black px-1 rounded-full shadow">
-                    {fmtShort(bets.banker)}
-                  </span>
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <span className="bg-[#f87171] text-white font-mono text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                      {fmtShort(bets.banker)}
+                    </span>
+                    {phase === "betting" && (
+                      <span
+                        onClick={(e) => handleClearSingleZone("banker", e)}
+                        className="text-red-300 hover:text-red-100 p-0.5"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
                 )}
               </button>
             </div>
           </div>
 
-          {/* Chip Selector */}
-          <div className="flex items-center justify-start sm:justify-center gap-2 mb-5 w-full px-3 overflow-x-auto no-scrollbar py-1">
+          {/* Chip Selector (Trung tính - Không ưu tiên gợi ý - Đồng đều & Thanh lịch) */}
+          <div className="w-full flex items-center justify-center gap-2 sm:gap-3 mb-4 px-2 overflow-x-auto no-scrollbar py-1">
             {CHIP_VALUES.map((chip, idx) => {
               const isSelected = selectedChipIndex === idx;
               return (
@@ -967,13 +1066,13 @@ export default function TigerBaccarat() {
                     initAudio();
                     setSelectedChipIndex(idx);
                   }}
-                  className={`rounded-full border-2 border-dashed flex items-center justify-center shadow-[0_4px_4px_rgba(0,0,0,0.5)] transform transition-transform ${chip.bgClass} ${
+                  className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 border-dashed flex items-center justify-center shadow-lg transition-all cursor-pointer ${chip.bgClass} ${
                     isSelected
-                      ? "w-16 h-16 border-white shadow-[0_0_15px_rgba(57,255,20,0.6)] scale-110 glow-effect ring-2 ring-[#39ff14]"
-                      : "w-12 h-12 hover:scale-105 opacity-90"
+                      ? "ring-2 ring-amber-300 ring-offset-2 ring-offset-black scale-105 opacity-100 font-black"
+                      : "opacity-80 hover:opacity-100 hover:scale-105"
                   }`}
                 >
-                  <span className={isSelected ? "text-white font-black text-base" : ""}>
+                  <span className="text-xs sm:text-sm font-bold tracking-tight">
                     {chip.label}
                   </span>
                 </button>
@@ -981,29 +1080,40 @@ export default function TigerBaccarat() {
             })}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex w-full px-4 gap-3">
+          {/* Action Buttons: Hủy cược, Nhân đôi x2, Xác nhận */}
+          <div className="flex w-full gap-2 sm:gap-3">
             <button
               onClick={handleCancelBets}
               disabled={phase !== "betting" || totalPlacedBet === 0}
-              className="flex-1 py-3 rounded-lg bg-gradient-to-b from-[#555] to-[#333] border border-gray-500 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
+              className="flex-1 py-3 rounded-xl bg-gradient-to-b from-gray-700 to-gray-900 border border-gray-600 shadow-lg active:scale-95 transition-transform disabled:opacity-40 cursor-pointer"
             >
-              <span className="text-white font-bold text-sm uppercase tracking-wider text-shadow-strong">
+              <span className="text-white font-bold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
                 HỦY CƯỢC
+              </span>
+            </button>
+
+            <button
+              onClick={handleDoubleAllBets}
+              disabled={phase !== "betting" || totalPlacedBet === 0}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-b from-blue-700 to-blue-950 border border-blue-500 shadow-lg active:scale-95 transition-transform disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1"
+            >
+              <Sparkles className="w-4 h-4 text-sky-300" />
+              <span className="text-white font-bold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
+                NHÂN ĐÔI (X2)
               </span>
             </button>
 
             <button
               onClick={handleConfirmBets}
               disabled={phase !== "betting"}
-              className="flex-1 py-3 rounded-lg bg-gradient-to-b from-[#e1c05d] to-[#b38822] border border-yellow-600 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
+              className="flex-[1.3] py-3 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f2ca50] to-[#b38822] text-[#3c2f00] font-black text-xs sm:text-sm uppercase tracking-wider shadow-lg shadow-yellow-500/20 active:scale-95 transition-transform disabled:opacity-40 cursor-pointer"
             >
-              <span className="text-white font-bold text-sm uppercase tracking-wider text-shadow-strong">
+              <span>
                 {phase === "waiting_timer"
                   ? "ĐÃ KHÓA CƯỢC"
                   : phase === "dealing"
                   ? "ĐANG CHIA BÀI..."
-                  : "XÁC NHẬN"}
+                  : `XÁC NHẬN ${activeBetZonesCount > 0 ? `(${activeBetZonesCount} Ô)` : ""}`}
               </span>
             </button>
           </div>

@@ -78,10 +78,10 @@ export default function Signature() {
   };
 
   return (
-    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <SignatureHeader />
 
-      <div className="px-3 py-4 pb-20 space-y-4">
+      <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {/* Mode toggle */}
         <div className="flex p-1 bg-gray-200/60 rounded-xl">
           <button
