@@ -127,6 +127,15 @@ export default function WithdrawalsTab() {
     if (!approvingTx) return;
     setProcessing(true);
 
+    // ✅ Optimistic update: xóa khỏi danh sách CHỜ ngay lập tức
+    const txId = approvingTx.id;
+    setWithdrawals((prev) =>
+      prev.map((t) =>
+        t.id === txId ? { ...t, status: "completed", approved_at: new Date().toISOString() } : t
+      )
+    );
+    setApprovingTx(null);
+
     try {
       const txCode = approvingTx.code || approvingTx.id;
       const amount = approvingTx.amount || 0;
@@ -134,7 +143,7 @@ export default function WithdrawalsTab() {
       const userInfo = userMap[userId];
 
       // 1. Update WalletTransaction status
-      await base44.entities.WalletTransaction.update(approvingTx.id, {
+      await base44.entities.WalletTransaction.update(txId, {
         status: "completed",
         approved_at: new Date().toISOString(),
         approved_by: adminUser?.email || "Admin",
@@ -161,10 +170,13 @@ export default function WithdrawalsTab() {
         notes: `Phê duyệt chuyển ${fmt(amount)} VNĐ về ${approvingTx.bank_name} - STK ${approvingTx.account_number}`,
       });
 
-      toast.success(`Đã phê duyệt lệnh rút ${txCode} thành công!`);
-      setApprovingTx(null);
-      fetchData();
+      toast.success(`✅ Đã phê duyệt lệnh rút ${txCode} thành công!`);
+      fetchData(); // sync lại với server
     } catch (err) {
+      // Rollback optimistic update nếu lỗi
+      setWithdrawals((prev) =>
+        prev.map((t) => (t.id === txId ? { ...t, status: "pending" } : t))
+      );
       toast.error("Không thể hoàn tất phê duyệt. Vui lòng thử lại.");
     } finally {
       setProcessing(false);
@@ -181,6 +193,18 @@ export default function WithdrawalsTab() {
         ? customReason || "Không đạt điều kiện phê duyệt"
         : rejectReason;
 
+    // ✅ Optimistic update: đánh dấu rejected ngay lập tức
+    const txId = rejectingTx.id;
+    setWithdrawals((prev) =>
+      prev.map((t) =>
+        t.id === txId
+          ? { ...t, status: "rejected", rejection_reason: finalReason, rejected_at: new Date().toISOString() }
+          : t
+      )
+    );
+    setRejectingTx(null);
+    setCustomReason("");
+
     try {
       const txCode = rejectingTx.code || rejectingTx.id;
       const amount = rejectingTx.amount || 0;
@@ -188,7 +212,7 @@ export default function WithdrawalsTab() {
       const userInfo = userMap[userId];
 
       // 1. Update WalletTransaction status
-      await base44.entities.WalletTransaction.update(rejectingTx.id, {
+      await base44.entities.WalletTransaction.update(txId, {
         status: "rejected",
         rejection_reason: finalReason,
         rejected_at: new Date().toISOString(),
@@ -229,11 +253,13 @@ export default function WithdrawalsTab() {
         notes: `Từ chối lệnh rút ${fmt(amount)} VNĐ. Lý do: ${finalReason}. Đã hoàn trả lại ví.`,
       });
 
-      toast.success(`Đã từ chối lệnh rút ${txCode} & hoàn tiền lại ví người dùng!`);
-      setRejectingTx(null);
-      setCustomReason("");
-      fetchData();
+      toast.success(`✅ Đã từ chối lệnh rút ${txCode} & hoàn tiền lại ví người dùng!`);
+      fetchData(); // sync lại với server
     } catch (err) {
+      // Rollback nếu lỗi
+      setWithdrawals((prev) =>
+        prev.map((t) => (t.id === txId ? { ...t, status: "pending" } : t))
+      );
       toast.error("Không thể xử lý từ chối. Vui lòng thử lại.");
     } finally {
       setProcessing(false);
