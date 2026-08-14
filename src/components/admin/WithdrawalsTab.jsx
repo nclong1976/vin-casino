@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Clock,
   CheckCircle2,
@@ -53,8 +53,15 @@ export default function WithdrawalsTab() {
     base44.auth.me().then(setAdminUser).catch(() => {});
   }, []);
 
+  // Ref để chặn subscription ghi đè khi đang xử lý approve/reject
+  const isProcessingRef = useRef(false);
+  // Ref lưu danh sách ID đã được xử lý (để lọc ra khỏi list)
+  const processedIdsRef = useRef(new Set());
+
   // Fetch Data
-  const fetchData = async () => {
+  const fetchData = async (force = false) => {
+    // Bỏ qua nếu đang xử lý approve/reject (trừ khi force=true)
+    if (isProcessingRef.current && !force) return;
     try {
       const [txs, userList, logs] = await Promise.all([
         base44.entities.WalletTransaction.filter({ type: "withdraw" }, "-created_date", 500).catch(() => []),
@@ -62,7 +69,14 @@ export default function WithdrawalsTab() {
         base44.entities.AuditLog.list("-created_date", 100).catch(() => []),
       ]);
 
-      setWithdrawals(txs);
+      // Lọc ra các ID đã được xử lý cục bộ (để không ghi đè optimistic update)
+      const filtered = txs.filter(t => !processedIdsRef.current.has(t.id));
+      setWithdrawals(prev => {
+        const processedItems = prev.filter(t => processedIdsRef.current.has(t.id));
+        const merged = [...processedItems, ...filtered];
+        merged.sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0));
+        return merged;
+      });
       setUsers(userList);
       setAuditLogs(logs);
     } catch (e) {
@@ -72,12 +86,33 @@ export default function WithdrawalsTab() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
+  // Fetch lần đầu (full reset)
+  const fetchDataFull = async () => {
+    try {
+      const [txs, userList, logs] = await Promise.all([
+        base44.entities.WalletTransaction.filter({ type: "withdraw" }, "-created_date", 500).catch(() => []),
+        base44.entities.User.list().catch(() => []),
+        base44.entities.AuditLog.list("-created_date", 100).catch(() => []),
+      ]);
+      setWithdrawals(txs);
+      setUsers(userList);
+      setAuditLogs(logs);
+      processedIdsRef.current.clear();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Subscribe real-time
+  useEffect(() => {
+    fetchDataFull();
+
+    // Subscribe real-time — bỏ qua khi đang xử lý
     const unsub = base44.entities.WalletTransaction.subscribe(() => {
-      fetchData();
+      if (!isProcessingRef.current) {
+        fetchData();
+      }
     });
     return () => unsub();
   }, []);
@@ -126,30 +161,26 @@ export default function WithdrawalsTab() {
   const handleApprove = async () => {
     if (!approvingTx) return;
     setProcessing(true);
+    isProcessingRef.current = true;
 
-    // ✅ Optimistic update: xóa khỏi danh sách CHỜ ngay lập tức
     const txId = approvingTx.id;
-    setWithdrawals((prev) =>
-      prev.map((t) =>
-        t.id === txId ? { ...t, status: "completed", approved_at: new Date().toISOString() } : t
-      )
-    );
+    const txCode = approvingTx.code || approvingTx.id;
+    const amount = approvingTx.amount || 0;
+    const userId = approvingTx.user_id;
+    const userInfo = userMap[userId];
+
+    // ✅ Xoá khỏi danh sách NGAY LẬP TỨC (optimistic remove)
+    processedIdsRef.current.add(txId);
+    setWithdrawals((prev) => prev.filter((t) => t.id !== txId));
     setApprovingTx(null);
 
     try {
-      const txCode = approvingTx.code || approvingTx.id;
-      const amount = approvingTx.amount || 0;
-      const userId = approvingTx.user_id;
-      const userInfo = userMap[userId];
-
-      // 1. Update WalletTransaction status
       await base44.entities.WalletTransaction.update(txId, {
         status: "completed",
         approved_at: new Date().toISOString(),
         approved_by: adminUser?.email || "Admin",
       });
 
-      // 2. Create User Notification
       await base44.entities.Notification.create({
         title: `Biến động số dư: -${fmt(amount)} VNĐ`,
         content: `Yêu cầu rút tiền mã ${txCode} đã được Quản trị viên phê duyệt thành công. Tiền đã chuyển về ngân hàng ${approvingTx.bank_name || "đối tác"} (${approvingTx.account_number || ""}).`,
@@ -158,11 +189,10 @@ export default function WithdrawalsTab() {
         is_read: false,
       });
 
-      // 3. Create AuditLog Entry
       await base44.entities.AuditLog.create({
         action: "APPROVE_WITHDRAWAL",
         tx_code: txCode,
-        amount: amount,
+        amount,
         user_id: userId,
         user_name: userInfo?.full_name || userInfo?.email || "N/A",
         admin_email: adminUser?.email || "Admin",
@@ -171,12 +201,18 @@ export default function WithdrawalsTab() {
       });
 
       toast.success(`✅ Đã phê duyệt lệnh rút ${txCode} thành công!`);
-      fetchData(); // sync lại với server
+
+      // Sau 1.5s mới full refresh (để server kịp xử lý)
+      setTimeout(() => {
+        isProcessingRef.current = false;
+        processedIdsRef.current.delete(txId);
+        fetchDataFull();
+      }, 1500);
     } catch (err) {
-      // Rollback optimistic update nếu lỗi
-      setWithdrawals((prev) =>
-        prev.map((t) => (t.id === txId ? { ...t, status: "pending" } : t))
-      );
+      // Rollback
+      processedIdsRef.current.delete(txId);
+      isProcessingRef.current = false;
+      fetchDataFull();
       toast.error("Không thể hoàn tất phê duyệt. Vui lòng thử lại.");
     } finally {
       setProcessing(false);
@@ -187,31 +223,26 @@ export default function WithdrawalsTab() {
   const handleReject = async () => {
     if (!rejectingTx) return;
     setProcessing(true);
+    isProcessingRef.current = true;
 
     const finalReason =
       rejectReason === "Khác (Nhập tùy chỉnh bên dưới)"
         ? customReason || "Không đạt điều kiện phê duyệt"
         : rejectReason;
 
-    // ✅ Optimistic update: đánh dấu rejected ngay lập tức
     const txId = rejectingTx.id;
-    setWithdrawals((prev) =>
-      prev.map((t) =>
-        t.id === txId
-          ? { ...t, status: "rejected", rejection_reason: finalReason, rejected_at: new Date().toISOString() }
-          : t
-      )
-    );
+    const txCode = rejectingTx.code || rejectingTx.id;
+    const amount = rejectingTx.amount || 0;
+    const userId = rejectingTx.user_id;
+    const userInfo = userMap[userId];
+
+    // ✅ Xoá khỏi danh sách NGAY LẬP TỨC (optimistic remove)
+    processedIdsRef.current.add(txId);
+    setWithdrawals((prev) => prev.filter((t) => t.id !== txId));
     setRejectingTx(null);
     setCustomReason("");
 
     try {
-      const txCode = rejectingTx.code || rejectingTx.id;
-      const amount = rejectingTx.amount || 0;
-      const userId = rejectingTx.user_id;
-      const userInfo = userMap[userId];
-
-      // 1. Update WalletTransaction status
       await base44.entities.WalletTransaction.update(txId, {
         status: "rejected",
         rejection_reason: finalReason,
@@ -219,20 +250,19 @@ export default function WithdrawalsTab() {
         rejected_by: adminUser?.email || "Admin",
       });
 
-      // 2. Automatically Refund money back to user wallet
+      // Hoàn tiền về ví người dùng
       const currentBal = Number(userInfo?.balance || 0);
       updateUserBalance(userId, currentBal + amount);
 
       await base44.entities.WalletTransaction.create({
         user_id: userId,
         type: "deposit",
-        amount: amount,
+        amount,
         status: "completed",
         description: `Hoàn tiền do lệnh rút ${txCode} bị từ chối: ${finalReason}`,
         code: "REF" + Date.now().toString().slice(-8),
       });
 
-      // 3. Create Notification for User
       await base44.entities.Notification.create({
         title: "Lệnh rút tiền bị từ chối",
         content: `Lệnh rút ${fmt(amount)} VNĐ (Mã ${txCode}) bị từ chối. Lý do: ${finalReason}. Số tiền đã được hoàn trả nguyên vẹn vào ví VinClub.`,
@@ -241,11 +271,10 @@ export default function WithdrawalsTab() {
         is_read: false,
       });
 
-      // 4. Create AuditLog Entry
       await base44.entities.AuditLog.create({
         action: "REJECT_WITHDRAWAL",
         tx_code: txCode,
-        amount: amount,
+        amount,
         user_id: userId,
         user_name: userInfo?.full_name || userInfo?.email || "N/A",
         admin_email: adminUser?.email || "Admin",
@@ -254,12 +283,18 @@ export default function WithdrawalsTab() {
       });
 
       toast.success(`✅ Đã từ chối lệnh rút ${txCode} & hoàn tiền lại ví người dùng!`);
-      fetchData(); // sync lại với server
+
+      // Sau 1.5s mới full refresh
+      setTimeout(() => {
+        isProcessingRef.current = false;
+        processedIdsRef.current.delete(txId);
+        fetchDataFull();
+      }, 1500);
     } catch (err) {
-      // Rollback nếu lỗi
-      setWithdrawals((prev) =>
-        prev.map((t) => (t.id === txId ? { ...t, status: "pending" } : t))
-      );
+      // Rollback
+      processedIdsRef.current.delete(txId);
+      isProcessingRef.current = false;
+      fetchDataFull();
       toast.error("Không thể xử lý từ chối. Vui lòng thử lại.");
     } finally {
       setProcessing(false);
