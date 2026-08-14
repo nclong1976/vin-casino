@@ -1,6 +1,25 @@
 import { ref, set, update, onValue, onDisconnect } from "firebase/database";
-import { rtdb } from "./firebase";
+import { rtdb, firebaseAuthReady } from "./firebase";
 import { base44 } from "@/api/base44Client";
+
+/**
+ * Defers an onValue-based subscription until the Firebase Auth session
+ * (see firebaseAuthReady in ./firebase) is ready, while still returning an
+ * unsubscribe function synchronously so callers don't need to change.
+ * Subscribing before auth resolves hits the RTDB rules with no token yet
+ * and the listener gets permanently cancelled with permission_denied.
+ */
+function deferredSubscribe(subscribeFn) {
+  let liveUnsub = null;
+  let cancelled = false;
+  firebaseAuthReady.then(() => {
+    if (!cancelled) liveUnsub = subscribeFn();
+  });
+  return () => {
+    cancelled = true;
+    if (liveUnsub) liveUnsub();
+  };
+}
 
 const BASE_RTDB_URL = "https://gen-lang-client-0800418734-default-rtdb.asia-southeast1.firebasedatabase.app";
 
@@ -19,6 +38,7 @@ function cleanObject(obj) {
 export async function safeWriteRTDB(path, data, mode = "update") {
   if (!path || !data) return false;
   const cleaned = cleanObject(data);
+  await firebaseAuthReady;
 
   try {
     const dbRef = ref(rtdb, path);
@@ -86,6 +106,7 @@ export async function pushUserToRTDB(user) {
  */
 export function subscribeUserFromRTDB(userId, onUserReceived) {
   if (!userId) return () => {};
+  return deferredSubscribe(() => {
   const userRef = ref(rtdb, `users/${userId}`);
   return onValue(userRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -111,6 +132,7 @@ export function subscribeUserFromRTDB(userId, onUserReceived) {
       }
     }
   }, (err) => console.warn(`[RTDB User Sub ${userId}] Error:`, err));
+  });
 }
 
 /**
@@ -118,34 +140,35 @@ export function subscribeUserFromRTDB(userId, onUserReceived) {
  * Theo dõi số lượng người dùng đang hoạt động thực tế trên ứng dụng.
  */
 export function trackPresenceInRTDB(user) {
-  if (!user || (!user.id && !user.email)) return;
+  if (!user || (!user.id && !user.email)) return () => {};
   const uid = user.id || 'u_' + user.email.replace(/[^a-zA-Z0-9]/g, '_');
 
-  const connectedRef = ref(rtdb, ".info/connected");
-  const onlineRef = ref(rtdb, `online_users/${uid}`);
+  return deferredSubscribe(() => {
+    const connectedRef = ref(rtdb, ".info/connected");
+    const onlineRef = ref(rtdb, `online_users/${uid}`);
 
-  const unsubscribe = onValue(connectedRef, (snap) => {
-    if (snap.val() === true) {
-      set(onlineRef, {
-        id: uid,
-        name: user.name || user.full_name || user.email,
-        email: user.email || "",
-        role: user.role || "user",
-        online: true,
-        last_seen: new Date().toISOString(),
-      }).catch(() => null);
+    return onValue(connectedRef, (snap) => {
+      if (snap.val() === true) {
+        set(onlineRef, {
+          id: uid,
+          name: user.name || user.full_name || user.email,
+          email: user.email || "",
+          role: user.role || "user",
+          online: true,
+          last_seen: new Date().toISOString(),
+        }).catch(() => null);
 
-      onDisconnect(onlineRef).remove().catch(() => null);
-    }
+        onDisconnect(onlineRef).remove().catch(() => null);
+      }
+    });
   });
-
-  return unsubscribe;
 }
 
 /**
  * Admin Listener: users & online_users
  */
 export function subscribeAllUsersFromRTDB(onUpdate) {
+  return deferredSubscribe(() => {
   const usersRef = ref(rtdb, "users");
   const onlineRef = ref(rtdb, "online_users");
 
@@ -224,6 +247,7 @@ export function subscribeAllUsersFromRTDB(onUpdate) {
     unsubUsers();
     unsubOnline();
   };
+  });
 }
 
 /**
@@ -242,6 +266,7 @@ export async function pushCasinoConfigToRTDB(config) {
 }
 
 export function subscribeCasinoConfigFromRTDB(onConfigReceived) {
+  return deferredSubscribe(() => {
   const configRef = ref(rtdb, "casino_config");
   return onValue(configRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -256,6 +281,7 @@ export function subscribeCasinoConfigFromRTDB(onConfigReceived) {
       }
     }
   }, (err) => console.warn("[RTDB Casino Config Sub] Error:", err));
+  });
 }
 
 /**
@@ -275,6 +301,7 @@ export async function pushProjectToRTDB(project) {
 }
 
 export function subscribeProjectsFromRTDB(onProjectsReceived) {
+  return deferredSubscribe(() => {
   const projectsRef = ref(rtdb, "investment_projects");
   return onValue(projectsRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -312,6 +339,7 @@ export function subscribeProjectsFromRTDB(onProjectsReceived) {
       }
     }
   }, (err) => console.warn("[RTDB Projects Sub] Error:", err));
+  });
 }
 
 /**
@@ -347,6 +375,7 @@ export async function pushNotificationToRTDB(notif) {
 }
 
 export function subscribeNotificationsFromRTDB(onNotifsReceived) {
+  return deferredSubscribe(() => {
   const notifRef = ref(rtdb, "notifications");
   return onValue(notifRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -392,6 +421,7 @@ export function subscribeNotificationsFromRTDB(onNotifsReceived) {
       }
     }
   }, (err) => console.warn("[RTDB Notifs Sub] Error:", err));
+  });
 }
 
 /**
@@ -418,6 +448,7 @@ export async function pushMessageToRTDB(msg) {
 }
 
 export function subscribeMessagesFromRTDB(onMessagesReceived) {
+  return deferredSubscribe(() => {
   const messagesRef = ref(rtdb, "entities/Message");
   const legacyMessagesRef = ref(rtdb, "messages");
 
@@ -468,9 +499,11 @@ export function subscribeMessagesFromRTDB(onMessagesReceived) {
     unsub1();
     unsub2();
   };
+  });
 }
 
 export function subscribeWalletTransactionsFromRTDB(onTxReceived) {
+  return deferredSubscribe(() => {
   const txRef = ref(rtdb, "wallet_transactions");
   return onValue(txRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -508,9 +541,11 @@ export function subscribeWalletTransactionsFromRTDB(onTxReceived) {
       }
     }
   }, (err) => console.warn("[RTDB WalletTx Sub] Error:", err));
+  });
 }
 
 export function subscribeSignaturesFromRTDB(onSigReceived) {
+  return deferredSubscribe(() => {
   const sigRef = ref(rtdb, "entities/Signature");
   return onValue(sigRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -548,4 +583,5 @@ export function subscribeSignaturesFromRTDB(onSigReceived) {
       }
     }
   }, (err) => console.warn("[RTDB Signature Sub] Error:", err));
+  });
 }

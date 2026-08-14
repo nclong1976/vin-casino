@@ -66,11 +66,17 @@ export const storage = getStorage(app);
  * anonymously so every client carries a valid Firebase Auth session and the
  * rules can actually enforce access instead of relying on rules that
  * silently never match.
+ *
+ * `firebaseAuthReady` resolves once that sign-in settles (success or not).
+ * RTDB/Firestore calls made before it resolves hit the backend with no auth
+ * token yet and get rejected, so callers should await it before their first
+ * read/write instead of firing on module load and hoping auth won the race.
  */
-if (typeof window !== "undefined") {
-  signInAnonymously(auth).catch((err) => {
-    console.warn("[Firebase] Anonymous sign-in failed:", err?.message || err);
-  });
-}
+export const firebaseAuthReady =
+  typeof window !== "undefined"
+    ? signInAnonymously(auth).catch((err) => {
+        console.warn("[Firebase] Anonymous sign-in failed:", err?.message || err);
+      })
+    : Promise.resolve();
 
 export default app;

@@ -10,11 +10,15 @@ import {
   getDoc,
   updateDoc
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, firebaseAuthReady } from "./firebase";
 import { base44 } from "@/api/base44Client";
 
 // Lưu danh sách các uninstaller của listener thời gian thực
 const activeListeners = {};
+
+// Tăng mỗi khi stopFirebaseSync() chạy, dùng để huỷ một startFirebaseSync()
+// đang chờ firebaseAuthReady nếu bị dừng/gọi lại trước khi nó kịp gắn listener
+let activeSyncToken = 0;
 
 /**
  * Lấy ID của người dùng hiện tại
@@ -35,9 +39,19 @@ function getCurrentUserId() {
 /**
  * Tải và đồng bộ hóa thời gian thực các thực thể của người dùng từ Firestore
  */
-export function startFirebaseSync() {
+export async function startFirebaseSync() {
   const userId = getCurrentUserId();
   if (!userId) return;
+
+  // Hủy các listener cũ nếu có (đồng thời huỷ mọi lệnh startFirebaseSync
+  // trước đó đang chờ firebaseAuthReady)
+  stopFirebaseSync();
+  const myToken = activeSyncToken;
+
+  // Đợi phiên đăng nhập ẩn danh Firebase Auth sẵn sàng - rule bảo mật yêu cầu
+  // auth != null nên gắn listener trước khi có token sẽ bị permission_denied
+  await firebaseAuthReady;
+  if (myToken !== activeSyncToken) return; // đã bị dừng/gọi lại trong lúc chờ
 
   console.log(`[FirebaseSync] Bắt đầu đồng bộ hóa dữ liệu cho người dùng: ${userId}`);
 
@@ -50,9 +64,6 @@ export function startFirebaseSync() {
     'Transaction',
     'WalletTransaction'
   ];
-
-  // Hủy các listener cũ nếu có
-  stopFirebaseSync();
 
   // 1. Đồng bộ thông tin cá nhân của User từ Firestore
   const userDocRef = doc(db, "users", userId);
@@ -161,6 +172,7 @@ export function startFirebaseSync() {
  * Ngắt kết nối các listener đồng bộ
  */
 export function stopFirebaseSync() {
+  activeSyncToken++;
   Object.keys(activeListeners).forEach(key => {
     if (typeof activeListeners[key] === 'function') {
       activeListeners[key]();
@@ -177,6 +189,7 @@ export async function pushEntityToFirestore(entityName, id, data, action = 'upse
   const userId = getCurrentUserId();
   if (!userId) return;
 
+  await firebaseAuthReady;
   const docRef = doc(db, entityName, id);
 
   try {
