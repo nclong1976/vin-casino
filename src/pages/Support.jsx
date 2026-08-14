@@ -138,7 +138,7 @@ export default function Support() {
   };
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto h-[594px] bg-[#f5f5f5] overflow-clip font-heading flex flex-col">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading flex flex-col">
       <SupportHeader />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">

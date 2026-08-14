@@ -198,7 +198,7 @@ export default function BaiCao() {
   const playerRevealed = phase === "dealt" || phase === "result";
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#0c0905] overflow-clip font-heading flex flex-col">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#0c0905] overflow-clip font-heading flex flex-col">
       {/* Felt glow background */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div className="absolute inset-x-0 top-0 h-[40%] bg-gradient-to-b from-[#1a1208]/80 to-transparent" />

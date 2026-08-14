@@ -39,7 +39,7 @@ export default function News() {
   const featured = filtered.find((n) => n.featured) || filtered[0];
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] overflow-clip font-heading pb-20">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading pb-20">
       <PageHeader title="Tin Tức & Thị Trường" />
 
       <div className="px-3 py-3 space-y-3">

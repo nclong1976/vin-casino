@@ -100,7 +100,7 @@ export default function TradeSheet({ stock, onClose }) {
           exit={{ y: "100%" }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-[331px] bg-[#151b24] rounded-t-3xl p-5 pb-8 border-t border-[#d4af37]/30"
+          className="w-full max-w-[480px] bg-[#151b24] rounded-t-3xl p-5 pb-8 border-t border-[#d4af37]/30"
         >
           <div className="flex items-center justify-between mb-4">
             <div>

@@ -57,7 +57,7 @@ export default function Stocks() {
   });
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#0d1117] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#0d1117] overflow-clip font-heading">
       <StockHeader />
 
       <div className="px-3 py-4 pb-20 space-y-3">

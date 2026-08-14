@@ -148,7 +148,7 @@ export default function LuckyWheel() {
   const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-gradient-to-b from-[#1a1410] to-[#0d0a08] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-gradient-to-b from-[#1a1410] to-[#0d0a08] overflow-clip font-heading">
       <PageHeader title="Vòng quay may mắn" />
       <div className="px-3 py-4 pb-20 space-y-4 flex flex-col items-center">
         <motion.div

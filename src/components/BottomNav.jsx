@@ -12,7 +12,7 @@ export default function BottomNav() {
   const isSupport = path === "/support" || path === "/consultation";
 
   return (
-    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[331px] h-16 z-50 pointer-events-auto select-none">
+    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] h-16 z-50 pointer-events-auto select-none">
       {/* Background Graphic */}
       <img
         className="absolute inset-0 w-full h-full object-cover object-center z-0 pointer-events-none drop-shadow-[0_-4px_16px_rgba(0,0,0,0.15)]"

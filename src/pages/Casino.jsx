@@ -22,7 +22,7 @@ const games = [
 
 export default function Casino() {
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#0c0905] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#0c0905] overflow-clip font-heading">
       <CasinoHeader />
 
       <div className="px-3 py-4 pb-20">

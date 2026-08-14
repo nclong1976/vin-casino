@@ -142,7 +142,7 @@ export default function RealTimeMonitor() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 220 }}
-              className="relative w-full max-w-[331px] h-[520px] bg-[#0d1117] border-t border-[#948154]/40 rounded-t-2xl shadow-2xl flex flex-col overflow-hidden font-sans"
+              className="relative w-full max-w-[480px] h-[520px] bg-[#0d1117] border-t border-[#948154]/40 rounded-t-2xl shadow-2xl flex flex-col overflow-hidden font-sans"
             >
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#948154]/20 bg-gradient-to-r from-[#161b22] to-[#0d1117]">

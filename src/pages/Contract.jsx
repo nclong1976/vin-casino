@@ -57,14 +57,14 @@ export default function Contract() {
 
   if (loading)
     return (
-      <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] font-heading flex items-center justify-center">
+      <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] font-heading flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-gray-200 border-t-[#948154] rounded-full animate-spin" />
       </main>
     );
 
   if (!tx)
     return (
-      <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] font-heading flex flex-col items-center justify-center gap-2">
+      <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] font-heading flex flex-col items-center justify-center gap-2">
         <p className="text-[12px] text-gray-500">Không tìm thấy hợp đồng</p>
         <Link to="/profile" className="text-[11px] text-[#948154]">
           Quay lại
@@ -73,7 +73,7 @@ export default function Contract() {
     );
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
       <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100">
         <button
           onClick={() => navigate(-1)}

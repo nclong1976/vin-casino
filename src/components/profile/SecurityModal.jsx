@@ -62,7 +62,7 @@ export default function SecurityModal({ open, onClose }) {
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-[331px] bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+            className="w-full max-w-[480px] bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
           >
             <div className="sticky top-0 bg-white flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <h2 className="text-[14px] font-bold text-black flex items-center gap-1.5">

@@ -116,7 +116,7 @@ export default function Resort() {
   }, []);
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
       <PageHeader title="Đầu tư nghỉ dưỡng" />
       <div className="px-3 py-4 pb-20 space-y-4">
         <div className="bg-gradient-to-br from-[#948154] to-[#6b5e3e] rounded-2xl p-4 text-white shadow-md">

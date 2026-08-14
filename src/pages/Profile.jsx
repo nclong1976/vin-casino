@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Wallet, Landmark, PenTool, ArrowRight, LogOut, Shield, Bell, HelpCircle, LayoutDashboard, CreditCard, Sparkles, FileText } from "lucide-react";
+import { Wallet, Landmark, PenTool, ArrowRight, LogOut, Shield, Bell, HelpCircle, LayoutDashboard, CreditCard, Sparkles, FileText, Users } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo } from "@/lib/membershipUtils";
@@ -21,6 +21,7 @@ import TransactionList from "@/components/profile/TransactionList";
 import WalletTransactionList from "@/components/profile/WalletTransactionList";
 import SignatureList from "@/components/profile/SignatureList";
 import ProfitChart from "@/components/profile/ProfitChart";
+import AccountSwitcherModal from "@/components/profile/AccountSwitcherModal";
 
 export default function Profile() {
   const { user, refreshUser } = useAuth();
@@ -39,6 +40,7 @@ export default function Profile() {
   const [showSecurity, setShowSecurity] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
 
   const fetchData = async () => {
     const me = user || (await base44.auth.me().catch(() => null));
@@ -156,6 +158,7 @@ export default function Profile() {
     ...(user?.role === "admin"
       ? [{ icon: LayoutDashboard, label: "Bảng quản trị Admin", color: "text-[#948154]", link: "/admin" }]
       : []),
+    { icon: Users, label: "Chuyển đổi tài khoản", color: "text-[#948154]", onClick: () => setShowAccountSwitcher(true) },
     { icon: FileText, label: "Quy định & Thể lệ VinClub", color: "text-[#948154]", onClick: () => setShowRules(true) },
     { icon: Shield, label: "Bảo mật & Mã PIN", color: "text-blue-500", onClick: () => setShowSecurity(true) },
     { icon: Bell, label: "Thông báo biến động", color: "text-orange-500", onClick: () => setShowNotification(true) },
@@ -170,7 +173,7 @@ export default function Profile() {
   };
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
       <ProfileHeader />
       <div className="px-3 py-3 pb-20 space-y-4">
         {/* Profile Card / User Header */}
@@ -196,6 +199,13 @@ export default function Profile() {
                 {user?.role === "admin" ? "QUẢN TRỊ VIÊN VIP" : userTier.fullName.toUpperCase()}
               </Link>
             </div>
+            <button
+              onClick={() => setShowAccountSwitcher(true)}
+              className="w-8 h-8 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-500 flex items-center justify-center shrink-0 border border-gray-100"
+              title="Chuyển đổi tài khoản"
+            >
+              <Users className="w-3.5 h-3.5" />
+            </button>
           </div>
         </motion.div>
 
@@ -314,6 +324,7 @@ export default function Profile() {
       <SecurityModal open={showSecurity} onClose={() => setShowSecurity(false)} />
       <NotificationModal open={showNotification} onClose={() => setShowNotification(false)} />
       <AppRulesModal open={showRules} onClose={() => setShowRules(false)} />
+      <AccountSwitcherModal open={showAccountSwitcher} onClose={() => setShowAccountSwitcher(false)} />
 
       <BottomNav />
     </main>

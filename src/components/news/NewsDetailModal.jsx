@@ -49,7 +49,7 @@ export default function NewsDetailModal({ article, onClose, onSelectArticle }) {
           exit={{ scale: 0.92, y: 30, opacity: 0 }}
           transition={{ type: "spring", stiffness: 320, damping: 28 }}
           onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-[331px] sm:max-w-[420px] bg-white rounded-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col border border-amber-900/10"
+          className="relative w-full max-w-[480px] sm:max-w-[420px] bg-white rounded-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col border border-amber-900/10"
         >
           {/* Top Floating Action Bar */}
           <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-3.5 bg-gradient-to-b from-black/80 via-black/40 to-transparent">

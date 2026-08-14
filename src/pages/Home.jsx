@@ -34,7 +34,7 @@ export default function Home() {
   };
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-background overflow-clip font-heading selection:bg-secondary/50">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-background overflow-clip font-heading selection:bg-secondary/50">
       {/* Global Backgrounds */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <img

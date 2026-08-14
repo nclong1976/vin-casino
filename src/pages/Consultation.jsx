@@ -312,7 +312,7 @@ export default function Consultation() {
   };
 
   return (
-    <main className="relative w-full max-w-[331px] mx-auto min-h-[594px] bg-[#f5f5f5] overflow-clip font-heading">
+    <main className="relative w-full max-w-[480px] mx-auto min-h-screen bg-[#f5f5f5] overflow-clip font-heading">
       <PageHeader title="Tham vấn phúc lợi" />
 
       <div className="px-3 py-3 pb-20 space-y-4">

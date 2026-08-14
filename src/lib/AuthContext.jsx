@@ -7,6 +7,7 @@ import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/li
 import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
 import { getSupabaseUser } from '@/lib/supabaseDb';
 import { startTwoWaySync } from '@/lib/twoWaySync';
+import { saveAccountToSwitcher, switchToAccount as switchToSavedAccount } from '@/lib/accountSwitcher';
 
 const AuthContext = createContext(null);
 
@@ -40,6 +41,7 @@ export const AuthProvider = ({ children }) => {
           const hydrated = await hydrateUserData(vinUser);
           setUser(hydrated);
           setIsAuthenticated(true);
+          saveAccountToSwitcher(hydrated, session);
         } else {
           // Fallback: thử base44 legacy auth
           try {
@@ -74,6 +76,7 @@ export const AuthProvider = ({ children }) => {
         setUser(hydrated);
         setIsAuthenticated(true);
         setAuthChecked(true);
+        saveAccountToSwitcher(hydrated, session);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setIsAuthenticated(false);
@@ -82,6 +85,7 @@ export const AuthProvider = ({ children }) => {
         const vinUser = mapSupabaseUser(session.user);
         const merged = mergeWithLocalData(vinUser);
         setUser(prev => prev ? { ...prev, ...merged } : merged);
+        saveAccountToSwitcher(merged, session);
       } else if (event === 'USER_UPDATED' && session?.user) {
         const vinUser = mapSupabaseUser(session.user);
         setUser(prev => prev ? { ...prev, ...vinUser } : vinUser);
@@ -267,6 +271,20 @@ export const AuthProvider = ({ children }) => {
     window.location.href = '/login';
   };
 
+  /**
+   * Chuyển sang 1 tài khoản đã lưu trên CÙNG thiết bị này mà không cần
+   * đăng xuất/đăng nhập lại thủ công. setSession() ở dưới tự bắn sự kiện
+   * SIGNED_IN qua onAuthStateChange (đã lắng nghe ở trên) nên user/state
+   * toàn app sẽ tự cập nhật theo tài khoản mới ngay khi chuyển thành công.
+   */
+  const switchAccount = async (userId) => {
+    const ok = await switchToSavedAccount(userId);
+    if (ok) {
+      window.location.href = '/';
+    }
+    return ok;
+  };
+
   const navigateToLogin = () => {
     window.location.href = '/login';
   };
@@ -281,6 +299,7 @@ export const AuthProvider = ({ children }) => {
       appPublicSettings,
       authChecked,
       logout,
+      switchAccount,
       navigateToLogin,
       checkUserAuth,
       checkAppState,
