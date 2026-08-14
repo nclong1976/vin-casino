@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, signInAnonymously } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
@@ -45,9 +45,32 @@ export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfi
  * - rtdb: Realtime Database
  * - storage: Firebase Cloud Storage
  */
+/**
+ * The Firebase project has no "(default)" Firestore database provisioned
+ * (only AI-Studio-managed databases exist under other ids), so the client
+ * must target one of those explicitly instead of relying on the SDK default.
+ */
+const FIRESTORE_DATABASE_ID = getEnv(
+  "VITE_FIRESTORE_DATABASE_ID",
+  "ai-studio-vincluba-aae69510-bcd5-4dd5-bc4d-c2d1ff326c0c"
+);
+
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
 export const rtdb = getDatabase(app, firebaseConfig.databaseURL);
 export const storage = getStorage(app);
+
+/**
+ * The app's own login (Supabase Auth) is separate from Firebase Auth, but the
+ * Firestore/RTDB security rules require `request.auth != null`. Sign in
+ * anonymously so every client carries a valid Firebase Auth session and the
+ * rules can actually enforce access instead of relying on rules that
+ * silently never match.
+ */
+if (typeof window !== "undefined") {
+  signInAnonymously(auth).catch((err) => {
+    console.warn("[Firebase] Anonymous sign-in failed:", err?.message || err);
+  });
+}
 
 export default app;

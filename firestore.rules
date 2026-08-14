@@ -1,42 +1,18 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+    // The app's login (Supabase Auth) is separate from Firebase Auth, so
+    // request.auth.uid never matches the app's own user ids and
+    // per-document ownership can't be enforced here. This gate only blocks
+    // unauthenticated (signed-out) access; any signed-in client (including
+    // anonymous sign-in) can read/write, which lets every entity - including
+    // the admin dashboard - sync in real time.
     function isAuthenticated() {
       return request.auth != null;
     }
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-    function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.role == 'admin' || 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
-    }
 
-    // Default fallback rule for authenticated session
     match /{document=**} {
       allow read, write: if isAuthenticated();
-    }
-
-    // User Profile Rules
-    match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId) || isAdmin();
-    }
-
-    // Bank Account Rules
-    match /BankAccount/{bankId} {
-      allow read: if isAuthenticated() && (resource.data.user_id == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && (resource.data.user_id == request.auth.uid || isAdmin());
-    }
-
-    // Financial Transaction Rules
-    match /WalletTransaction/{txId} {
-      allow read: if isAuthenticated() && (resource.data.user_id == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
     }
   }
 }

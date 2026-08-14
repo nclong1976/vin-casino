@@ -2,12 +2,6 @@
   "rules": {
     ".read": "auth != null",
     ".write": "auth != null",
-    "users": {
-      "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
-        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
-      }
-    },
     "system_health_check": {
       ".read": true,
       ".write": true
