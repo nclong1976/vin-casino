@@ -95,24 +95,31 @@ export default function Register() {
         console.warn("[Register] Supabase signUp warning:", supaErr.message);
       }
 
-      // Song song đăng ký qua base44 legacy (để tương thích Admin panel)
-      try {
-        const result = await base44.auth.register({
-          email,
-          password,
-          name: fullName,
-          referral_code: referralCode
-        });
-        if (result?.access_token) {
-          base44.auth.setToken(result.access_token);
+      // Chỉ đăng ký qua base44 legacy khi Supabase THẤT BẠI (dự phòng).
+      // Trước đây cả hai luôn chạy song song, mỗi bên tự sinh một id khác
+      // nhau ('u_...' vs UUID Supabase) cho CÙNG một người - tạo ra 2 bản
+      // ghi "ma" trùng lặp trên Admin panel. Khi admin cộng/trừ tiền vào
+      // đúng bản người dùng không thực sự đăng nhập bằng, số dư không bao
+      // giờ khớp giữa 2 bên dù cùng 1 tài khoản.
+      if (!supaData?.user) {
+        try {
+          const result = await base44.auth.register({
+            email,
+            password,
+            name: fullName,
+            referral_code: referralCode
+          });
+          if (result?.access_token) {
+            base44.auth.setToken(result.access_token);
+          }
+        } catch (legacyErr) {
+          // Nếu tài khoản đã tồn tại (lớp kiểm tra dự phòng, độc lập với
+          // isIdentifierTaken phía trên) thì chặn lại thay vì âm thầm bỏ qua
+          if ((legacyErr.message || "").includes("đã tồn tại")) {
+            throw legacyErr;
+          }
+          console.warn("[Register] base44 register warning:", legacyErr.message);
         }
-      } catch (legacyErr) {
-        // Nếu tài khoản đã tồn tại (lớp kiểm tra dự phòng, độc lập với
-        // isIdentifierTaken phía trên) thì chặn lại thay vì âm thầm bỏ qua
-        if ((legacyErr.message || "").includes("đã tồn tại")) {
-          throw legacyErr;
-        }
-        console.warn("[Register] base44 register warning:", legacyErr.message);
       }
 
       // Đẩy user lên Firebase RTDB để Admin thấy ngay lập tức

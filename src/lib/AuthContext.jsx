@@ -5,6 +5,7 @@ import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/lib/rtdbSync';
 import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
+import { getSupabaseUser } from '@/lib/supabaseDb';
 import { startTwoWaySync } from '@/lib/twoWaySync';
 
 const AuthContext = createContext(null);
@@ -36,9 +37,8 @@ export const AuthProvider = ({ children }) => {
         const session = await getSession();
         if (session?.user) {
           const vinUser = mapSupabaseUser(session.user);
-          // Merge balance/extra data từ localStorage nếu có
-          const merged = mergeWithLocalData(vinUser);
-          setUser(merged);
+          const hydrated = await hydrateUserData(vinUser);
+          setUser(hydrated);
           setIsAuthenticated(true);
         } else {
           // Fallback: thử base44 legacy auth
@@ -70,8 +70,8 @@ export const AuthProvider = ({ children }) => {
       console.log('[AuthContext] Supabase auth event:', event);
       if (event === 'SIGNED_IN' && session?.user) {
         const vinUser = mapSupabaseUser(session.user);
-        const merged = mergeWithLocalData(vinUser);
-        setUser(merged);
+        const hydrated = await hydrateUserData(vinUser);
+        setUser(hydrated);
         setIsAuthenticated(true);
         setAuthChecked(true);
       } else if (event === 'SIGNED_OUT') {
@@ -164,6 +164,34 @@ export const AuthProvider = ({ children }) => {
   // ──────────────────────────────────────────────────────────────────
 
   /**
+   * Nạp số dư/thông tin THẬT từ bảng users trên Supabase (nguồn dữ liệu
+   * dùng chung cho mọi thiết bị, luôn được cập nhật mỗi khi số dư đổi -
+   * xem updateUserBalance/syncUserToSupabase) thay vì tin vào
+   * user_metadata của Supabase Auth, vốn chỉ được ghi 1 lần lúc đăng ký
+   * và không bao giờ cập nhật lại. Nếu thiếu (tài khoản legacy chưa từng
+   * đồng bộ lên Supabase), rơi về dữ liệu cục bộ như trước.
+   */
+  async function hydrateUserData(supaUser) {
+    try {
+      const dbUser = await getSupabaseUser(supaUser.id);
+      if (dbUser && dbUser.balance !== undefined && dbUser.balance !== null) {
+        return {
+          ...supaUser,
+          balance: Number(dbUser.balance || 0),
+          total_deposited: Number(dbUser.total_deposited || 0),
+          is_locked: !!dbUser.is_locked,
+          membership_tier: dbUser.membership_tier || supaUser.membership_tier,
+          vip_level: dbUser.vip_level || supaUser.vip_level,
+          bank_name: dbUser.bank_name || supaUser.bank_name || '',
+          account_number: dbUser.account_number || supaUser.account_number || '',
+          account_holder: dbUser.account_holder || supaUser.account_holder || '',
+        };
+      }
+    } catch (e) {}
+    return mergeWithLocalData(supaUser);
+  }
+
+  /**
    * Merge Supabase user với dữ liệu balance/profile từ localStorage
    * để không mất số dư đã có trong local storage
    */
@@ -193,8 +221,8 @@ export const AuthProvider = ({ children }) => {
       const session = await getSession();
       if (session?.user) {
         const vinUser = mapSupabaseUser(session.user);
-        const merged = mergeWithLocalData(vinUser);
-        setUser(merged);
+        const hydrated = await hydrateUserData(vinUser);
+        setUser(hydrated);
         setIsAuthenticated(true);
       } else {
         const legacyUser = await base44.auth.me();
