@@ -66,7 +66,7 @@ function StatusBadge({ status }) {
 }
 
 // ── Shared transaction card ───────────────────────────────────────
-function TxCard({ tx, userMap, isDeposit, onApprove, onReject, copyText }) {
+function TxCard({ tx, userMap, isDeposit, onApprove, onReject, copyText, onNavigateToChat }) {
   const userInfo = userMap[tx.user_id] || {};
   const txCode = tx.code || tx.id;
   const isPending = !tx.status || tx.status === "pending";
@@ -109,19 +109,32 @@ function TxCard({ tx, userMap, isDeposit, onApprove, onReject, copyText }) {
       {/* Row 2: user info + amount + actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* User info */}
-        <div className="bg-gray-50/80 rounded-xl p-2.5 border border-gray-100 flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#948154] to-[#6b5e3e] text-white font-bold flex items-center justify-center text-[12px] shrink-0 shadow-xs">
-            {(userInfo.full_name || userInfo.email || "U").charAt(0).toUpperCase()}
+        <div className="bg-gray-50/80 rounded-xl p-2.5 border border-gray-100 flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#948154] to-[#6b5e3e] text-white font-bold flex items-center justify-center text-[12px] shrink-0 shadow-xs">
+              {(userInfo.full_name || userInfo.email || "U").charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-bold text-black truncate">
+                {userInfo.full_name || "Thành viên VinClub"}
+              </p>
+              <p className="text-[10px] text-gray-500 truncate">{userInfo.email || userInfo.phone || "—"}</p>
+              <span className="text-[8.5px] text-[#948154] font-semibold bg-[#948154]/10 px-1.5 py-0.2 rounded-md">
+                ID: {tx.user_id?.slice(-8) || "N/A"}
+              </span>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[12px] font-bold text-black truncate">
-              {userInfo.full_name || "Thành viên VinClub"}
-            </p>
-            <p className="text-[10px] text-gray-500 truncate">{userInfo.email || userInfo.phone || "—"}</p>
-            <span className="text-[8.5px] text-[#948154] font-semibold bg-[#948154]/10 px-1.5 py-0.2 rounded-md">
-              ID: {tx.user_id?.slice(-8) || "N/A"}
-            </span>
-          </div>
+
+          {onNavigateToChat && (
+            <button
+              type="button"
+              onClick={() => onNavigateToChat(tx.user_id)}
+              className="p-1.5 rounded-lg bg-[#948154]/10 hover:bg-[#948154] hover:text-white text-[#948154] transition-colors shrink-0 cursor-pointer"
+              title="Nhắn tin CSKH với hội viên này"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Amount + actions */}
@@ -178,7 +191,7 @@ function TxCard({ tx, userMap, isDeposit, onApprove, onReject, copyText }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────
-export default function TransactionsTab() {
+export default function TransactionsTab({ initialSearchQuery = "", onNavigateToChat = null }) {
   const { user: adminUser } = useAuth();
 
   // "deposit" | "withdraw"
@@ -189,9 +202,15 @@ export default function TransactionsTab() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("pending");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
+
+  useEffect(() => {
+    if (initialSearchQuery) {
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
 
   // Modal states
   const [approvingTx, setApprovingTx] = useState(null);
@@ -645,6 +664,7 @@ export default function TransactionsTab() {
               onApprove={setApprovingTx}
               onReject={openReject}
               copyText={copyText}
+              onNavigateToChat={onNavigateToChat}
             />
           ))}
         </div>

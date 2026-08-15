@@ -141,18 +141,24 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
 ));
 
 // ─── Main Component ───────────────────────────────────────────────
-export default function MessagesTab() {
+export default function MessagesTab({ initialSelectedUserId = null }) {
   const { user } = useAuth();
   const isSuperAdmin = !!user?.is_super_admin;
 
   const [messages, setMessages] = useState([]);
   const [usersMap, setUsersMap] = useState({});
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(initialSelectedUserId);
   const [replyText, setReplyText] = useState("");
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+
+  useEffect(() => {
+    if (initialSelectedUserId) {
+      setSelectedUser(initialSelectedUserId);
+    }
+  }, [initialSelectedUserId]);
   const [previewImage, setPreviewImage] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // {type: 'msg'|'conv', target}

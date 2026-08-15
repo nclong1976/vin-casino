@@ -1,26 +1,33 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, TrendingUp, Dices, ArrowRightLeft, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  FileCheck,
+  FolderOpen,
+  ArrowLeft,
+  Bell,
+  TrendingUp,
+  Dices,
+  LogOut,
+  Sparkles
+} from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import OverviewTab from "@/components/admin/OverviewTab";
-import MessagesTab from "@/components/admin/MessagesTab";
+import MemberHubTab from "@/components/admin/MemberHubTab";
 import ContractsTab from "@/components/admin/ContractsTab";
-import UsersTab from "@/components/admin/UsersTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
-import TransactionsTab from "@/components/admin/TransactionsTab";
 import StocksTab from "@/components/admin/StocksTab";
 import CasinoTab from "@/components/admin/CasinoTab";
 
 const TABS = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
-  { id: "transactions", label: "Phê duyệt Giao dịch", icon: ArrowRightLeft },
+  { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
   { id: "stocks", label: "Đầu tư chứng khoán", icon: TrendingUp },
   { id: "casino", label: "Quản lý Casino", icon: Dices },
-  { id: "messages", label: "Tin nhắn", icon: MessageSquare },
   { id: "contracts", label: "Hợp đồng", icon: FileCheck },
-  { id: "users", label: "Người dùng", icon: Users },
   { id: "projects", label: "Dự án", icon: FolderOpen },
   { id: "notifications", label: "Thông báo", icon: Bell },
 ];
@@ -46,6 +53,7 @@ export default function Admin() {
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
       const pendingDepositsCount = dTxs.filter((t) => (t.status || "pending") === "pending").length;
       const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.is_read).length;
+      const totalPendingHub = pendingWithdrawalsCount + pendingDepositsCount + unreadMessagesCount;
 
       setStats({
         users: users.length,
@@ -53,6 +61,7 @@ export default function Admin() {
         pendingWithdrawals: pendingWithdrawalsCount,
         pendingDeposits: pendingDepositsCount,
         pendingTransactions: pendingWithdrawalsCount + pendingDepositsCount,
+        totalPendingHub,
         approvedContracts: signedTxs.filter((t) => t.contract_status === "approved").length,
         messages: messages.length,
         unreadMessages: unreadMessagesCount,
@@ -69,7 +78,7 @@ export default function Admin() {
     fetchStats();
 
     let unsubs = [];
-    import('@/lib/rtdbSync').then((rtdb) => {
+    import("@/lib/rtdbSync").then((rtdb) => {
       if (rtdb.subscribeAllUsersFromRTDB) unsubs.push(rtdb.subscribeAllUsersFromRTDB(() => fetchStats()));
       if (rtdb.subscribeWalletTransactionsFromRTDB) unsubs.push(rtdb.subscribeWalletTransactionsFromRTDB(() => fetchStats()));
       if (rtdb.subscribeMessagesFromRTDB) unsubs.push(rtdb.subscribeMessagesFromRTDB(() => fetchStats()));
@@ -79,7 +88,7 @@ export default function Admin() {
     }).catch(() => null);
 
     return () => {
-      unsubs.forEach(u => typeof u === "function" && u());
+      unsubs.forEach((u) => typeof u === "function" && u());
     };
   }, []);
 
@@ -128,19 +137,14 @@ export default function Admin() {
             >
               <t.icon className="w-4 h-4" />
               {t.label}
-              {t.id === "transactions" && stats.pendingTransactions > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
-                  {stats.pendingTransactions}
+              {t.id === "member_hub" && stats.totalPendingHub > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                  {stats.totalPendingHub}
                 </span>
               )}
               {t.id === "contracts" && stats.pendingContracts > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
                   {stats.pendingContracts}
-                </span>
-              )}
-              {t.id === "messages" && stats.unreadMessages > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
-                  {stats.unreadMessages}
                 </span>
               )}
             </button>
@@ -150,12 +154,10 @@ export default function Admin() {
 
       <div className="max-w-4xl mx-auto px-4 py-4">
         {tab === "overview" && <OverviewTab stats={stats} />}
-        {tab === "transactions" && <TransactionsTab />}
+        {tab === "member_hub" && <MemberHubTab />}
         {tab === "stocks" && <StocksTab />}
         {tab === "casino" && <CasinoTab />}
-        {tab === "messages" && <MessagesTab />}
         {tab === "contracts" && <ContractsTab />}
-        {tab === "users" && <UsersTab />}
         {tab === "projects" && <ProjectsTab />}
         {tab === "notifications" && <NotificationsTab />}
       </div>

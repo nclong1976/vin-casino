@@ -13,7 +13,9 @@ import {
   Loader2,
   Trash2,
   AlertTriangle,
-  X
+  X,
+  MessageSquare,
+  ArrowRightLeft
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
@@ -34,7 +36,7 @@ const TIER_BADGES = {
   Diamond: "bg-blue-100 text-blue-900 border-blue-300 font-black",
 };
 
-export default function UsersTab() {
+export default function UsersTab({ onNavigateToChat = null, onNavigateToTransactions = null }) {
   const { user: currentAdmin } = useAuth();
   const isSuperAdmin = !!currentAdmin?.is_super_admin || currentAdmin?.role === "admin" || currentAdmin?.email === "nclong1976@gmail.com" || currentAdmin?.username === "nclong";
 
@@ -445,6 +447,28 @@ export default function UsersTab() {
 
                   {/* Actions Buttons */}
                   <div className="flex items-center gap-1.5">
+                    {/* Quick Chat with Member */}
+                    {onNavigateToChat && (
+                      <button
+                        onClick={() => onNavigateToChat(u.id)}
+                        className="w-8 h-8 rounded-xl bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 border border-blue-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                        title="Mở hội thoại CSKH với hội viên này"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {/* Quick View Transactions */}
+                    {onNavigateToTransactions && (
+                      <button
+                        onClick={() => onNavigateToTransactions(u.full_name || u.email || u.id)}
+                        className="w-8 h-8 rounded-xl bg-amber-50 hover:bg-amber-600 hover:text-white text-amber-700 border border-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                        title="Xem lịch sử Nạp/Rút của hội viên này"
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
                     {/* View Detail & RBAC */}
                     <button
                       onClick={() => setDetailUser({ ...u, balance: userBal })}
