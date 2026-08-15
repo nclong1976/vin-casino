@@ -166,24 +166,27 @@ export default function Login() {
       // OTP validated locally — session đã được thiết lập ở bước signIn
       triggerSound("win");
 
-      // Lấy user từ Supabase session để xác định role
+      // Lấy user từ Supabase session để xác định role & nạp toàn bộ dữ liệu thiết bị mới
       let role = "user";
       try {
         const { getSession } = await import("@/lib/supabaseAuth");
+        const { hydrateUserOnNewDevice } = await import("@/lib/syncEngine");
         const session = await getSession();
         if (session?.user) {
           const vinUser = mapSupabaseUser(session.user);
           role = vinUser.role || "user";
-          // Đẩy user lên RTDB để sync real-time
-          pushUserToRTDB(vinUser);
-          // Lưu vào localStorage để các component khác đọc được
-          localStorage.setItem("base44_local_user", JSON.stringify(vinUser));
+          // Đồng bộ toàn diện P0, P1, P2 cho thiết bị mới
+          await hydrateUserOnNewDevice(vinUser);
         }
       } catch (e) {
         // Fallback sang base44 user
         try {
+          const { hydrateUserOnNewDevice } = await import("@/lib/syncEngine");
           const currentUser = await base44.auth.me();
-          role = currentUser?.role || "user";
+          if (currentUser) {
+            role = currentUser?.role || "user";
+            await hydrateUserOnNewDevice(currentUser);
+          }
         } catch (_) {}
       }
 

@@ -8,6 +8,7 @@ import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser 
 import { getSupabaseUser } from '@/lib/supabaseDb';
 import { startTwoWaySync } from '@/lib/twoWaySync';
 import { saveAccountToSwitcher, switchToAccount as switchToSavedAccount } from '@/lib/accountSwitcher';
+import { hydrateUserOnNewDevice } from '@/lib/syncEngine';
 
 const AuthContext = createContext(null);
 
@@ -38,7 +39,7 @@ export const AuthProvider = ({ children }) => {
         const session = await getSession();
         if (session?.user) {
           const vinUser = mapSupabaseUser(session.user);
-          const hydrated = await hydrateUserData(vinUser);
+          const hydrated = await hydrateUserOnNewDevice(vinUser);
           setUser(hydrated);
           setIsAuthenticated(true);
           saveAccountToSwitcher(hydrated, session);
@@ -47,7 +48,8 @@ export const AuthProvider = ({ children }) => {
           try {
             const legacyUser = await base44.auth.me();
             if (legacyUser) {
-              setUser(legacyUser);
+              const hydrated = await hydrateUserOnNewDevice(legacyUser);
+              setUser(hydrated);
               setIsAuthenticated(true);
             } else {
               setIsAuthenticated(false);
@@ -72,7 +74,7 @@ export const AuthProvider = ({ children }) => {
       console.log('[AuthContext] Supabase auth event:', event);
       if (event === 'SIGNED_IN' && session?.user) {
         const vinUser = mapSupabaseUser(session.user);
-        const hydrated = await hydrateUserData(vinUser);
+        const hydrated = await hydrateUserOnNewDevice(vinUser);
         setUser(hydrated);
         setIsAuthenticated(true);
         setAuthChecked(true);
@@ -83,12 +85,13 @@ export const AuthProvider = ({ children }) => {
         setAuthChecked(true);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
         const vinUser = mapSupabaseUser(session.user);
-        const merged = mergeWithLocalData(vinUser);
-        setUser(prev => prev ? { ...prev, ...merged } : merged);
-        saveAccountToSwitcher(merged, session);
+        const hydrated = await hydrateUserOnNewDevice(vinUser);
+        setUser(hydrated);
+        saveAccountToSwitcher(hydrated, session);
       } else if (event === 'USER_UPDATED' && session?.user) {
         const vinUser = mapSupabaseUser(session.user);
-        setUser(prev => prev ? { ...prev, ...vinUser } : vinUser);
+        const hydrated = await hydrateUserOnNewDevice(vinUser);
+        setUser(hydrated);
       }
     });
 
@@ -225,13 +228,14 @@ export const AuthProvider = ({ children }) => {
       const session = await getSession();
       if (session?.user) {
         const vinUser = mapSupabaseUser(session.user);
-        const hydrated = await hydrateUserData(vinUser);
+        const hydrated = await hydrateUserOnNewDevice(vinUser);
         setUser(hydrated);
         setIsAuthenticated(true);
       } else {
         const legacyUser = await base44.auth.me();
         if (legacyUser) {
-          setUser(legacyUser);
+          const hydrated = await hydrateUserOnNewDevice(legacyUser);
+          setUser(hydrated);
           setIsAuthenticated(true);
         } else {
           setIsAuthenticated(false);
