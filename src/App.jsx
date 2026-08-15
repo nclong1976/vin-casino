@@ -1,7 +1,8 @@
+import React, { useState } from "react";
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { ConfigProvider } from '@/lib/ConfigContext';
@@ -12,7 +13,6 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import OAuthConsent from './pages/OAuthConsent';
 import Home from './pages/Home';
-// Add page imports here
 import Settings from './pages/Settings';
 import Projects from './pages/Projects';
 import Stocks from './pages/Stocks';
@@ -35,43 +35,81 @@ import Resort from './pages/Resort';
 import News from './pages/News';
 import MembershipCard from './pages/MembershipCard';
 import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
-import IntroSplash from '@/components/IntroSplash';
+import WelcomeIntroPlayer from '@/components/WelcomeIntroPlayer';
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isAuthenticated, user, isLoadingAuth, isLoadingPublicSettings, authError } = useAuth();
+  const navigate = useNavigate();
+  const [introCompleted, setIntroCompleted] = useState(
+    () => sessionStorage.getItem("vinclub_welcome_seen") === "true"
+  );
 
+  // Splash luxury loader
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-muted border-t-foreground rounded-full animate-spin" />
+      <div className="fixed inset-0 bg-[#0c0a09] flex flex-col items-center justify-center gap-4 z-[99999]">
+        <div className="relative flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full border-2 border-[#948154]/30 border-t-[#d4af37] animate-spin" />
+          <img
+            src="/logo.png"
+            alt="VinClub"
+            className="w-10 h-10 rounded-full object-cover absolute"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        </div>
+        <p className="text-[12px] font-bold text-[#eddab3] tracking-widest uppercase">
+          VinClub
+        </p>
       </div>
     );
   }
 
-  if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
-      const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password', '/oauth/consent'];
-      const isPublicPath = publicPaths.includes(window.location.pathname);
-      if (!isPublicPath) {
-        navigateToLogin();
-        return null;
-      }
-    }
+  if (authError && authError.type === 'user_not_registered') {
+    return <UserNotRegisteredError />;
   }
 
+  // 1. Luồng Người dùng CHƯA đăng ký / đăng nhập:
+  // - Nếu chưa xem video giới thiệu: Phát video chào hỏi toàn màn hình
+  // - Khi kết thúc video hoặc bấm Bỏ qua / Đăng nhập: Chuyển đến màn hình Đăng nhập
+  // - Chặn toàn bộ việc truy cập vào trang chủ và các trang nội bộ
+  if (!isAuthenticated || !user) {
+    if (!introCompleted) {
+      return (
+        <WelcomeIntroPlayer
+          onFinish={(targetRoute = "/login") => {
+            setIntroCompleted(true);
+            navigate(targetRoute);
+          }}
+        />
+      );
+    }
+
+    return (
+      <>
+        <PushNotificationBanner />
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/oauth/consent" element={<OAuthConsent />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </>
+    );
+  }
+
+  // 2. Luồng Người dùng ĐÃ đăng nhập: Toàn quyền truy cập ứng dụng
   return (
     <>
       <PushNotificationBanner />
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/oauth/consent" element={<OAuthConsent />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="/register" element={<Navigate to="/" replace />} />
+        <Route path="/forgot-password" element={<Navigate to="/" replace />} />
+        <Route path="/reset-password" element={<Navigate to="/" replace />} />
+        <Route path="/oauth/consent" element={<Navigate to="/" replace />} />
         <Route path="/" element={<Home />} />
-        {/* Add your page Route elements here */}
         <Route path="/settings" element={<Settings />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/stocks" element={<Stocks />} />
@@ -110,7 +148,6 @@ function App() {
           <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <AuthenticatedApp />
           </Router>
-          <IntroSplash />
           <Toaster />
         </QueryClientProvider>
       </AuthProvider>
