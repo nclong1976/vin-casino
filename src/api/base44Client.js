@@ -233,25 +233,6 @@ const seedData = {
       description: 'Quỹ hành động vì môi trường xanh, hỗ trợ chuyển đổi năng lượng xanh, trồng rừng và phát triển kinh tế bền vững không phát thải.'
     },
     {
-      id: 'p_vinuni_education',
-      title: 'VinUni (Đại học đẳng cấp quốc tế)',
-      name: 'VinUni (Đại học đẳng cấp quốc tế)',
-      category: 'Dự Án',
-      location: 'Gia Lâm, Hà Nội',
-      image: 'https://images.unsplash.com/photo-1562774053-701939374585?w=600&h=400&fit=crop',
-      price_per_m2: 2000000,
-      priceStr: '2.000.000 ₫/Suất',
-      rate: '0.035%/phút',
-      annual_yield: 0.035,
-      area: '1 Suất giáo dục tinh hoa',
-      progress: 95,
-      minAmount: '2000000',
-      duration: '180 phút',
-      scale: 'Đại học tinh hoa chuẩn quốc tế hợp tác Cornell & UPenn',
-      is_active: true,
-      description: 'Đại học VinUniversity đào tạo nhân tài chuẩn quốc tế, cơ sở vật chất hiện đại hàng đầu thế giới.'
-    },
-    {
       id: 'p_thien_tam_fund',
       title: 'Quỹ Thiện Tâm',
       name: 'Quỹ Thiện Tâm',
@@ -307,6 +288,25 @@ const seedData = {
       scale: 'Hệ thống giáo dục phổ thông liên cấp chuẩn CIS hàng đầu Việt Nam',
       is_active: true,
       description: 'Hệ thống giáo dục phổ thông liên cấp chất lượng cao hàng đầu Việt Nam, ươm mầm thế hệ công dân toàn cầu.'
+    },
+    {
+      id: 'p_vinuni_education',
+      title: 'VinUni (Đại học đẳng cấp quốc tế)',
+      name: 'VinUni (Đại học đẳng cấp quốc tế)',
+      category: 'Dự Án',
+      location: 'Gia Lâm, Hà Nội',
+      image: 'https://images.unsplash.com/photo-1562774053-701939374585?w=600&h=400&fit=crop',
+      price_per_m2: 2000000,
+      priceStr: '2.000.000 ₫/Suất',
+      rate: '0.035%/phút',
+      annual_yield: 0.035,
+      area: '1 Suất giáo dục tinh hoa',
+      progress: 95,
+      minAmount: '2000000',
+      duration: '180 phút',
+      scale: 'Đại học tinh hoa chuẩn quốc tế hợp tác Cornell & UPenn',
+      is_active: true,
+      description: 'Đại học VinUniversity đào tạo nhân tài chuẩn quốc tế, cơ sở vật chất hiện đại hàng đầu thế giới.'
     },
     {
       id: 'p_stock_vic',
