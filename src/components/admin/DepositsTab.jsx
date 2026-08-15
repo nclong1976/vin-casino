@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
+import { listSupabaseUsers } from "@/lib/supabaseDb";
 import { adjustUserBalance } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
@@ -51,8 +52,20 @@ export default function DepositsTab() {
 
   const fetchUsers = async () => {
     try {
-      const userList = await base44.entities.User.list().catch(() => []);
-      setUsers(userList);
+      const [userList, supaUserList] = await Promise.all([
+        base44.entities.User.list().catch(() => []),
+        listSupabaseUsers().catch(() => []),
+      ]);
+      const mergedUserMap = {};
+      (Array.isArray(userList) ? userList : []).forEach((u) => {
+        if (u && (u.id || u.email)) mergedUserMap[u.id || u.email] = u;
+      });
+      (Array.isArray(supaUserList) ? supaUserList : []).forEach((su) => {
+        if (su && (su.id || su.email)) {
+          mergedUserMap[su.id || su.email] = { ...(mergedUserMap[su.id || su.email] || {}), ...su };
+        }
+      });
+      setUsers(Object.values(mergedUserMap));
     } catch (e) {
       console.error(e);
     }

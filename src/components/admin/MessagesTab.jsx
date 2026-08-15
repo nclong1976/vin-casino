@@ -13,6 +13,7 @@ import {
   Trash2
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { listSupabaseUsers } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -44,12 +45,22 @@ export default function MessagesTab() {
 
   const fetchData = async () => {
     try {
-      const [msgs, usrs] = await Promise.all([
-        base44.entities.Message.list("-created_date", 200).catch(() => []),
+      const [msgs, usrs, supaUsrs] = await Promise.all([
+        base44.entities.Message.list("-created_date", 300).catch(() => []),
         base44.entities.User.list().catch(() => []),
+        listSupabaseUsers().catch(() => []),
       ]);
+      const mergedUserMap = {};
+      (Array.isArray(usrs) ? usrs : []).forEach((u) => {
+        if (u && (u.id || u.email)) mergedUserMap[u.id || u.email] = u;
+      });
+      (Array.isArray(supaUsrs) ? supaUsrs : []).forEach((su) => {
+        if (su && (su.id || su.email)) {
+          mergedUserMap[su.id || su.email] = { ...(mergedUserMap[su.id || su.email] || {}), ...su };
+        }
+      });
       setMessages(Array.isArray(msgs) ? msgs : []);
-      setUsers(Array.isArray(usrs) ? usrs : []);
+      setUsers(Object.values(mergedUserMap));
     } catch (e) {
       // ignore
     } finally {
