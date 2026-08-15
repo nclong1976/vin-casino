@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Bell, Sparkles, Smartphone, CheckCircle2, Zap } from "lucide-react";
+import { X, Bell, Sparkles, Smartphone, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { playSound } from "@/lib/soundFx";
@@ -39,26 +39,6 @@ export default function NotificationModal({ open, onClose }) {
     } catch (e) {
       toast.error("Không thể xin quyền thông báo");
     }
-  };
-
-  const handleTestPush = () => {
-    playSound("notification", config?.soundVolume || 80);
-
-    const testAmounts = [5000000, 10000000, 25000000, 50000000];
-    const randAmt = testAmounts[Math.floor(Math.random() * testAmounts.length)];
-    const fmtAmt = randAmt.toLocaleString("vi-VN");
-
-    window.dispatchEvent(
-      new CustomEvent("vinclub:push_notification", {
-        detail: {
-          title: `Biến động số dư: +${fmtAmt} VNĐ`,
-          content: `Lợi nhuận từ hợp đồng đầu tư VHB-${Math.floor(Math.random() * 899 + 100)} đã được cộng trực tiếp vào ví VinClub.`,
-          type: "profit",
-        },
-      })
-    );
-
-    toast.success("Đã phát tín hiệu Push Realtime thử nghiệm!");
   };
 
   const handleSave = () => {
@@ -104,28 +84,6 @@ export default function NotificationModal({ open, onClose }) {
             </div>
 
             <div className="p-4 space-y-4 flex-1">
-              {/* Test Push Demo Box */}
-              <div className="bg-gradient-to-br from-amber-500/10 via-[#948154]/10 to-amber-500/5 rounded-2xl p-3 border border-[#948154]/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-black flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" /> Thử nghiệm Push Notification
-                  </span>
-                  <span className="text-[8px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.2 rounded-full border border-amber-200">
-                    Trực tiếp
-                  </span>
-                </div>
-                <p className="text-[9.5px] text-gray-600 leading-tight">
-                  Nhấn nút bên dưới để phát thông báo biến động số dư mẫu kèm chuông cảnh báo trên ứng dụng.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleTestPush}
-                  className="w-full py-2 rounded-xl bg-gradient-to-r from-[#948154] to-[#786741] text-white text-[11px] font-bold shadow-xs flex items-center justify-center gap-1.5 hover:opacity-95 active:scale-98 transition-all"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-200" /> Bắn Push Realtime ngay
-                </button>
-              </div>
-
               {/* Toggles List */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between py-2 border-b border-gray-100">
