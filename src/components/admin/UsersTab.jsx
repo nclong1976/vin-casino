@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers } from "@/lib/supabaseDb";
+import { getFreshUserBalance } from "@/lib/balanceSync";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
 import { toast } from "sonner";
@@ -289,7 +290,9 @@ export default function UsersTab() {
       ) : (
         <div className="space-y-2.5">
           {filteredUsers.map((u) => {
-            const userBal = u.balance !== undefined ? Number(u.balance) : (balances[u.id] || 0);
+            const userBal = (u.balance !== undefined && u.balance !== null)
+              ? Number(u.balance)
+              : (getFreshUserBalance(u.id) || (balances[u.id] !== undefined ? balances[u.id] : 0));
             const tier = u.membership_tier || "Member";
             const isAdmin = u.role === "admin";
 
@@ -358,7 +361,7 @@ export default function UsersTab() {
                   <div className="flex items-center gap-1.5">
                     {/* View Detail & RBAC */}
                     <button
-                      onClick={() => setDetailUser(u)}
+                      onClick={() => setDetailUser({ ...u, balance: userBal })}
                       className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-[#948154] hover:text-white text-gray-700 text-[11px] font-bold transition-all flex items-center gap-1 shadow-2xs"
                       title="Xem chi tiết & Phân quyền"
                     >
@@ -367,7 +370,7 @@ export default function UsersTab() {
 
                     {/* Adjust Wallet */}
                     <button
-                      onClick={() => setAdjustWalletUser(u)}
+                      onClick={() => setAdjustWalletUser({ ...u, balance: userBal })}
                       className="w-8 h-8 rounded-xl bg-[#948154]/10 hover:bg-[#948154]/20 text-[#948154] flex items-center justify-center transition-all shadow-2xs"
                       title="Điều chỉnh Ví"
                     >

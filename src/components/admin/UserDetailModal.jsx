@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
+import { getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -99,11 +100,12 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
   if (!open || !user) return null;
 
-  // Wallet Balance
-  const totalBalance = walletTxs.reduce(
-    (acc, t) => acc + (t.type === "deposit" ? t.amount : -t.amount),
-    0
-  );
+  // Wallet Balance (Sử dụng trực tiếp số dư thực tế của User để đồng bộ 100% với danh sách và ví)
+  const totalBalance = (user.balance !== undefined && user.balance !== null)
+    ? Number(user.balance)
+    : (getFreshUserBalance(user.id) || (walletTxs.length > 0
+        ? walletTxs.reduce((acc, t) => acc + (t.type === "deposit" ? t.amount : -t.amount), 0)
+        : 0));
 
   // Total Investment
   const totalInvested = contracts.reduce((acc, c) => acc + (c.amount || 0), 0);
