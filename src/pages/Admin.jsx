@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, CreditCard, TrendingUp, Dices, ArrowDownToLine, LogOut } from "lucide-react";
+import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, TrendingUp, Dices, ArrowRightLeft, LogOut } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import OverviewTab from "@/components/admin/OverviewTab";
@@ -9,15 +9,13 @@ import ContractsTab from "@/components/admin/ContractsTab";
 import UsersTab from "@/components/admin/UsersTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
-import WithdrawalsTab from "@/components/admin/WithdrawalsTab";
-import DepositsTab from "@/components/admin/DepositsTab";
+import TransactionsTab from "@/components/admin/TransactionsTab";
 import StocksTab from "@/components/admin/StocksTab";
 import CasinoTab from "@/components/admin/CasinoTab";
 
 const TABS = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
-  { id: "deposits", label: "Phê duyệt Nạp", icon: ArrowDownToLine },
-  { id: "withdrawals", label: "Phê duyệt Rút", icon: CreditCard },
+  { id: "transactions", label: "Phê duyệt Giao dịch", icon: ArrowRightLeft },
   { id: "stocks", label: "Đầu tư chứng khoán", icon: TrendingUp },
   { id: "casino", label: "Quản lý Casino", icon: Dices },
   { id: "messages", label: "Tin nhắn", icon: MessageSquare },
@@ -47,7 +45,6 @@ export default function Admin() {
       const totalProfit = allTxs.reduce((s, t) => s + (t.profit || 0), 0);
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
       const pendingDepositsCount = dTxs.filter((t) => (t.status || "pending") === "pending").length;
-
       const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.is_read).length;
 
       setStats({
@@ -55,6 +52,7 @@ export default function Admin() {
         pendingContracts: signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length,
         pendingWithdrawals: pendingWithdrawalsCount,
         pendingDeposits: pendingDepositsCount,
+        pendingTransactions: pendingWithdrawalsCount + pendingDepositsCount,
         approvedContracts: signedTxs.filter((t) => t.contract_status === "approved").length,
         messages: messages.length,
         unreadMessages: unreadMessagesCount,
@@ -70,7 +68,6 @@ export default function Admin() {
   useEffect(() => {
     fetchStats();
 
-    // Subscribe to all RTDB nodes for complete real-time Admin panel sync (only once on mount)
     let unsubs = [];
     import('@/lib/rtdbSync').then((rtdb) => {
       if (rtdb.subscribeAllUsersFromRTDB) unsubs.push(rtdb.subscribeAllUsersFromRTDB(() => fetchStats()));
@@ -131,14 +128,9 @@ export default function Admin() {
             >
               <t.icon className="w-4 h-4" />
               {t.label}
-              {t.id === "deposits" && stats.pendingDeposits > 0 && (
+              {t.id === "transactions" && stats.pendingTransactions > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
-                  {stats.pendingDeposits}
-                </span>
-              )}
-              {t.id === "withdrawals" && stats.pendingWithdrawals > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
-                  {stats.pendingWithdrawals}
+                  {stats.pendingTransactions}
                 </span>
               )}
               {t.id === "contracts" && stats.pendingContracts > 0 && (
@@ -158,8 +150,7 @@ export default function Admin() {
 
       <div className="max-w-4xl mx-auto px-4 py-4">
         {tab === "overview" && <OverviewTab stats={stats} />}
-        {tab === "deposits" && <DepositsTab />}
-        {tab === "withdrawals" && <WithdrawalsTab />}
+        {tab === "transactions" && <TransactionsTab />}
         {tab === "stocks" && <StocksTab />}
         {tab === "casino" && <CasinoTab />}
         {tab === "messages" && <MessagesTab />}
