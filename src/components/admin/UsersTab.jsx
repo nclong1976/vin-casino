@@ -10,11 +10,17 @@ import {
   ShieldAlert,
   Search,
   ExternalLink,
-  Loader2
+  Loader2,
+  Trash2,
+  AlertTriangle,
+  X
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers } from "@/lib/supabaseDb";
+import { listSupabaseUsers, deleteSupabaseUser } from "@/lib/supabaseDb";
+import { deleteUserFromRTDB } from "@/lib/rtdbSync";
 import { getFreshUserBalance } from "@/lib/balanceSync";
+import { useAuth } from "@/lib/AuthContext";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
 import { toast } from "sonner";
@@ -29,6 +35,9 @@ const TIER_BADGES = {
 };
 
 export default function UsersTab() {
+  const { user: currentAdmin } = useAuth();
+  const isSuperAdmin = !!currentAdmin?.is_super_admin || currentAdmin?.role === "admin" || currentAdmin?.email === "nclong1976@gmail.com" || currentAdmin?.username === "nclong";
+
   const [users, setUsers] = useState([]);
   const [balances, setBalances] = useState({});
   const [loading, setLoading] = useState(true);
@@ -41,6 +50,8 @@ export default function UsersTab() {
   // Selected User Modals
   const [adjustWalletUser, setAdjustWalletUser] = useState(null);
   const [detailUser, setDetailUser] = useState(null);
+  const [deletingUser, setDeletingUser] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [togglingLockId, setTogglingLockId] = useState(null);
 
   const rtdbUsersRef = useRef([]);
@@ -150,6 +161,45 @@ export default function UsersTab() {
       toast.error("Không thể thay đổi trạng thái tài khoản.");
     } finally {
       setTogglingLockId(null);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser || !isSuperAdmin) return;
+    const u = deletingUser;
+    const confirmName = u.full_name || u.email || u.id;
+    setIsDeleting(true);
+    try {
+      await Promise.allSettled([
+        deleteSupabaseUser(u.id),
+        deleteUserFromRTDB(u.id),
+        base44.entities.User.delete(u.id),
+      ]);
+
+      const rawReg = localStorage.getItem('base44_registered_users');
+      if (rawReg) {
+        try {
+          const regUsers = JSON.parse(rawReg).filter((x) => x.id !== u.id && x.email !== u.email);
+          localStorage.setItem('base44_registered_users', JSON.stringify(regUsers));
+        } catch (e) {}
+      }
+
+      await base44.entities.AuditLog.create({
+        action: "DELETE_USER",
+        user_id: u.id,
+        user_name: confirmName,
+        notes: `Super Admin đã xóa vĩnh viễn tài khoản ${confirmName} khỏi hệ thống`,
+        created_date: new Date().toISOString(),
+      });
+
+      setUsers((prev) => prev.filter((x) => x.id !== u.id && x.email !== u.email));
+      toast.success(`Đã xóa vĩnh viễn tài khoản ${confirmName}!`);
+      setDeletingUser(null);
+      fetchUsers();
+    } catch (e) {
+      toast.error("Không thể xóa tài khoản. Vui lòng thử lại.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -396,6 +446,17 @@ export default function UsersTab() {
                         <Unlock className="w-4 h-4" />
                       )}
                     </button>
+
+                    {/* Super Admin: Delete User */}
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => setDeletingUser(u)}
+                        className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-600 hover:text-white text-red-500 border border-red-200 flex items-center justify-center transition-all shadow-2xs cursor-pointer"
+                        title="Xóa vĩnh viễn người dùng (Super Admin)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -419,6 +480,86 @@ export default function UsersTab() {
         onClose={() => setDetailUser(null)}
         onRefresh={fetchUsers}
       />
+
+      {/* SUPER ADMIN DELETE CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {deletingUser && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !isDeleting && setDeletingUser(null)}
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-[400px] bg-white rounded-3xl overflow-hidden shadow-2xl p-5 space-y-4 border border-red-100"
+            >
+              <div className="flex items-center justify-between">
+                <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <button
+                  onClick={() => !isDeleting && setDeletingUser(null)}
+                  className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <h3 className="text-[14px] font-bold text-black">Xác nhận xóa tài khoản người dùng</h3>
+                <p className="text-[12px] text-gray-500 mt-1">
+                  Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản{" "}
+                  <strong className="text-black font-bold">
+                    {deletingUser.full_name || deletingUser.email || deletingUser.id}
+                  </strong>{" "}
+                  khỏi toàn bộ hệ thống?
+                </p>
+              </div>
+
+              <div className="p-3 bg-red-50 rounded-2xl border border-red-100 text-[11px] text-red-700 space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Thao tác này không thể hoàn tác:
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-[10.5px] text-red-600">
+                  <li>Xóa hồ sơ hội viên trên Supabase Database</li>
+                  <li>Xóa tài khoản khỏi Firebase Realtime Database</li>
+                  <li>Xóa tài khoản ngân hàng và số dư liên quan</li>
+                </ul>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={() => setDeletingUser(null)}
+                  disabled={isDeleting}
+                  className="flex-1 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[12px] font-bold transition-all cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  onClick={handleDeleteUser}
+                  disabled={isDeleting}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[12px] font-bold shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Đang xóa...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" /> Xóa vĩnh viễn
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

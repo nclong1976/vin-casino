@@ -174,14 +174,29 @@ export async function updateSupabaseUser(id, updates) {
       .select()
       .maybeSingle();
 
-    if (error) {
-      console.warn(`[SupabaseDb] updateSupabaseUser error:`, error.message);
-      return null;
-    }
     return data;
   } catch (e) {
     console.warn(`[SupabaseDb] updateSupabaseUser exception:`, e);
     return null;
+  }
+}
+
+export async function deleteSupabaseUser(id) {
+  if (!id) return false;
+  try {
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.warn(`[SupabaseDb] deleteSupabaseUser error:`, error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn(`[SupabaseDb] deleteSupabaseUser exception:`, e);
+    return false;
   }
 }
 

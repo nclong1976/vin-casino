@@ -11,11 +11,16 @@ import {
   Crown,
   Lock,
   Unlock,
-  Check
+  Check,
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { getFreshUserBalance } from "@/lib/balanceSync";
+import { deleteSupabaseUser } from "@/lib/supabaseDb";
+import { deleteUserFromRTDB } from "@/lib/rtdbSync";
+import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -28,6 +33,8 @@ const TIER_COLORS = {
 };
 
 export default function UserDetailModal({ user, open, onClose, onRefresh }) {
+  const { user: currentAdmin } = useAuth();
+  const isSuperAdmin = !!currentAdmin?.is_super_admin || currentAdmin?.role === "admin" || currentAdmin?.email === "nclong1976@gmail.com" || currentAdmin?.username === "nclong";
   const [activeTab, setActiveTab] = useState("overview"); // "overview" | "banks" | "wallet" | "contracts"
   const [bankAccounts, setBankAccounts] = useState([]);
   const [walletTxs, setWalletTxs] = useState([]);
@@ -160,6 +167,51 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       if (onRefresh) onRefresh();
     } catch (e) {
       toast.error("Không thể thay đổi trạng thái khóa tài khoản.");
+    }
+  };
+
+  const handleDeleteThisUser = async () => {
+    if (!isSuperAdmin) {
+      toast.error("Chỉ tài khoản Super Admin mới có quyền xóa người dùng!");
+      return;
+    }
+    const confirmName = fullName || user.email || user.id;
+    const ok = window.confirm(
+      `⚠️ CẢNH BÁO QUẢN TRỊ VIÊN:\n\nBạn có chắc chắn muốn XÓA VĨNH VIỄN tài khoản "${confirmName}" khỏi hệ thống không?\n\n- Tất cả dữ liệu đăng nhập, số dư, tài khoản ngân hàng sẽ bị xóa hoàn toàn.\n- Thao tác này không thể hoàn tác!`
+    );
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      await Promise.allSettled([
+        deleteSupabaseUser(user.id),
+        deleteUserFromRTDB(user.id),
+        base44.entities.User.delete(user.id),
+      ]);
+
+      const rawReg = localStorage.getItem('base44_registered_users');
+      if (rawReg) {
+        try {
+          const regUsers = JSON.parse(rawReg).filter((x) => x.id !== user.id && x.email !== user.email);
+          localStorage.setItem('base44_registered_users', JSON.stringify(regUsers));
+        } catch (e) {}
+      }
+
+      await base44.entities.AuditLog.create({
+        action: "DELETE_USER",
+        user_id: user.id,
+        user_name: confirmName,
+        notes: `Super Admin đã xóa vĩnh viễn tài khoản ${confirmName} khỏi hệ thống`,
+        created_date: new Date().toISOString(),
+      });
+
+      toast.success(`Đã xóa vĩnh viễn tài khoản ${confirmName}!`);
+      if (onRefresh) onRefresh();
+      onClose();
+    } catch (e) {
+      toast.error("Không thể xóa tài khoản. Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -353,10 +405,21 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   type="button"
                   onClick={handleSaveUser}
                   disabled={saving}
-                  className="w-full py-3 rounded-2xl bg-[#948154] text-white text-[12px] font-bold shadow-md hover:bg-[#837045] active:scale-98 transition-all flex items-center justify-center gap-1.5"
+                  className="w-full py-3 rounded-2xl bg-[#948154] text-white text-[12px] font-bold shadow-md hover:bg-[#837045] active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-4 h-4" /> Lưu thông tin & Phân quyền
                 </button>
+
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteThisUser}
+                    disabled={saving}
+                    className="w-full py-2.5 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Xóa vĩnh viễn tài khoản hội viên này (Super Admin)
+                  </button>
+                )}
               </div>
             )}
 

@@ -135,6 +135,24 @@ export function subscribeUserFromRTDB(userId, onUserReceived) {
   });
 }
 
+export async function deleteUserFromRTDB(userId) {
+  if (!userId) return false;
+  await firebaseAuthReady;
+  try {
+    const userRef = ref(rtdb, `users/${userId}`);
+    const onlineRef = ref(rtdb, `online_users/${userId}`);
+    await Promise.allSettled([
+      remove(userRef),
+      remove(onlineRef),
+      remove(ref(rtdb, `entities/User/${userId}`)),
+    ]);
+    return true;
+  } catch (e) {
+    console.warn(`[RTDB deleteUser] error for ${userId}:`, e);
+    return false;
+  }
+}
+
 /**
  * 2. Node: online_users/{uid}
  * Theo dõi số lượng người dùng đang hoạt động thực tế trên ứng dụng.
