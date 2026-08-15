@@ -1,26 +1,32 @@
 {
   "name": "VinClub",
   "short_name": "VinClub",
-  "description": "VinClub - Nền tảng đầu tư & giải trí đẳng cấp",
+  "description": "VinClub - Hệ sinh thái đặc quyền và chương trình thành viên Vingroup",
   "start_url": "/",
   "scope": "/",
-  "display": "fullscreen",
-  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
   "orientation": "portrait",
-  "background_color": "#151109",
-  "theme_color": "#151109",
+  "background_color": "#ffffff",
+  "theme_color": "#948154",
   "icons": [
     {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
+      "src": "/logo.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ]
 }

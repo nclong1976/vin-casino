@@ -2,32 +2,61 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/icons/icon-512.png" />
-    <link rel="apple-touch-icon" href="/icons/icon-512.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#151109" />
-
-    <!-- iOS Safari respects only these tags (not manifest.json display mode)
-         for hiding the browser chrome when launched from the home screen. -->
+    
+    <!-- iOS Safari tags for PWA / Fullscreen experience -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="VinClub" />
     <meta name="mobile-web-app-capable" content="yes" />
 
+    <!-- Primary Page Title & Search Engine Info -->
     <title>VinClub</title>
+    <meta name="title" content="VinClub" />
+    <meta name="description" content="VinClub - Hệ sinh thái đặc quyền và chương trình thành viên Vingroup" />
+    <meta name="keywords" content="VinClub, Vinpearl, Vinhomes, Vingroup, VinFast" />
+    <meta name="author" content="VinClub" />
+    <meta name="application-name" content="VinClub" />
+    <meta name="theme-color" content="#948154" />
 
-    <!-- Open Graph / Telegram / Zalo / Facebook Share Preview -->
+    <!-- Favicon & Icons -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="icon" type="image/jpeg" href="https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" href="https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg" />
+
+    <!-- Open Graph / Zalo / Telegram / Viber / Facebook Share Preview -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="VinClub" />
     <meta property="og:title" content="VinClub" />
-    <meta property="og:description" content="VinClub" />
-    <meta property="og:image" content="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_vQ31Dx16YGinL3RsX7o2vDSOcWJjVGPm576RnStZQw&s=10" />
+    <meta property="og:description" content="VinClub - Hệ sinh thái đặc quyền và chương trình thành viên Vingroup" />
+    <meta property="og:image" content="https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg" />
+    <meta property="og:image:secure_url" content="https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="600" />
+    <meta property="og:image:height" content="600" />
+    <meta property="og:image:alt" content="VinClub Logo" />
 
-    <!-- Twitter -->
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="VinClub" />
-    <meta name="twitter:description" content="VinClub" />
-    <meta name="twitter:image" content="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_vQ31Dx16YGinL3RsX7o2vDSOcWJjVGPm576RnStZQw&s=10" />
+    <meta name="twitter:description" content="VinClub - Hệ sinh thái đặc quyền và chương trình thành viên Vingroup" />
+    <meta name="twitter:image" content="https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg" />
+
+    <!-- Schema.org for Google Search Rich Results -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "VinClub",
+        "alternateName": "VinClub",
+        "url": "/",
+        "logo": "https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg",
+        "image": "https://images.careerviet.vn/employer_folders/lot7/326347/95420anhlogo.jpg",
+        "description": "VinClub - Hệ sinh thái đặc quyền và chương trình thành viên Vingroup"
+      }
+    </script>
 
     <link rel="manifest" href="/manifest.json" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0..1,0" />
@@ -38,4 +67,3 @@
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-
