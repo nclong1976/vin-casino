@@ -69,16 +69,36 @@ export default function UsersTab() {
     ]).then(([localUserList, supaUserList]) => {
       const mergedMap = {};
       (localUserList || []).forEach((u) => {
-        if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u;
+        if (u && (u.id || u.email)) {
+          const k = u.id || u.email;
+          mergedMap[k] = {
+            ...u,
+            balance: Number(u.balance ?? 0),
+            total_deposited: Number(u.total_deposited ?? 0),
+          };
+        }
       });
       (supaUserList || []).forEach((su) => {
         if (su && (su.id || su.email)) {
-          mergedMap[su.id || su.email] = { ...(mergedMap[su.id || su.email] || {}), ...su };
+          const k = su.id || su.email;
+          const existing = mergedMap[k] || {};
+          mergedMap[k] = {
+            ...existing,
+            ...su,
+            balance: su.balance !== undefined && su.balance !== null ? Number(su.balance) : existing.balance ?? 0,
+            total_deposited: su.total_deposited !== undefined && su.total_deposited !== null ? Number(su.total_deposited) : existing.total_deposited ?? 0,
+          };
         }
       });
       (rtdbUsersRef.current || []).forEach((ru) => {
         if (ru && (ru.id || ru.email)) {
-          mergedMap[ru.id || ru.email] = { ...(mergedMap[ru.id || ru.email] || {}), ...ru };
+          const k = ru.id || ru.email;
+          const existing = mergedMap[k] || {};
+          mergedMap[k] = {
+            ...existing,
+            ...ru,
+            balance: ru.balance !== undefined && ru.balance !== null ? Number(ru.balance) : existing.balance ?? 0,
+          };
         }
       });
 
@@ -100,10 +120,18 @@ export default function UsersTab() {
           rtdbUsersRef.current = rtdbUsers;
           setUsers((prev) => {
             const mergedMap = {};
-            (prev || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
-            rtdbUsers.forEach(ru => {
+            (prev || []).forEach((u) => {
+              if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u;
+            });
+            rtdbUsers.forEach((ru) => {
               if (ru && (ru.id || ru.email)) {
-                mergedMap[ru.id || ru.email] = { ...(mergedMap[ru.id || ru.email] || {}), ...ru };
+                const k = ru.id || ru.email;
+                const existing = mergedMap[k] || {};
+                mergedMap[k] = {
+                  ...existing,
+                  ...ru,
+                  balance: ru.balance !== undefined && ru.balance !== null ? Number(ru.balance) : Number(existing.balance ?? 0),
+                };
               }
             });
             return Object.values(mergedMap);
