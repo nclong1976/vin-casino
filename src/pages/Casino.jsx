@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import CasinoHeader from "@/components/casino/CasinoHeader";
 import GameCard from "@/components/casino/GameCard";
 import BottomNav from "@/components/BottomNav";
+import { X } from "lucide-react";
+
+const INTRO_KEY = "vinclub_casino_intro_seen";
 
 const u = (id) => `https://images.unsplash.com/photo-${id}?w=400&q=80&auto=format&fit=crop`;
 
@@ -21,6 +24,23 @@ const games = [
 ];
 
 export default function Casino() {
+  // Hiển thị intro mỗi lần người dùng vào trang Casino trong phiên làm việc
+  const [showIntro, setShowIntro] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+
+  useEffect(() => {
+    // Chỉ hiện 1 lần / session (reload trang thì hiện lại)
+    const seen = sessionStorage.getItem(INTRO_KEY);
+    if (!seen) {
+      setShowIntro(true);
+    }
+  }, []);
+
+  const closeIntro = () => {
+    sessionStorage.setItem(INTRO_KEY, "1");
+    setShowIntro(false);
+  };
+
   return (
     <main className="relative w-full min-h-screen bg-[#0c0905] overflow-x-hidden font-heading flex flex-col justify-between">
       <div className="w-full">
@@ -45,6 +65,61 @@ export default function Casino() {
       </div>
 
       <BottomNav />
+
+      {/* ── Casino Intro Overlay ── */}
+      {showIntro && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.82)", backdropFilter: "blur(6px)" }}
+          onClick={closeIntro}
+        >
+          {/* Card wrapper — click inside does NOT close */}
+          <div
+            className="relative w-full max-w-sm sm:max-w-md"
+            style={{
+              animation: "casinoIntroIn 0.35s cubic-bezier(0.22,1,0.36,1) both",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              onClick={closeIntro}
+              aria-label="Đóng giới thiệu"
+              className="absolute -top-3 -right-3 z-10 w-8 h-8 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:bg-gray-100 active:scale-95 transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" strokeWidth={2.5} />
+            </button>
+
+            {/* Image */}
+            <div className="rounded-3xl overflow-hidden shadow-2xl border border-white/10">
+              {!imgLoaded && (
+                <div className="w-full aspect-[3/4] bg-[#1c160e] flex items-center justify-center">
+                  <div className="w-8 h-8 border-2 border-[#e8c87a] border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              <img
+                src="/casino-intro.png"
+                alt="Casino on Phu Quoc — Giới thiệu"
+                onLoad={() => setImgLoaded(true)}
+                className={`w-full object-contain transition-opacity duration-300 ${imgLoaded ? "opacity-100" : "opacity-0 absolute inset-0"}`}
+                draggable={false}
+              />
+            </div>
+
+            {/* Tap to close hint */}
+            <p className="text-center text-[10.5px] text-white/50 mt-3 font-medium tracking-wide">
+              Nhấn ngoài ảnh hoặc dấu ✕ để đóng
+            </p>
+          </div>
+
+          <style>{`
+            @keyframes casinoIntroIn {
+              from { opacity: 0; transform: scale(0.92) translateY(16px); }
+              to   { opacity: 1; transform: scale(1) translateY(0); }
+            }
+          `}</style>
+        </div>
+      )}
     </main>
   );
 }
