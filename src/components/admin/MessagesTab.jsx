@@ -42,8 +42,10 @@ export default function MessagesTab() {
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const prevMsgCountRef = useRef(0);
 
-  const fetchData = async () => {
+  const fetchData = async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const [msgs, usrs, supaUsrs] = await Promise.all([
         base44.entities.Message.list("-created_date", 300).catch(() => []),
@@ -64,30 +66,30 @@ export default function MessagesTab() {
     } catch (e) {
       // ignore
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
 
     // Real-time subscription & polling via Firebase Realtime Database
     let unsubRTDB;
     import('@/lib/rtdbSync').then(({ subscribeMessagesFromRTDB }) => {
       unsubRTDB = subscribeMessagesFromRTDB(() => {
-        fetchData();
+        fetchData(false);
       });
     }).catch(() => null);
 
     const unsub = base44.entities.Message.subscribe(() => {
-      fetchData();
+      fetchData(false);
     });
 
-    const interval = setInterval(fetchData, 2000);
+    const interval = setInterval(() => fetchData(false), 4000);
 
     const handleStorageChange = (e) => {
       if (e.key === "vinclub_msg_update") {
-        fetchData();
+        fetchData(false);
       }
     };
     window.addEventListener("storage", handleStorageChange);
@@ -100,15 +102,20 @@ export default function MessagesTab() {
     };
   }, []);
 
-  // Auto scroll message list in admin view
+  // Auto scroll message list in admin view ONLY when new message arrives or conversation changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
+    if (!selectedUser) return;
+    const count = (messages || []).length;
+    if (count !== prevMsgCountRef.current) {
+      prevMsgCountRef.current = count;
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }
     }
-  }, [messages, selectedUser]);
+  }, [messages?.length, selectedUser]);
 
   // Auto height for reply textarea
   useEffect(() => {

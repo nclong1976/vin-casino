@@ -70,7 +70,7 @@ export default function Admin() {
   useEffect(() => {
     fetchStats();
 
-    // Subscribe to all RTDB nodes for complete real-time Admin panel sync
+    // Subscribe to all RTDB nodes for complete real-time Admin panel sync (only once on mount)
     let unsubs = [];
     import('@/lib/rtdbSync').then((rtdb) => {
       if (rtdb.subscribeAllUsersFromRTDB) unsubs.push(rtdb.subscribeAllUsersFromRTDB(() => fetchStats()));
@@ -84,7 +84,7 @@ export default function Admin() {
     return () => {
       unsubs.forEach(u => typeof u === "function" && u());
     };
-  }, [tab]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 font-heading">
@@ -93,7 +93,7 @@ export default function Admin() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(-1)}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 transition-colors shrink-0"
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 transition-colors shrink-0 cursor-pointer"
               title="Quay lại"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -118,26 +118,26 @@ export default function Admin() {
           </div>
         </div>
 
-        <div className="max-w-4xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto">
+        <div className="max-w-4xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto scrollbar-none">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                 tab === t.id
-                  ? "bg-[#948154] text-white"
-                  : "text-gray-400 hover:bg-gray-100"
+                  ? "bg-[#948154] text-white shadow-xs font-bold"
+                  : "text-gray-500 hover:bg-gray-100 hover:text-black"
               }`}
             >
               <t.icon className="w-4 h-4" />
               {t.label}
               {t.id === "deposits" && stats.pendingDeposits > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
                   {stats.pendingDeposits}
                 </span>
               )}
               {t.id === "withdrawals" && stats.pendingWithdrawals > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
                   {stats.pendingWithdrawals}
                 </span>
               )}
@@ -147,7 +147,7 @@ export default function Admin() {
                 </span>
               )}
               {t.id === "messages" && stats.unreadMessages > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
                   {stats.unreadMessages}
                 </span>
               )}

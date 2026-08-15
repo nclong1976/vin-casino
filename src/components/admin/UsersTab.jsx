@@ -56,8 +56,8 @@ export default function UsersTab() {
 
   const rtdbUsersRef = useRef([]);
 
-  const fetchUsers = () => {
-    setLoading(true);
+  const fetchUsers = (isInitial = false) => {
+    if (isInitial) setLoading(true);
     Promise.all([
       base44.entities.User.list().catch(() => []),
       listSupabaseUsers().catch(() => []),
@@ -85,14 +85,15 @@ export default function UsersTab() {
         balMap[uid] = (balMap[uid] || 0) + (t.type === "deposit" ? t.amount : -t.amount);
       });
       setBalances(balMap);
-      setLoading(false);
+    }).finally(() => {
+      if (isInitial) setLoading(false);
     });
   };
 
   const [onlineUsers, setOnlineUsers] = useState({});
 
   useEffect(() => {
-    fetchUsers();
+    fetchUsers(true);
 
     // Subscribe to Firebase Realtime Database for instant user registration & presence sync across all devices
     let unsubRTDB;
@@ -118,15 +119,15 @@ export default function UsersTab() {
     }).catch(() => null);
 
     const handleBalUpdate = () => {
-      fetchUsers();
+      fetchUsers(false);
     };
     window.addEventListener("vinclub:balance_updated", handleBalUpdate);
     window.addEventListener("storage", handleBalUpdate);
 
-    // Auto poll every 3 seconds for continuous real-time balance sync with Admin
+    // Silent background poll every 5s without shaking or re-triggering loader
     const pollInterval = setInterval(() => {
-      fetchUsers();
-    }, 3000);
+      fetchUsers(false);
+    }, 5000);
 
     return () => {
       if (typeof unsubRTDB === "function") unsubRTDB();
