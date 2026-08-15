@@ -68,18 +68,72 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
     Promise.all([
       base44.entities.User.list().catch(() => []),
       listSupabaseUsers().catch(() => []),
-    ]).then(([localUserList, supaUserList]) => {
+      base44.entities.WalletTransaction.list("-created_date", 500).catch(() => []),
+    ]).then(([localUserList, supaUserList, walletTxList]) => {
+      // Ground truth: compute total balance from completed transactions for each user
+      const userTxBalanceMap = {};
+      const userTxDepositedMap = {};
+      (walletTxList || []).forEach((tx) => {
+        if (tx && tx.status === "completed") {
+          const amt = Number(tx.amount || 0);
+          const delta = tx.type === "deposit" ? amt : (tx.type === "withdraw" ? -amt : 0);
+          if (tx.user_id) {
+            userTxBalanceMap[tx.user_id] = (userTxBalanceMap[tx.user_id] || 0) + delta;
+            if (tx.type === "deposit") userTxDepositedMap[tx.user_id] = (userTxDepositedMap[tx.user_id] || 0) + amt;
+          }
+          if (tx.user_email) {
+            userTxBalanceMap[tx.user_email] = (userTxBalanceMap[tx.user_email] || 0) + delta;
+            if (tx.type === "deposit") userTxDepositedMap[tx.user_email] = (userTxDepositedMap[tx.user_email] || 0) + amt;
+          }
+        }
+      });
+
+      // Read registered users from local storage
+      let regUsers = [];
+      try {
+        const rawReg = localStorage.getItem("base44_registered_users");
+        if (rawReg) regUsers = JSON.parse(rawReg);
+      } catch (e) {}
+
+      const resolveBalance = (u, currentBal = 0) => {
+        const candidates = [
+          Number(u?.balance),
+          Number(userTxBalanceMap[u?.id]),
+          Number(userTxBalanceMap[u?.email]),
+          Number(currentBal)
+        ].filter(n => typeof n === "number" && !isNaN(n));
+        return Math.max(0, ...candidates);
+      };
+
       const mergedMap = {};
-      (localUserList || []).forEach((u) => {
+
+      // 1. Registered users
+      (regUsers || []).forEach((u) => {
         if (u && (u.id || u.email)) {
           const k = u.id || u.email;
           mergedMap[k] = {
             ...u,
-            balance: Number(u.balance ?? 0),
-            total_deposited: Number(u.total_deposited ?? 0),
+            balance: resolveBalance(u, 0),
+            total_deposited: Number(u.total_deposited || userTxDepositedMap[u.id] || userTxDepositedMap[u.email] || 0),
           };
         }
       });
+
+      // 2. Local entity users
+      (localUserList || []).forEach((u) => {
+        if (u && (u.id || u.email)) {
+          const k = u.id || u.email;
+          const existing = mergedMap[k] || {};
+          mergedMap[k] = {
+            ...existing,
+            ...u,
+            balance: resolveBalance(u, existing.balance || 0),
+            total_deposited: Math.max(Number(existing.total_deposited || 0), Number(u.total_deposited || 0)),
+          };
+        }
+      });
+
+      // 3. Supabase DB users
       (supaUserList || []).forEach((su) => {
         if (su && (su.id || su.email)) {
           const k = su.id || su.email;
@@ -87,11 +141,13 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
           mergedMap[k] = {
             ...existing,
             ...su,
-            balance: su.balance !== undefined && su.balance !== null ? Number(su.balance) : existing.balance ?? 0,
-            total_deposited: su.total_deposited !== undefined && su.total_deposited !== null ? Number(su.total_deposited) : existing.total_deposited ?? 0,
+            balance: resolveBalance(su, existing.balance || 0),
+            total_deposited: Math.max(Number(existing.total_deposited || 0), Number(su.total_deposited || 0)),
           };
         }
       });
+
+      // 4. RTDB live users
       (rtdbUsersRef.current || []).forEach((ru) => {
         if (ru && (ru.id || ru.email)) {
           const k = ru.id || ru.email;
@@ -99,7 +155,7 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
           mergedMap[k] = {
             ...existing,
             ...ru,
-            balance: ru.balance !== undefined && ru.balance !== null ? Number(ru.balance) : existing.balance ?? 0,
+            balance: resolveBalance(ru, existing.balance || 0),
           };
         }
       });
@@ -380,9 +436,12 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
       ) : (
         <div className="space-y-2.5">
           {filteredUsers.map((u) => {
-            const userBal = (u.balance !== undefined && u.balance !== null)
-              ? Number(u.balance)
-              : (getFreshUserBalance(u.id) || (balances[u.id] !== undefined ? balances[u.id] : 0));
+            const userBal = Math.max(
+              Number(u.balance || 0),
+              Number(getFreshUserBalance(u.id) || 0),
+              Number(getFreshUserBalance(u.email) || 0),
+              Number(balances[u.id] || 0)
+            );
             const tier = u.membership_tier || "Member";
             const isAdmin = u.role === "admin";
             const isOnline = Boolean(onlineUsers[u.id] || (u.email && onlineEmailSet.has(u.email)));
