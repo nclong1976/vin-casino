@@ -109,9 +109,18 @@ export default function UsersTab() {
       fetchUsers();
     };
     window.addEventListener("vinclub:balance_updated", handleBalUpdate);
+    window.addEventListener("storage", handleBalUpdate);
+
+    // Auto poll every 3 seconds for continuous real-time balance sync with Admin
+    const pollInterval = setInterval(() => {
+      fetchUsers();
+    }, 3000);
+
     return () => {
       if (typeof unsubRTDB === "function") unsubRTDB();
+      clearInterval(pollInterval);
       window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
+      window.removeEventListener("storage", handleBalUpdate);
     };
   }, []);
 
