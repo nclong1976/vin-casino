@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Users as UsersIcon,
   Mail,
@@ -53,57 +53,51 @@ export default function UsersTab() {
   const [deletingUser, setDeletingUser] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [togglingLockId, setTogglingLockId] = useState(null);
+  const [onlineUsers, setOnlineUsers] = useState({});
 
   const rtdbUsersRef = useRef([]);
+  const isFetchingRef = useRef(false);
 
-  const fetchUsers = (isInitial = false) => {
+  const fetchUsers = useCallback((isInitial = false) => {
+    if (isFetchingRef.current && !isInitial) return;
+    isFetchingRef.current = true;
     if (isInitial) setLoading(true);
+
     Promise.all([
       base44.entities.User.list().catch(() => []),
       listSupabaseUsers().catch(() => []),
-      base44.entities.WalletTransaction.list("-created_date", 1000).catch(() => []),
-    ]).then(([localUserList, supaUserList, wts]) => {
+    ]).then(([localUserList, supaUserList]) => {
       const mergedMap = {};
-      (localUserList || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
-      (supaUserList || []).forEach(su => {
+      (localUserList || []).forEach((u) => {
+        if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u;
+      });
+      (supaUserList || []).forEach((su) => {
         if (su && (su.id || su.email)) {
           mergedMap[su.id || su.email] = { ...(mergedMap[su.id || su.email] || {}), ...su };
         }
       });
-      (rtdbUsersRef.current || []).forEach(ru => {
+      (rtdbUsersRef.current || []).forEach((ru) => {
         if (ru && (ru.id || ru.email)) {
           mergedMap[ru.id || ru.email] = { ...(mergedMap[ru.id || ru.email] || {}), ...ru };
         }
       });
 
       setUsers(Object.values(mergedMap));
-
-      const balMap = {};
-      wts.forEach((t) => {
-        const uid = t.user_id || t.created_by_id;
-        if (!uid) return;
-        balMap[uid] = (balMap[uid] || 0) + (t.type === "deposit" ? t.amount : -t.amount);
-      });
-      setBalances(balMap);
     }).finally(() => {
+      isFetchingRef.current = false;
       if (isInitial) setLoading(false);
     });
-  };
-
-  const [onlineUsers, setOnlineUsers] = useState({});
+  }, []);
 
   useEffect(() => {
     fetchUsers(true);
 
-    // Subscribe to Firebase Realtime Database for instant user registration & presence sync across all devices
+    // Subscribe to Firebase Realtime Database for instant user updates
     let unsubRTDB;
     import('@/lib/rtdbSync').then(({ subscribeAllUsersFromRTDB }) => {
       unsubRTDB = subscribeAllUsersFromRTDB((rtdbUsers, onlineMap) => {
         if (Array.isArray(rtdbUsers)) {
           rtdbUsersRef.current = rtdbUsers;
-        }
-        setOnlineUsers(onlineMap || {});
-        if (Array.isArray(rtdbUsers) && rtdbUsers.length > 0) {
           setUsers((prev) => {
             const mergedMap = {};
             (prev || []).forEach(u => { if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u; });
@@ -115,6 +109,9 @@ export default function UsersTab() {
             return Object.values(mergedMap);
           });
         }
+        if (onlineMap) {
+          setOnlineUsers(onlineMap);
+        }
       });
     }).catch(() => null);
 
@@ -124,10 +121,10 @@ export default function UsersTab() {
     window.addEventListener("vinclub:balance_updated", handleBalUpdate);
     window.addEventListener("storage", handleBalUpdate);
 
-    // Silent background poll every 5s without shaking or re-triggering loader
+    // Relaxed background check
     const pollInterval = setInterval(() => {
       fetchUsers(false);
-    }, 5000);
+    }, 10000);
 
     return () => {
       if (typeof unsubRTDB === "function") unsubRTDB();
@@ -135,13 +132,11 @@ export default function UsersTab() {
       window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
       window.removeEventListener("storage", handleBalUpdate);
     };
-  }, []);
+  }, [fetchUsers]);
 
   const handleToggleLock = async (u) => {
     const nextLocked = !u.is_locked;
     setTogglingLockId(u.id);
-    // Cập nhật giao diện ngay lập tức để admin thấy phản hồi tức thì,
-    // không cần chờ round-trip mạng mới thấy icon/màu đổi
     setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_locked: nextLocked } : x)));
     try {
       await base44.entities.User.update(u.id, { is_locked: nextLocked });
@@ -155,9 +150,8 @@ export default function UsersTab() {
       });
 
       toast.success(nextLocked ? `Đã tạm khóa tài khoản ${u.full_name || u.email}` : `Đã mở khóa tài khoản ${u.full_name || u.email}`);
-      fetchUsers();
+      fetchUsers(false);
     } catch (e) {
-      // Rollback nếu ghi thất bại, để giao diện không "nói dối" trạng thái
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_locked: u.is_locked } : x)));
       toast.error("Không thể thay đổi trạng thái tài khoản.");
     } finally {
@@ -196,7 +190,7 @@ export default function UsersTab() {
       setUsers((prev) => prev.filter((x) => x.id !== u.id && x.email !== u.email));
       toast.success(`Đã xóa vĩnh viễn tài khoản ${confirmName}!`);
       setDeletingUser(null);
-      fetchUsers();
+      fetchUsers(false);
     } catch (e) {
       toast.error("Không thể xóa tài khoản. Vui lòng thử lại.");
     } finally {
@@ -204,38 +198,51 @@ export default function UsersTab() {
     }
   };
 
-  // Filter logic
-  const filteredUsers = users.filter((u) => {
+  // Pre-calculate online email set for O(1) lookups
+  const onlineEmailSet = useMemo(() => {
+    return new Set(
+      Object.values(onlineUsers)
+        .map((o) => o?.email)
+        .filter(Boolean)
+    );
+  }, [onlineUsers]);
+
+  // Memoize filtered users to avoid laggy recalculations on unrelated renders
+  const filteredUsers = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
-    const nameStr = (u.full_name || u.name || "").toLowerCase();
-    const emailStr = (u.email || "").toLowerCase();
-    const phoneStr = (u.phone || "").toLowerCase();
-    const idStr = (u.id || "").toLowerCase();
+    return users.filter((u) => {
+      const nameStr = (u.full_name || u.name || "").toLowerCase();
+      const emailStr = (u.email || "").toLowerCase();
+      const phoneStr = (u.phone || "").toLowerCase();
+      const idStr = (u.id || "").toLowerCase();
 
-    const matchesSearch =
-      !query ||
-      nameStr.includes(query) ||
-      emailStr.includes(query) ||
-      phoneStr.includes(query) ||
-      idStr.includes(query);
+      const matchesSearch =
+        !query ||
+        nameStr.includes(query) ||
+        emailStr.includes(query) ||
+        phoneStr.includes(query) ||
+        idStr.includes(query);
 
-    const userTier = u.membership_tier || "Member";
-    const matchesTier = filterTier === "all" || userTier === filterTier;
+      const userTier = u.membership_tier || "Member";
+      const matchesTier = filterTier === "all" || userTier === filterTier;
 
-    const matchesStatus =
-      filterStatus === "all"
-        ? true
-        : filterStatus === "active"
-        ? !u.is_locked
-        : u.is_locked;
+      const matchesStatus =
+        filterStatus === "all"
+          ? true
+          : filterStatus === "active"
+          ? !u.is_locked
+          : u.is_locked;
 
-    return matchesSearch && matchesTier && matchesStatus;
-  });
+      return matchesSearch && matchesTier && matchesStatus;
+    });
+  }, [users, searchQuery, filterTier, filterStatus]);
 
   // Header stats
   const totalUsers = users.length;
-  const lockedUsersCount = users.filter((u) => u.is_locked).length;
-  const totalSystemBalance = Object.values(balances).reduce((a, b) => a + b, 0);
+  const lockedUsersCount = useMemo(() => users.filter((u) => u.is_locked).length, [users]);
+  const totalSystemBalance = useMemo(() => {
+    return users.reduce((acc, u) => acc + (Number(u.balance) || 0), 0);
+  }, [users]);
 
   if (loading) return <div className="text-center py-10 text-[13px] text-gray-400">Đang tải danh sách thành viên...</div>;
 
@@ -258,58 +265,60 @@ export default function UsersTab() {
             <Wallet className="w-4 h-4 text-amber-600" />
           </div>
           <p className="text-[16px] font-black text-[#948154] truncate">{fmt(totalSystemBalance)} VNĐ</p>
-          <p className="text-[9.5px] text-gray-400 font-medium">Đang tích lũy trên ví</p>
+          <p className="text-[9.5px] text-amber-700/60 font-medium">Toàn hệ thống</p>
         </div>
 
         <div className="bg-white rounded-2xl p-3 border border-emerald-200/80 shadow-2xs">
           <div className="flex items-center justify-between text-emerald-600 mb-1">
-            <span className="text-[10px] font-bold">Thành viên Hoạt động</span>
-            <Shield className="w-4 h-4" />
+            <span className="text-[10px] font-bold">Đang Online</span>
+            <Shield className="w-4 h-4 text-emerald-600" />
           </div>
-          <p className="text-[18px] font-black text-emerald-700">{totalUsers - lockedUsersCount}</p>
-          <p className="text-[9.5px] text-gray-400 font-medium">Đang giao dịch bình thường</p>
+          <p className="text-[18px] font-black text-emerald-600">
+            {Object.keys(onlineUsers).length}
+          </p>
+          <p className="text-[9.5px] text-emerald-700/60 font-medium">Thời gian thực</p>
         </div>
 
         <div className="bg-white rounded-2xl p-3 border border-red-200/80 shadow-2xs">
           <div className="flex items-center justify-between text-red-600 mb-1">
-            <span className="text-[10px] font-bold">Tài khoản Tạm khóa</span>
-            <ShieldAlert className="w-4 h-4" />
+            <span className="text-[10px] font-bold">Tài khoản khóa</span>
+            <ShieldAlert className="w-4 h-4 text-red-600" />
           </div>
-          <p className="text-[18px] font-black text-red-700">{lockedUsersCount}</p>
-          <p className="text-[9.5px] text-gray-400 font-medium">Đang bị giới hạn nạp/rút</p>
+          <p className="text-[18px] font-black text-red-600">{lockedUsersCount}</p>
+          <p className="text-[9.5px] text-red-700/60 font-medium">Tạm ngừng truy cập</p>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white rounded-2xl p-3 border border-gray-100 shadow-2xs space-y-3">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5">
+      {/* Search & Filter Bar */}
+      <div className="bg-white rounded-2xl p-3.5 border border-gray-200/80 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
           {/* Search Box */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo tên, email, SĐT, ID..."
-              className="w-full pl-8 pr-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[11.5px] focus:outline-none focus:border-[#948154]"
+              placeholder="Tìm kiếm theo Tên, Email, SĐT hoặc ID..."
+              className="w-full pl-9 pr-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[12px] font-medium placeholder:text-gray-400 focus:outline-none focus:border-[#948154] transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black text-[10px]"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Filter Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-            {/* Tier Filter Dropdown */}
+          {/* Filters */}
+          <div className="flex items-center gap-2">
+            {/* Tier Filter */}
             <select
               value={filterTier}
               onChange={(e) => setFilterTier(e.target.value)}
-              className="px-2.5 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-700 focus:outline-none"
+              className="px-2.5 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-700 focus:outline-none transition-colors"
             >
               <option value="all">Tất cả Hạng thẻ</option>
               <option value="Member">Member (VIP 0)</option>
@@ -322,7 +331,7 @@ export default function UsersTab() {
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-2.5 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-700 focus:outline-none"
+              className="px-2.5 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-bold text-gray-700 focus:outline-none transition-colors"
             >
               <option value="all">Tất cả Trạng thái</option>
               <option value="active">Hoạt động</option>
@@ -346,11 +355,12 @@ export default function UsersTab() {
               : (getFreshUserBalance(u.id) || (balances[u.id] !== undefined ? balances[u.id] : 0));
             const tier = u.membership_tier || "Member";
             const isAdmin = u.role === "admin";
+            const isOnline = Boolean(onlineUsers[u.id] || (u.email && onlineEmailSet.has(u.email)));
 
             return (
               <div
-                key={u.id}
-                className={`bg-white rounded-2xl p-3.5 border transition-all shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                key={u.id || u.email}
+                className={`bg-white rounded-2xl p-3.5 border transition-colors shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   u.is_locked ? "border-red-200 bg-red-50/20" : "border-gray-200/80 hover:border-[#948154]/50"
                 }`}
               >
@@ -373,14 +383,11 @@ export default function UsersTab() {
                       <span className={`text-[8.5px] px-1.5 py-0.2 rounded-md border ${TIER_BADGES[tier] || TIER_BADGES.Member}`}>
                         {tier}
                       </span>
-                      {(() => {
-                        const isOnline = !!onlineUsers[u.id] || Object.values(onlineUsers).some(o => o.email && o.email === u.email);
-                        return isOnline ? (
-                          <span className="text-[8px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.2 rounded-md border border-emerald-300 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> ONLINE
-                          </span>
-                        ) : null;
-                      })()}
+                      {isOnline && (
+                        <span className="text-[8px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-md border border-emerald-300 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> ONLINE
+                        </span>
+                      )}
                       {u.is_locked && (
                         <span className="text-[8px] bg-red-100 text-red-800 font-bold px-1.5 py-0.2 rounded-md border border-red-200">
                           ĐÃ KHÓA
@@ -413,7 +420,7 @@ export default function UsersTab() {
                     {/* View Detail & RBAC */}
                     <button
                       onClick={() => setDetailUser({ ...u, balance: userBal })}
-                      className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-[#948154] hover:text-white text-gray-700 text-[11px] font-bold transition-all flex items-center gap-1 shadow-2xs"
+                      className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-[#948154] hover:text-white text-gray-700 text-[11px] font-bold transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
                       title="Xem chi tiết & Phân quyền"
                     >
                       <ExternalLink className="w-3.5 h-3.5" /> Chi tiết
@@ -422,7 +429,7 @@ export default function UsersTab() {
                     {/* Adjust Wallet */}
                     <button
                       onClick={() => setAdjustWalletUser({ ...u, balance: userBal })}
-                      className="w-8 h-8 rounded-xl bg-[#948154]/10 hover:bg-[#948154]/20 text-[#948154] flex items-center justify-center transition-all shadow-2xs"
+                      className="w-8 h-8 rounded-xl bg-[#948154]/10 hover:bg-[#948154]/20 text-[#948154] flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
                       title="Điều chỉnh Ví"
                     >
                       <Wallet className="w-4 h-4" />
@@ -432,7 +439,7 @@ export default function UsersTab() {
                     <button
                       onClick={() => handleToggleLock(u)}
                       disabled={togglingLockId === u.id}
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-2xs disabled:opacity-60 disabled:cursor-wait ${
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors shadow-2xs disabled:opacity-60 disabled:cursor-wait cursor-pointer ${
                         u.is_locked
                           ? "bg-red-100 hover:bg-red-200 text-red-700"
                           : "bg-gray-100 hover:bg-gray-200 text-gray-600"
@@ -452,7 +459,7 @@ export default function UsersTab() {
                     {isSuperAdmin && (
                       <button
                         onClick={() => setDeletingUser(u)}
-                        className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-600 hover:text-white text-red-500 border border-red-200 flex items-center justify-center transition-all shadow-2xs cursor-pointer"
+                        className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-600 hover:text-white text-red-500 border border-red-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
                         title="Xóa vĩnh viễn người dùng (Super Admin)"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -471,7 +478,7 @@ export default function UsersTab() {
         user={adjustWalletUser}
         open={!!adjustWalletUser}
         onClose={() => setAdjustWalletUser(null)}
-        onDone={fetchUsers}
+        onDone={() => fetchUsers(false)}
       />
 
       {/* USER DETAIL & RBAC MODAL */}
@@ -479,7 +486,7 @@ export default function UsersTab() {
         user={detailUser}
         open={!!detailUser}
         onClose={() => setDetailUser(null)}
-        onRefresh={fetchUsers}
+        onRefresh={() => fetchUsers(false)}
       />
 
       {/* SUPER ADMIN DELETE CONFIRMATION MODAL */}
@@ -537,14 +544,14 @@ export default function UsersTab() {
                 <button
                   onClick={() => setDeletingUser(null)}
                   disabled={isDeleting}
-                  className="flex-1 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[12px] font-bold transition-all cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[12px] font-bold transition-colors cursor-pointer"
                 >
                   Hủy bỏ
                 </button>
                 <button
                   onClick={handleDeleteUser}
                   disabled={isDeleting}
-                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[12px] font-bold shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[12px] font-bold shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                 >
                   {isDeleting ? (
                     <>
