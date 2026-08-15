@@ -113,7 +113,6 @@ export default function TigerBaccarat() {
   // Không gợi ý mệnh giá mặc định - người chơi phải tự chọn mỗi lần
   const [selectedChipIndex, setSelectedChipIndex] = useState(null);
   // Ô cược đang được chọn (bước 1: chọn ô -> bước 2: chọn mệnh giá -> bước 3: đặt cược)
-  const [selectedZone, setSelectedZone] = useState(null);
 
   // Placed Bets per zone - Cho phép cược nhiều ô đồng thời không giới hạn
   const [bets, setBets] = useState({
@@ -252,30 +251,18 @@ export default function TigerBaccarat() {
     return chipConfig.value;
   };
 
-  // Bước 1: Chọn ô cược (chưa trừ tiền, chỉ đánh dấu ô đang chọn)
-  const handleSelectZone = (zoneKey) => {
+  // Đặt cược vào 1 ô (cho phép cược nhiều ô cùng lúc, vd Player + Banker)
+  const handlePlaceBet = (zoneKey) => {
     if (phase !== "betting") return;
-    initAudio();
-    setSelectedZone((prev) => (prev === zoneKey ? null : zoneKey));
-  };
-
-  // Bước 3: Đặt cược - áp mệnh giá đã chọn vào ô đã chọn (cho phép cược nhiều ô cùng lúc)
-  const handleCommitBet = () => {
-    if (phase !== "betting") return;
-
-    if (!selectedZone) {
-      toast.warning("Vui lòng chọn ô cược trước!");
-      return;
-    }
-    if (selectedChipIndex === null) {
-      toast.warning("Vui lòng chọn mệnh giá tiền cược!");
-      return;
-    }
-
     initAudio();
 
     if (user?.is_locked) {
       toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
+      return;
+    }
+
+    if (selectedChipIndex === null) {
+      toast.warning("Vui lòng chọn mệnh giá tiền cược trước!");
       return;
     }
 
@@ -295,12 +282,8 @@ export default function TigerBaccarat() {
 
     setBets((prev) => ({
       ...prev,
-      [selectedZone]: (prev[selectedZone] || 0) + amount,
+      [zoneKey]: (prev[zoneKey] || 0) + amount,
     }));
-
-    // Không gợi ý - reset để lượt cược tiếp theo phải chọn lại từ đầu
-    setSelectedZone(null);
-    setSelectedChipIndex(null);
   };
 
   // Hủy cược ô cụ thể
@@ -914,13 +897,9 @@ export default function TigerBaccarat() {
               {/* TOP ROW */}
               {/* PLAYER PAIR */}
               <button
-                onClick={() => handleSelectZone("player_pair")}
+                onClick={() => handlePlaceBet("player_pair")}
                 className={`relative flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer select-none ${
-                  winningZones.includes("player_pair")
-                    ? "bg-emerald-500/60 animate-pulse"
-                    : selectedZone === "player_pair"
-                    ? "bg-amber-400/20 ring-2 ring-amber-300 ring-inset"
-                    : "hover:bg-white/10 active:bg-white/20"
+                  winningZones.includes("player_pair") ? "bg-emerald-500/60 animate-pulse" : "hover:bg-white/10 active:bg-white/20"
                 }`}
               >
                 <span className="text-blue-300 font-extrabold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
@@ -946,13 +925,9 @@ export default function TigerBaccarat() {
 
               {/* TIE (Hòa) */}
               <button
-                onClick={() => handleSelectZone("tie")}
+                onClick={() => handlePlaceBet("tie")}
                 className={`relative flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer select-none ${
-                  winningZones.includes("tie")
-                    ? "bg-emerald-500/60 animate-pulse"
-                    : selectedZone === "tie"
-                    ? "bg-amber-400/20 ring-2 ring-amber-300 ring-inset"
-                    : "hover:bg-white/10 active:bg-white/20"
+                  winningZones.includes("tie") ? "bg-emerald-500/60 animate-pulse" : "hover:bg-white/10 active:bg-white/20"
                 }`}
               >
                 <span className="text-green-300 font-extrabold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
@@ -978,13 +953,9 @@ export default function TigerBaccarat() {
 
               {/* BANKER PAIR */}
               <button
-                onClick={() => handleSelectZone("banker_pair")}
+                onClick={() => handlePlaceBet("banker_pair")}
                 className={`relative flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer select-none ${
-                  winningZones.includes("banker_pair")
-                    ? "bg-emerald-500/60 animate-pulse"
-                    : selectedZone === "banker_pair"
-                    ? "bg-amber-400/20 ring-2 ring-amber-300 ring-inset"
-                    : "hover:bg-white/10 active:bg-white/20"
+                  winningZones.includes("banker_pair") ? "bg-emerald-500/60 animate-pulse" : "hover:bg-white/10 active:bg-white/20"
                 }`}
               >
                 <span className="text-red-300 font-extrabold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
@@ -1011,13 +982,9 @@ export default function TigerBaccarat() {
               {/* BOTTOM ROW */}
               {/* PLAYER */}
               <button
-                onClick={() => handleSelectZone("player")}
+                onClick={() => handlePlaceBet("player")}
                 className={`relative flex flex-col items-center justify-center py-4 px-2 text-center transition-all cursor-pointer select-none ${
-                  winningZones.includes("player")
-                    ? "bg-blue-600/60 animate-pulse"
-                    : selectedZone === "player"
-                    ? "bg-amber-400/20 ring-2 ring-amber-300 ring-inset"
-                    : "hover:bg-blue-900/30 active:bg-blue-900/50"
+                  winningZones.includes("player") ? "bg-blue-600/60 animate-pulse" : "hover:bg-blue-900/30 active:bg-blue-900/50"
                 }`}
               >
                 <span className="text-blue-400 font-black text-base sm:text-xl uppercase tracking-widest text-shadow-strong">
@@ -1045,13 +1012,9 @@ export default function TigerBaccarat() {
 
               {/* TIGER (40:1) */}
               <button
-                onClick={() => handleSelectZone("tiger")}
+                onClick={() => handlePlaceBet("tiger")}
                 className={`relative flex flex-col items-center justify-center py-4 px-2 text-center transition-all cursor-pointer select-none ${
-                  winningZones.includes("tiger")
-                    ? "bg-amber-500/60 animate-pulse"
-                    : selectedZone === "tiger"
-                    ? "bg-amber-400/20 ring-2 ring-amber-300 ring-inset"
-                    : "hover:bg-amber-900/30 active:bg-amber-900/50"
+                  winningZones.includes("tiger") ? "bg-amber-500/60 animate-pulse" : "hover:bg-amber-900/30 active:bg-amber-900/50"
                 }`}
               >
                 <span className="text-[#d4af37] font-black text-base sm:text-xl uppercase tracking-widest text-shadow-strong">
@@ -1077,13 +1040,9 @@ export default function TigerBaccarat() {
 
               {/* BANKER */}
               <button
-                onClick={() => handleSelectZone("banker")}
+                onClick={() => handlePlaceBet("banker")}
                 className={`relative flex flex-col items-center justify-center py-4 px-2 text-center transition-all cursor-pointer select-none ${
-                  winningZones.includes("banker")
-                    ? "bg-red-600/60 animate-pulse"
-                    : selectedZone === "banker"
-                    ? "bg-amber-400/20 ring-2 ring-amber-300 ring-inset"
-                    : "hover:bg-red-900/30 active:bg-red-900/50"
+                  winningZones.includes("banker") ? "bg-red-600/60 animate-pulse" : "hover:bg-red-900/30 active:bg-red-900/50"
                 }`}
               >
                 <span className="text-red-400 font-black text-base sm:text-xl uppercase tracking-widest text-shadow-strong">
@@ -1136,22 +1095,7 @@ export default function TigerBaccarat() {
             })}
           </div>
 
-          {/* Đặt cược: bước 3 - áp mệnh giá đã chọn vào ô đã chọn */}
-          <button
-            onClick={handleCommitBet}
-            disabled={phase !== "betting" || !selectedZone || selectedChipIndex === null}
-            className="w-full mb-2 sm:mb-3 py-3 rounded-xl bg-gradient-to-b from-emerald-600 to-emerald-800 border border-emerald-400/60 shadow-lg active:scale-95 transition-transform disabled:opacity-40 cursor-pointer"
-          >
-            <span className="text-white font-bold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
-              {!selectedZone
-                ? "CHỌN Ô CƯỢC"
-                : selectedChipIndex === null
-                ? "CHỌN MỆNH GIÁ"
-                : "ĐẶT CƯỢC"}
-            </span>
-          </button>
-
-          {/* Action Buttons: Hủy cược, Nhân đôi x2, Xác nhận */}
+          {/* Action Buttons: Hủy cược, Nhân đôi x2, Đặt cược */}
           <div className="flex w-full gap-2 sm:gap-3">
             <button
               onClick={handleCancelBets}
@@ -1184,7 +1128,7 @@ export default function TigerBaccarat() {
                   ? "ĐÃ KHÓA CƯỢC"
                   : phase === "dealing"
                   ? "ĐANG CHIA BÀI..."
-                  : `XÁC NHẬN ${activeBetZonesCount > 0 ? `(${activeBetZonesCount} Ô)` : ""}`}
+                  : `ĐẶT CƯỢC ${activeBetZonesCount > 0 ? `(${activeBetZonesCount} Ô)` : ""}`}
               </span>
             </button>
           </div>
