@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock } from "lucide-react";
+import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 
@@ -10,6 +10,7 @@ export default function ProjectsTab() {
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [togglingId, setTogglingId] = useState(null);
 
   const fetch = () => {
     base44.entities.Project
@@ -33,17 +34,24 @@ export default function ProjectsTab() {
   }, []);
 
   const toggleActive = async (p) => {
+    const nextStatus = !p.is_active;
+    setTogglingId(p.id);
+    // Đổi giao diện ngay để admin thấy phản hồi tức thì, không đợi network
+    setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, is_active: nextStatus } : x)));
     try {
-      const nextStatus = !p.is_active;
       await base44.entities.Project.update(p.id, { is_active: nextStatus });
       toast.success(
-        nextStatus 
-          ? `Đã BẬT mở đầu tư: "${p.title || p.name}"` 
+        nextStatus
+          ? `Đã BẬT mở đầu tư: "${p.title || p.name}"`
           : `Đã TẮT tạm khóa đầu tư: "${p.title || p.name}"`
       );
       fetch();
     } catch (e) {
+      // Rollback nếu ghi thất bại
+      setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, is_active: p.is_active } : x)));
       toast.error("Không thể cập nhật trạng thái dự án");
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -240,20 +248,25 @@ export default function ProjectsTab() {
                 {/* Toggle Switch */}
                 <div className="flex items-center gap-2">
                   <span className={`text-[9.5px] font-bold ${isActive ? "text-green-700" : "text-amber-800"}`}>
-                    {isActive ? "Mở đầu tư (Bật)" : "Tạm khóa (Tắt)"}
+                    {togglingId === p.id ? "Đang cập nhật..." : isActive ? "Mở đầu tư (Bật)" : "Tạm khóa (Tắt)"}
                   </span>
                   <button
                     onClick={() => toggleActive(p)}
+                    disabled={togglingId === p.id}
                     title={isActive ? "Khóa nhận vốn đầu tư" : "Mở nhận vốn đầu tư"}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                    className={`relative inline-flex h-6 w-11 items-center justify-center rounded-full transition-colors focus:outline-none disabled:cursor-wait ${
                       isActive ? "bg-green-600" : "bg-gray-300"
                     }`}
                   >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        isActive ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
+                    {togglingId === p.id ? (
+                      <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
+                    ) : (
+                      <span
+                        className={`absolute inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          isActive ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    )}
                   </button>
                 </div>
               </div>

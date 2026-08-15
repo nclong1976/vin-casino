@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { TrendingUp, Plus, Search, Pencil, Check, X, RefreshCw, Building2 } from "lucide-react";
+import { TrendingUp, Plus, Search, Pencil, Check, X, RefreshCw, Building2, Loader2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 
@@ -68,6 +68,7 @@ export default function StocksTab() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [togglingId, setTogglingId] = useState(null);
 
   // Modals
   const [editingStock, setEditingStock] = useState(null);
@@ -126,15 +127,20 @@ export default function StocksTab() {
   const totalCompletedOrders = stockOrders.filter((o) => (o.status || o.contract_status) === "approved" || o.status === "completed").length;
 
   const handleToggleStockStatus = async (proj) => {
+    const nextStatus = !proj.is_active;
+    setTogglingId(proj.id || proj.symbol);
+    setProjects((prev) => prev.map((x) => (x === proj || x.id === proj.id ? { ...x, is_active: nextStatus } : x)));
     try {
-      const nextStatus = !proj.is_active;
       if (proj.id) {
         await base44.entities.Project.update(proj.id, { is_active: nextStatus });
       }
       toast.success(`Đã ${nextStatus ? "MỞ" : "KHÓA"} giao dịch cổ phiếu "${proj.title || proj.symbol}"`);
       fetchData();
     } catch (e) {
+      setProjects((prev) => prev.map((x) => (x === proj || x.id === proj.id ? { ...x, is_active: proj.is_active } : x)));
       toast.error("Lỗi khi thay đổi trạng thái cổ phiếu");
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -459,10 +465,12 @@ export default function StocksTab() {
 
                     <button
                       onClick={() => handleToggleStockStatus(p)}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      disabled={togglingId === (p.id || p.symbol)}
+                      className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 disabled:opacity-60 disabled:cursor-wait ${
                         isActive ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                       }`}
                     >
+                      {togglingId === (p.id || p.symbol) && <Loader2 className="w-3 h-3 animate-spin" />}
                       {isActive ? "Tạm khóa" : "Mở lại"}
                     </button>
                   </div>

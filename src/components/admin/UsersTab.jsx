@@ -9,7 +9,8 @@ import {
   Shield,
   ShieldAlert,
   Search,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers } from "@/lib/supabaseDb";
@@ -39,6 +40,7 @@ export default function UsersTab() {
   // Selected User Modals
   const [adjustWalletUser, setAdjustWalletUser] = useState(null);
   const [detailUser, setDetailUser] = useState(null);
+  const [togglingLockId, setTogglingLockId] = useState(null);
 
   const rtdbUsersRef = useRef([]);
 
@@ -115,6 +117,10 @@ export default function UsersTab() {
 
   const handleToggleLock = async (u) => {
     const nextLocked = !u.is_locked;
+    setTogglingLockId(u.id);
+    // Cập nhật giao diện ngay lập tức để admin thấy phản hồi tức thì,
+    // không cần chờ round-trip mạng mới thấy icon/màu đổi
+    setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_locked: nextLocked } : x)));
     try {
       await base44.entities.User.update(u.id, { is_locked: nextLocked });
 
@@ -129,7 +135,11 @@ export default function UsersTab() {
       toast.success(nextLocked ? `Đã tạm khóa tài khoản ${u.full_name || u.email}` : `Đã mở khóa tài khoản ${u.full_name || u.email}`);
       fetchUsers();
     } catch (e) {
+      // Rollback nếu ghi thất bại, để giao diện không "nói dối" trạng thái
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_locked: u.is_locked } : x)));
       toast.error("Không thể thay đổi trạng thái tài khoản.");
+    } finally {
+      setTogglingLockId(null);
     }
   };
 
@@ -358,14 +368,21 @@ export default function UsersTab() {
                     {/* Quick Lock / Unlock */}
                     <button
                       onClick={() => handleToggleLock(u)}
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-2xs ${
+                      disabled={togglingLockId === u.id}
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-2xs disabled:opacity-60 disabled:cursor-wait ${
                         u.is_locked
                           ? "bg-red-100 hover:bg-red-200 text-red-700"
                           : "bg-gray-100 hover:bg-gray-200 text-gray-600"
                       }`}
                       title={u.is_locked ? "Mở khóa tài khoản" : "Tạm khóa tài khoản"}
                     >
-                      {u.is_locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      {togglingLockId === u.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : u.is_locked ? (
+                        <Lock className="w-4 h-4" />
+                      ) : (
+                        <Unlock className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
