@@ -827,8 +827,14 @@ class FallbackBase44Client {
         return { access_token: 'local_token_' + Date.now(), user: newUser };
       },
       async logout() {
+        try {
+          const { signOut } = await import('@/lib/supabaseAuth');
+          await signOut();
+        } catch (e) {}
         localStorage.removeItem('base44_local_user');
         localStorage.removeItem('base44_local_token');
+        localStorage.removeItem('vinclub_supabase_session');
+        sessionStorage.setItem('vinclub_welcome_seen', 'true');
         window.location.href = '/login';
       },
       setToken(token) {

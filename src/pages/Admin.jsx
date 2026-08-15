@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, CreditCard, TrendingUp, Dices, ArrowDownToLine } from "lucide-react";
+import { LayoutDashboard, MessageSquare, FileCheck, Users, FolderOpen, ArrowLeft, Bell, CreditCard, TrendingUp, Dices, ArrowDownToLine, LogOut } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MessagesTab from "@/components/admin/MessagesTab";
 import ContractsTab from "@/components/admin/ContractsTab";
@@ -28,6 +29,7 @@ const TABS = [
 
 export default function Admin() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState({});
 
@@ -101,9 +103,19 @@ export default function Admin() {
               <p className="text-[10px] text-gray-400">VinClub Admin Panel</p>
             </div>
           </div>
-          <span className="text-[9px] font-semibold px-2 py-1 rounded-full bg-[#948154]/10 text-[#948154]">
-            ADMIN
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-semibold px-2 py-1 rounded-full bg-[#948154]/10 text-[#948154]">
+              ADMIN
+            </span>
+            <button
+              onClick={logout}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-50 hover:bg-red-100 text-red-600 text-[10.5px] font-bold transition-all border border-red-200 cursor-pointer"
+              title="Đăng xuất"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Đăng xuất</span>
+            </button>
+          </div>
         </div>
 
         <div className="max-w-4xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto">

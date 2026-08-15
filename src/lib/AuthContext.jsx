@@ -258,16 +258,13 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await supaSignOut();
-    } catch (e) {
-      // Supabase signOut có thể không cần thiết nếu dùng legacy
-    }
-    try {
-      base44.auth.logout();
     } catch (e) {}
+    localStorage.removeItem('base44_local_user');
+    localStorage.removeItem('base44_local_token');
+    localStorage.removeItem('vinclub_supabase_session');
+    sessionStorage.setItem('vinclub_welcome_seen', 'true');
     setUser(null);
     setIsAuthenticated(false);
-    // Xoá session cũ
-    localStorage.removeItem('vinclub_supabase_session');
     window.location.href = '/login';
   };
 
