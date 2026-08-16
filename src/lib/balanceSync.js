@@ -71,6 +71,35 @@ function applyBalanceToLocalStores(userId, numBalance, numDeposit) {
   return updatedUser;
 }
 
+/**
+ * Đặt balance/total_deposited về đúng giá trị TUYỆT ĐỐI cho cả 2 trường
+ * cùng lúc, ghi xuống mọi nơi (local + RTDB + Supabase) - khác với
+ * updateUserBalance() (chỉ set balance tuyệt đối, còn total_deposited chỉ
+ * CỘNG THÊM chứ không thể giảm). Dùng cho thao tác hiệu chỉnh dữ liệu của
+ * admin khi cần sửa lại cả 2 trường về đúng số thực tế (vd. khắc phục sự
+ * cố dữ liệu bị lỗi cộng dồn sai).
+ */
+export function setAbsoluteUserBalanceAndDeposit(userId, newBalance, newTotalDeposited) {
+  if (!userId) return null;
+  const numBalance = Math.max(0, Number(newBalance) || 0);
+  const numDeposit = Math.max(0, Number(newTotalDeposited) || 0);
+
+  try {
+    const updatedUser = applyBalanceToLocalStores(userId, numBalance, numDeposit);
+
+    try {
+      syncUserToSupabase(updatedUser, { debounceMs: 0 });
+    } catch (e) {
+      console.warn("syncUserToSupabase error in setAbsoluteUserBalanceAndDeposit:", e);
+    }
+
+    return updatedUser;
+  } catch (e) {
+    console.error("setAbsoluteUserBalanceAndDeposit error:", e);
+    return null;
+  }
+}
+
 export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
   if (!userId) return null;
   const numBalance = Math.max(0, Number(newBalance) || 0);

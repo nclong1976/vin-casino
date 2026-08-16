@@ -5,6 +5,7 @@ import {
   updateSupabaseUser,
   createSupabaseWalletTransaction,
   updateSupabaseWalletTransaction,
+  deleteSupabaseWalletTransaction,
   upsertSupabaseEntity,
   deleteSupabaseEntity,
 } from '@/lib/supabaseDb';
@@ -629,6 +630,11 @@ class LocalEntityClient {
       if (this.entityName === 'Message') {
         import('@/lib/rtdbSync').then(({ deleteMessageFromRTDB }) => {
           deleteMessageFromRTDB(id);
+        });
+      } else if (this.entityName === 'WalletTransaction') {
+        deleteSupabaseWalletTransaction(id).catch(() => null);
+        import('@/lib/rtdbSync').then(({ deleteWalletTransactionFromRTDB }) => {
+          deleteWalletTransactionFromRTDB(id);
         });
       }
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {

@@ -298,6 +298,21 @@ export async function updateSupabaseWalletTransaction(id, updates) {
   }
 }
 
+export async function deleteSupabaseWalletTransaction(id) {
+  if (!id) return false;
+  try {
+    const { error } = await supabase.from('wallet_transactions').delete().eq('id', id);
+    if (error) {
+      console.warn(`[SupabaseDb] deleteSupabaseWalletTransaction error:`, error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn(`[SupabaseDb] deleteSupabaseWalletTransaction exception:`, e);
+    return false;
+  }
+}
+
 // ==========================================
 // 3. REALTIME SUBSCRIPTION FOR SUPABASE
 // ==========================================

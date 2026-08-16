@@ -391,6 +391,21 @@ export async function pushWalletTransactionToRTDB(tx) {
   return safeWriteRTDB(`wallet_transactions/${tx.id}`, payload, "set");
 }
 
+export async function deleteWalletTransactionFromRTDB(id) {
+  if (!id) return false;
+  await firebaseAuthReady;
+  try {
+    await Promise.allSettled([
+      remove(ref(rtdb, `wallet_transactions/${id}`)),
+      remove(ref(rtdb, `entities/WalletTransaction/${id}`)),
+    ]);
+    return true;
+  } catch (e) {
+    console.warn("[RTDB] Failed to delete wallet transaction:", e);
+    return false;
+  }
+}
+
 /**
  * 6. Node: notifications/{uid} & notifications
  * Bắn thông báo đẩy biến động số dư, phê duyệt nạp rút tiền real-time về máy người dùng.
