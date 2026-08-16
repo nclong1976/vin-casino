@@ -135,6 +135,24 @@ export function subscribeUserFromRTDB(userId, onUserReceived) {
   });
 }
 
+/**
+ * Fetch a single user's latest snapshot from Firebase RTDB directly
+ */
+export async function fetchUserFromRTDB(userId) {
+  if (!userId) return null;
+  await firebaseAuthReady;
+  try {
+    const url = `${BASE_RTDB_URL}/users/${userId}.json`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    console.warn(`[RTDB fetchUser] error for ${userId}:`, e);
+    return null;
+  }
+}
+
 export async function deleteUserFromRTDB(userId) {
   if (!userId) return false;
   await firebaseAuthReady;
