@@ -6,6 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo, ALL_CARD_TIERS } from "@/lib/membershipUtils";
+import { computeWalletNet, resolveTransactionKind, resolveTransactionStatus, TRANSACTION_KINDS } from "@/lib/transactionHistory";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -36,16 +37,26 @@ export default function MembershipCard() {
     })();
   }, [user]);
 
-  // Calculate total deposited amount
+  // Tổng nạp tích luỹ cho hạng thẻ VIP: CHỈ tính nạp tiền THẬT đã chốt
+  // (không tính thưởng/lãi casino-vòng quay-lãi VIP dù chúng cũng có
+  // type:"deposit", và không tính giao dịch pending/rejected/failed) -
+  // khớp đúng cách total_deposited được cộng ở phía Admin duyệt nạp
+  // (adjustUserBalance chỉ cộng total_deposited cho nạp tiền thật).
   const depositSum = walletTxs
-    .filter((t) => t.type === "deposit")
-    .reduce((sum, t) => sum + (t.amount || 0), 0) + (user?.total_deposited || (user?.role === "admin" ? (user?.balance ?? 0) : 0));
+    .filter((t) => resolveTransactionKind(t) === TRANSACTION_KINDS.DEPOSIT && resolveTransactionStatus(t) === "success")
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0) + (user?.total_deposited || (user?.role === "admin" ? (user?.balance ?? 0) : 0));
 
-  const walletBalance = walletTxs.reduce(
-    (sum, t) => sum + (t.type === "deposit" ? t.amount : -t.amount),
-    (user?.balance ?? 0)
-  );
-  const totalInvested = txs.reduce((s, t) => s + (t.amount || 0), 0);
+  // Số dư ví: lấy số dư THẬT của user làm gốc, chỉ "nâng" lên nếu ground
+  // truth tính từ lịch sử ví (computeWalletNet - dùng chung với Profile.jsx)
+  // cao hơn - tránh hiển thị số sai do tự cộng trừ lại từng dòng mà bỏ sót
+  // loại giao dịch (đầu tư/đặt cược) hoặc không lọc trạng thái pending.
+  const walletBalance = Math.max(Number(user?.balance || 0), computeWalletNet(walletTxs).netCalculated);
+
+  // Chỉ tính hợp đồng đầu tư đã thực sự chốt (status "completed") - loại
+  // pending/failed nếu có ra khỏi tổng.
+  const totalInvested = txs
+    .filter((t) => t.status === "completed")
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
   const currentTier = getCardTierInfo(depositSum);
 

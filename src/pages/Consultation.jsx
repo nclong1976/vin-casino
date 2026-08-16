@@ -27,6 +27,7 @@ import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo } from "@/lib/membershipUtils";
+import { resolveTransactionKind, resolveTransactionStatus, TRANSACTION_KINDS } from "@/lib/transactionHistory";
 import { toast } from "sonner";
 
 // Tier privileges data according to specification
@@ -280,9 +281,13 @@ export default function Consultation() {
           100
         ).catch(() => []);
 
+        // Chỉ tính nạp tiền THẬT đã chốt (không tính thưởng/lãi casino-vòng
+        // quay-lãi VIP dù cũng có type:"deposit", và không tính giao dịch
+        // pending/rejected/failed) - khớp cách total_deposited được cộng ở
+        // phía Admin duyệt nạp, dùng chung logic với MembershipCard.jsx.
         const sum = walletTxs
-          .filter((t) => t.type === "deposit")
-          .reduce((acc, t) => acc + (t.amount || 0), 0) + (me?.total_deposited || (me?.role === "admin" ? (me?.balance ?? 0) : 0));
+          .filter((t) => resolveTransactionKind(t) === TRANSACTION_KINDS.DEPOSIT && resolveTransactionStatus(t) === "success")
+          .reduce((acc, t) => acc + (Number(t.amount) || 0), 0) + (me?.total_deposited || (me?.role === "admin" ? (me?.balance ?? 0) : 0));
 
         setDepositSum(sum);
         const userTierInfo = getCardTierInfo(sum);

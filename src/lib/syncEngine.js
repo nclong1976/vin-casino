@@ -14,6 +14,7 @@ import { base44 } from "@/api/base44Client";
 import { getFreshUserBalance, updateUserBalance } from "@/lib/balanceSync";
 import { getSupabaseUser, listSupabaseUsers, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { pushUserToRTDB, trackPresenceInRTDB, fetchUserFromRTDB } from "@/lib/rtdbSync";
+import { computeWalletNet } from "@/lib/transactionHistory";
 
 let isSyncing = false;
 let syncListenersBound = false;
@@ -72,17 +73,16 @@ export async function hydrateUserOnNewDevice(authUser) {
       (u) => (u.id && u.id === uid) || (u.email && uemail && u.email.toLowerCase() === uemail.toLowerCase())
     ) || {};
 
-    // Tính số dư từ lịch sử nạp rút ví đã hoàn tất (Ground truth)
-    let wtxDeposits = 0;
-    let wtxWithdrawals = 0;
-    (walletTxs || []).forEach((tx) => {
-      if (tx && tx.status === "completed") {
-        const amt = Number(tx.amount || 0);
-        if (tx.type === "deposit") wtxDeposits += amt;
-        else if (tx.type === "withdraw") wtxWithdrawals += amt;
-      }
-    });
-    const wtxBalance = Math.max(0, wtxDeposits - wtxWithdrawals);
+    // Tính số dư từ lịch sử ví (Ground truth) - dùng chung computeWalletNet()
+    // với Profile.jsx/MembershipCard.jsx/Consultation.jsx thay vì tự lọc lại
+    // status/type ở đây. Bản cũ chỉ tính status "completed" và type
+    // deposit/withdraw, bỏ sót "approved" (casino/vòng quay/lãi VIP - luồng
+    // tự động, không bao giờ có status "completed") và "investment"/
+    // "withdrawal" (đầu tư/đặt cược - tiền RA) - khiến số dư suy ra ở đây
+    // bị tính THIẾU phần tiền đã chi, có thể lớn hơn số dư thật và (do nằm
+    // trong balanceCandidates lấy MAX bên dưới) vô tình "hoàn tiền" cho
+    // user mỗi lần đăng nhập thiết bị mới.
+    const { depSum: wtxDeposits, outSum: wtxWithdrawals, netCalculated: wtxBalance } = computeWalletNet(walletTxs);
 
     const localFreshBal = getFreshUserBalance(uid) || getFreshUserBalance(uemail);
 

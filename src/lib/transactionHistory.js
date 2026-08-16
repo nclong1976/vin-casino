@@ -148,3 +148,32 @@ export function buildTransactionHistory(rawList, currentBalance) {
     .sort((a, b) => new Date(b.isoTime || 0) - new Date(a.isoTime || 0));
   return attachRunningBalance(normalized, currentBalance);
 }
+
+/**
+ * Tính số dư ví "GROUND TRUTH" từ lịch sử WalletTransaction thô, dùng để
+ * tự phục hồi (auto-heal) số dư cache cục bộ khi nó bị lệch/cũ (ví dụ vừa
+ * đăng nhập thiết bị mới, hoặc cache vừa bị một nguồn khác ghi đè). ĐÂY LÀ
+ * NƠI DUY NHẤT trong toàn app định nghĩa quy tắc "giao dịch nào đã thực sự
+ * di chuyển tiền" - mọi màn hình cần con số này (Profile, MembershipCard,
+ * Consultation, syncEngine khi hydrate thiết bị mới...) đều phải gọi hàm
+ * này thay vì tự viết lại logic status/type riêng, để không lệch nhau như
+ * trước đây (mỗi nơi lọc status/type khác nhau -> mỗi nơi ra 1 số khác).
+ *
+ * Quy tắc: "deposit" (bao gồm cả nạp tiền thật lẫn thưởng/lãi - đều là tiền
+ * VÀO) trừ đi "withdraw"/"investment"/"withdrawal" (tiền RA), chỉ tính các
+ * bản ghi đã CHỐT tiền thật - status "completed" (luồng cần Admin duyệt)
+ * HOẶC "approved" (luồng tự động tức thì: casino/vòng quay/lãi VIP).
+ * "pending"/"rejected"/"failed" không được tính vì chưa/không di chuyển tiền.
+ */
+const SETTLED_WALLET_STATUSES = new Set(["completed", "approved"]);
+const OUTGOING_WALLET_TYPES = new Set(["withdraw", "investment", "withdrawal"]);
+
+export function computeWalletNet(rawList) {
+  const depSum = (rawList || [])
+    .filter((tx) => tx?.type === "deposit" && SETTLED_WALLET_STATUSES.has(tx?.status))
+    .reduce((s, tx) => s + (Number(tx?.amount) || 0), 0);
+  const outSum = (rawList || [])
+    .filter((tx) => OUTGOING_WALLET_TYPES.has(tx?.type) && SETTLED_WALLET_STATUSES.has(tx?.status))
+    .reduce((s, tx) => s + (Number(tx?.amount) || 0), 0);
+  return { depSum, outSum, netCalculated: Math.max(0, depSum - outSum) };
+}

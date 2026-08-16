@@ -17,18 +17,28 @@ export async function runDailyYieldAndMaturityCheck(user) {
     // ==========================================
     // 1. RÀ SOÁT LÃI TÍCH LŨY HẰNG NGÀY (9:00 AM)
     // ==========================================
-    // Thực hiện cộng lãi 9h sáng nếu thời gian hiện tại >= 9h sáng và chưa nhận lãi ngày hôm nay
-    const storageKey9AM = `vinclub_daily_vip_yield_${todayStr}_${user.id}`;
-    const alreadyPaidToday = localStorage.getItem(storageKey9AM);
+    // Thực hiện cộng lãi 9h sáng nếu thời gian hiện tại >= 9h sáng và chưa nhận lãi ngày hôm nay.
+    //
+    // QUAN TRỌNG: "đã cộng lãi hôm nay chưa" PHẢI kiểm tra bằng chính lịch
+    // sử ví trên server (ground truth), KHÔNG được chỉ dựa vào localStorage
+    // như trước đây. localStorage bị xoá (người dùng xoá cache trình duyệt,
+    // đổi thiết bị, hoặc dùng chế độ ẩn danh) khiến app tưởng lầm "chưa cộng
+    // lãi hôm nay" và cộng lại lần nữa - lần cộng sau lại tính trên số dư ĐÃ
+    // BAO GỒM lãi của chính hôm đó, khiến lãi tăng theo cấp số nhân không
+    // kiểm soát mỗi lần bị kích hoạt lại (đã tái hiện thực tế: 1 tài khoản
+    // test bị cộng nhầm tới hàng chục nghìn tỷ VNĐ chỉ sau vài lần xoá cache
+    // trong lúc QA). Quét thẳng walletTxs vừa tải để xác định chính xác.
+    const walletTxs = await base44.entities.WalletTransaction.filter(
+      { $or: [{ user_id: user.id }, { created_by_id: user.id }] },
+      "-created_date",
+      1000
+    ).catch(() => []);
+
+    const alreadyPaidToday = walletTxs.some(
+      (t) => t.category === "Lãi VIP Hằng Ngày" && String(t.created_date || "").slice(0, 10) === todayStr
+    );
 
     if (currentHour >= 9 && !alreadyPaidToday) {
-      // Tính tổng số tiền nạp tích lũy của hội viên
-      const walletTxs = await base44.entities.WalletTransaction.filter(
-        { $or: [{ user_id: user.id }, { created_by_id: user.id }] },
-        "-created_date",
-        1000
-      ).catch(() => []);
-
       const depositSum = walletTxs
         .filter((t) => t.type === "deposit")
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0) + (user.total_deposited || (user.role === "admin" ? (user.balance ?? 0) : 0));
@@ -60,9 +70,6 @@ export async function runDailyYieldAndMaturityCheck(user) {
             content: `[Cộng Lãi Hằng Ngày 9h Sáng]\n\nHệ thống đã tự động rà soát tài khoản và cộng +${dailyProfit.toLocaleString("vi-VN")} VNĐ lãi suất tích lũy theo cấp hạng ${tierInfo.name} (${tierInfo.dailyRateLabel}) vào ví của bạn.\n\nCảm ơn bạn đã đồng hành cùng VinClub!`,
             attachments: []
           }).catch(() => null);
-
-          // Đánh dấu đã trả lãi hôm nay
-          localStorage.setItem(storageKey9AM, "true");
 
           // Bắn sự kiện cập nhật số dư thời gian thực
           window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
