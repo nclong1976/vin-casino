@@ -109,12 +109,44 @@ export async function startFirebaseSync() {
       });
 
       console.log(`[FirebaseSync] Đồng bộ thực thể ${entityName} (${items.length} bản ghi) từ Firestore`);
-      
+
       // Sắp xếp theo ngày tạo (mặc định) nếu có
       items.sort((a, b) => new Date(b.created_date || b.created_at || 0) - new Date(a.created_date || a.created_at || 0));
 
-      // Lưu vào LocalStorage
-      localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(items));
+      if (entityName === "Message") {
+        // Hợp nhất thay vì ghi đè toàn bộ cache cục bộ: write-through của
+        // Firestore và RTDB chạy song song không đồng bộ, nên một snapshot
+        // Firestore tới muộn hơn có thể tạm thời chưa thấy tin nhắn mà RTDB
+        // đã phát tức thì trước đó. Ghi đè thẳng sẽ xoá mất tin nhắn đó khỏi
+        // màn hình cho tới khi có thay đổi tiếp theo. RTDB vẫn là nguồn xử
+        // lý việc xoá tin nhắn (deleteMessageFromRTDB), nên gộp ở đây chỉ
+        // thêm/cập nhật, không xoá.
+        try {
+          const raw = localStorage.getItem(`base44_entity_${entityName}`);
+          const local = raw ? JSON.parse(raw) : [];
+          let modified = false;
+          items.forEach((it) => {
+            const idx = local.findIndex((l) => l.id === it.id);
+            if (idx === -1) {
+              local.push(it);
+              modified = true;
+            } else if (JSON.stringify(local[idx]) !== JSON.stringify(it)) {
+              local[idx] = { ...local[idx], ...it };
+              modified = true;
+            }
+          });
+          if (modified) {
+            localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(local));
+            localStorage.setItem("vinclub_msg_update", Date.now().toString());
+          }
+        } catch (e) {
+          localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(items));
+        }
+      } else {
+        // Các thực thể khác giữ nguyên hành vi ghi đè (Firestore là nguồn
+        // duy nhất xử lý xoá cho các loại dữ liệu này).
+        localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(items));
+      }
 
       // Thông báo cho các React component đang lắng nghe thông qua client của base44
       if (base44.entities[entityName]) {
@@ -183,12 +215,31 @@ export function stopFirebaseSync() {
 }
 
 /**
+ * Xác định chủ sở hữu THỰC SỰ của một bản ghi để gắn vào trường `userId`
+ * (dùng cho query bảo mật/real-time theo từng người dùng trên Firestore).
+ *
+ * Trước đây pushEntityToFirestore() luôn gắn userId = ID của người ĐANG
+ * đăng nhập trên thiết bị thực hiện thao tác (getCurrentUserId()). Điều
+ * này đúng khi khách hàng tự tạo bản ghi của chính họ, nhưng SAI khi Admin
+ * tạo/cập nhật bản ghi THAY cho khách hàng — ví dụ Admin trả lời tin nhắn
+ * CSKH hoặc duyệt nạp/rút tiền: bản ghi bị gắn nhầm userId = ID của Admin
+ * thay vì ID khách hàng. Vì listener onSnapshot ở thiết bị khách hàng lọc
+ * theo where("userId","==", chính họ), tin nhắn/trạng thái admin gửi sẽ
+ * KHÔNG BAO GIỜ khớp query và không bao giờ tới được thiết bị khách hàng.
+ * Dùng chủ sở hữu thật (user_id/conversation_id có sẵn trong data) để mọi
+ * thiết bị đều đồng bộ đúng một "nguồn chân lý" duy nhất.
+ */
+function resolveOwnerId(entityName, data) {
+  if (entityName === "Message") {
+    return data?.conversation_id || data?.user_id || getCurrentUserId();
+  }
+  return data?.user_id || getCurrentUserId();
+}
+
+/**
  * Hàm hỗ trợ đẩy một thay đổi đơn lẻ lên Firestore ngay lập tức (Write-Through)
  */
 export async function pushEntityToFirestore(entityName, id, data, action = 'upsert') {
-  const userId = getCurrentUserId();
-  if (!userId) return;
-
   await firebaseAuthReady;
   const docRef = doc(db, entityName, id);
 
@@ -196,15 +247,19 @@ export async function pushEntityToFirestore(entityName, id, data, action = 'upse
     if (action === 'delete') {
       await deleteDoc(docRef);
       console.log(`[FirebaseSync] Đã xóa thành công ${entityName}/${id} trên Firestore`);
-    } else {
-      // Bổ sung userId để phân quyền bảo mật dữ liệu của từng cá nhân
-      const payload = { ...data, userId };
-      // Đảm bảo không ghi đè trường id trùng lặp vào body document
-      delete payload.id; 
-
-      await setDoc(docRef, payload, { merge: true });
-      console.log(`[FirebaseSync] Đã đẩy thành công ${entityName}/${id} lên Firestore`);
+      return;
     }
+
+    const ownerId = resolveOwnerId(entityName, data);
+    if (!ownerId) return;
+
+    // Bổ sung userId = chủ sở hữu thực sự (không phải người đang thao tác)
+    const payload = { ...data, userId: ownerId };
+    // Đảm bảo không ghi đè trường id trùng lặp vào body document
+    delete payload.id;
+
+    await setDoc(docRef, payload, { merge: true });
+    console.log(`[FirebaseSync] Đã đẩy thành công ${entityName}/${id} lên Firestore`);
   } catch (error) {
     console.error(`[FirebaseSync] Lỗi cập nhật ${entityName} lên Firestore:`, error);
   }

@@ -56,7 +56,19 @@ export default function Support() {
         }
       }
 
-      setMessages(list || []);
+      // Hợp nhất với state hiện tại thay vì ghi đè toàn bộ: loadMessages()
+      // đọc từ cache cục bộ (có thể tạm thời chưa cập nhật kịp), nên ghi đè
+      // thẳng có thể xoá mất một tin nhắn mà kênh RTDB real-time vừa phát
+      // tới state trước đó (race condition giữa 2 nguồn cập nhật state).
+      setMessages((prev) => {
+        const incoming = list || [];
+        if (incoming.length === 0) return prev.length > 0 ? prev : incoming;
+        const merged = new Map(prev.map((m) => [m.id, m]));
+        incoming.forEach((m) => merged.set(m.id, { ...(merged.get(m.id) || {}), ...m }));
+        return Array.from(merged.values()).sort(
+          (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
+        );
+      });
     } catch (e) {
       // quiet fallback
     } finally {

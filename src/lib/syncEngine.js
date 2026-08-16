@@ -215,7 +215,20 @@ export async function syncBackgroundData(userId, userEmail = "") {
       localStorage.setItem("base44_entity_Transaction", JSON.stringify(txs.value));
     }
     if (msgs.status === "fulfilled" && Array.isArray(msgs.value)) {
-      localStorage.setItem("base44_entity_Message", JSON.stringify(msgs.value));
+      // Hợp nhất thay vì ghi đè: msgs.value chỉ là một lần lọc lại CHÍNH
+      // cache cục bộ hiện có (không tải gì mới từ máy chủ), nên nếu chạy
+      // song song với kênh RTDB real-time (đang phát tin nhắn mới vào đúng
+      // cùng key localStorage này ở Support.jsx khi hydrate thiết bị mới),
+      // ghi đè thẳng có thể xoá mất tin nhắn RTDB vừa đưa vào.
+      try {
+        const raw = localStorage.getItem("base44_entity_Message");
+        const local = raw ? JSON.parse(raw) : [];
+        const merged = new Map(local.map((m) => [m.id, m]));
+        msgs.value.forEach((m) => merged.set(m.id, { ...(merged.get(m.id) || {}), ...m }));
+        localStorage.setItem("base44_entity_Message", JSON.stringify(Array.from(merged.values())));
+      } catch (e) {
+        localStorage.setItem("base44_entity_Message", JSON.stringify(msgs.value));
+      }
       localStorage.setItem("vinclub_msg_update", Date.now().toString());
     }
     if (notifs.status === "fulfilled" && Array.isArray(notifs.value)) {
