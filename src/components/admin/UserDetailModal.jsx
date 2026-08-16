@@ -13,13 +13,21 @@ import {
   Unlock,
   Check,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Calendar,
+  Phone,
+  Mail,
+  KeyRound,
+  Tag,
+  Smartphone,
+  CreditCard,
+  Edit3
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { getFreshUserBalance } from "@/lib/balanceSync";
-import { deleteSupabaseUser } from "@/lib/supabaseDb";
-import { deleteUserFromRTDB } from "@/lib/rtdbSync";
+import { getFreshUserBalance, updateUserBalance } from "@/lib/balanceSync";
+import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
+import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -34,8 +42,13 @@ const TIER_COLORS = {
 
 export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const { user: currentAdmin } = useAuth();
-  const isSuperAdmin = !!currentAdmin?.is_super_admin || currentAdmin?.role === "admin" || currentAdmin?.email === "nclong1976@gmail.com" || currentAdmin?.username === "nclong";
-  const [activeTab, setActiveTab] = useState("overview"); // "overview" | "banks" | "wallet" | "contracts"
+  const isSuperAdmin =
+    !!currentAdmin?.is_super_admin ||
+    currentAdmin?.role === "admin" ||
+    currentAdmin?.email === "nclong1976@gmail.com" ||
+    currentAdmin?.username === "nclong";
+
+  const [activeTab, setActiveTab] = useState("overview"); // "overview" | "registration" | "banks" | "wallet" | "contracts"
   const [bankAccounts, setBankAccounts] = useState([]);
   const [walletTxs, setWalletTxs] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -44,18 +57,37 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   // Editable user fields
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [role, setRole] = useState("user");
   const [tier, setTier] = useState("Member");
+  const [vipLevel, setVipLevel] = useState("VIP 0");
+  const [balance, setBalance] = useState(0);
+  const [totalDeposited, setTotalDeposited] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
+
+  // Editable Bank Info
+  const [bankName, setBankName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountHolder, setAccountHolder] = useState("");
+
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open && user) {
       setFullName(user.full_name || user.name || "");
       setPhone(user.phone || "");
+      setIdentifier(user.identifier || user.username || user.phone || user.email || "");
+      setReferralCode(user.referral_code || "");
       setRole(user.role || "user");
       setTier(user.membership_tier || "Member");
+      setVipLevel(user.vip_level || "VIP 0");
+      setBalance(Number(user.balance || 0));
+      setTotalDeposited(Number(user.total_deposited || 0));
       setIsLocked(!!user.is_locked);
+      setBankName(user.bank_name || "");
+      setAccountNumber(user.account_number || "");
+      setAccountHolder(user.account_holder || user.full_name || user.name || "");
       setActiveTab("overview");
 
       setLoading(true);
@@ -65,8 +97,8 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
             $or: [
               { user_id: user.id },
               { created_by_id: user.id },
-              { user_email: user.email }
-            ]
+              { user_email: user.email },
+            ],
           }).catch(() => []),
           base44.entities.WalletTransaction.filter({ user_id: user.id }, "-created_date", 100).catch(() => []),
           base44.entities.Transaction.filter({ user_id: user.id }, "-created_date", 100).catch(() => []),
@@ -76,18 +108,35 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
             if (finalBanks.length === 0 && Array.isArray(user.bank_accounts) && user.bank_accounts.length > 0) {
               finalBanks = user.bank_accounts;
             } else if (finalBanks.length === 0 && user.bank_name && user.account_number) {
-              finalBanks = [{
-                id: 'user_bank_' + user.id,
-                bank_name: user.bank_name,
-                bank_code: user.bank_code || 'BK',
-                account_number: user.account_number,
-                account_holder: user.account_holder || user.full_name || user.name,
-                is_default: true
-              }];
+              finalBanks = [
+                {
+                  id: "user_bank_" + user.id,
+                  bank_name: user.bank_name,
+                  bank_code: user.bank_code || "BK",
+                  account_number: user.account_number,
+                  account_holder: user.account_holder || user.full_name || user.name,
+                  is_default: true,
+                },
+              ];
             }
             setBankAccounts(finalBanks);
             setWalletTxs(txs);
             setContracts(ctrs);
+
+            // Ground truth check for balance from transactions
+            const depSum = (txs || [])
+              .filter((t) => t.type === "deposit" && t.status === "completed")
+              .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            const withSum = (txs || [])
+              .filter((t) => t.type === "withdraw" && t.status === "completed")
+              .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            const netTx = Math.max(0, depSum - withSum);
+            if (netTx > Number(user.balance || 0)) {
+              setBalance(netTx);
+            }
+            if (depSum > Number(user.total_deposited || 0)) {
+              setTotalDeposited(depSum);
+            }
           })
           .finally(() => setLoading(false));
       };
@@ -107,37 +156,49 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
   if (!open || !user) return null;
 
-  // Wallet Balance (Sử dụng trực tiếp số dư thực tế của User để đồng bộ 100% với danh sách và ví)
-  const totalBalance = (user.balance !== undefined && user.balance !== null)
-    ? Number(user.balance)
-    : (getFreshUserBalance(user.id) || (walletTxs.length > 0
-        ? walletTxs.reduce((acc, t) => acc + (t.type === "deposit" ? t.amount : -t.amount), 0)
-        : 0));
-
-  // Total Investment
   const totalInvested = contracts.reduce((acc, c) => acc + (c.amount || 0), 0);
 
   const handleSaveUser = async () => {
     setSaving(true);
     try {
-      await base44.entities.User.update(user.id, {
+      const updatedPayload = {
+        ...user,
         full_name: fullName,
+        name: fullName,
         phone: phone,
+        identifier: identifier,
+        referral_code: referralCode,
         role: role,
         membership_tier: tier,
+        vip_level: vipLevel,
+        balance: Number(balance || 0),
+        total_deposited: Number(totalDeposited || 0),
         is_locked: isLocked,
-      });
+        bank_name: bankName,
+        account_number: accountNumber,
+        account_holder: accountHolder,
+      };
+
+      // 1. Update in Local Storage & Base44 entity
+      await base44.entities.User.update(user.id, updatedPayload).catch(() => {});
+      updateUserBalance(user.id, Number(balance || 0), Number(totalDeposited || 0));
+
+      // 2. Update Supabase PostgreSQL DB
+      await upsertSupabaseUser(updatedPayload).catch(() => {});
+
+      // 3. Push to Firebase RTDB
+      await pushUserToRTDB(updatedPayload).catch(() => {});
 
       // Create Audit Log
       await base44.entities.AuditLog.create({
-        action: "UPDATE_USER_PROFILE",
+        action: "UPDATE_USER_FULL_PROFILE",
         user_id: user.id,
         user_name: fullName || user.email,
-        notes: `Cập nhật vai trò: ${role.toUpperCase()}, Hạng: ${tier}, Trạng thái: ${isLocked ? "Đã khóa" : "Hoạt động"}`,
+        notes: `Admin cập nhật: Vai trò: ${role.toUpperCase()}, Số dư: ${fmt(balance)} VNĐ, Hạng: ${tier}, SĐT: ${phone}`,
         created_date: new Date().toISOString(),
-      });
+      }).catch(() => {});
 
-      toast.success("Đã cập nhật thông tin hội viên thành công!");
+      toast.success("Đã lưu và đồng bộ toàn bộ thông tin hội viên lên hệ thống!");
       if (onRefresh) onRefresh();
       onClose();
     } catch (e) {
@@ -151,9 +212,12 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
     const nextLocked = !isLocked;
     setIsLocked(nextLocked);
     try {
-      await base44.entities.User.update(user.id, {
-        is_locked: nextLocked,
-      });
+      const updated = { ...user, is_locked: nextLocked };
+      await Promise.allSettled([
+        base44.entities.User.update(user.id, { is_locked: nextLocked }),
+        upsertSupabaseUser(updated),
+        pushUserToRTDB(updated),
+      ]);
 
       await base44.entities.AuditLog.create({
         action: nextLocked ? "LOCK_USER" : "UNLOCK_USER",
@@ -189,11 +253,11 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
         base44.entities.User.delete(user.id),
       ]);
 
-      const rawReg = localStorage.getItem('base44_registered_users');
+      const rawReg = localStorage.getItem("base44_registered_users");
       if (rawReg) {
         try {
           const regUsers = JSON.parse(rawReg).filter((x) => x.id !== user.id && x.email !== user.email);
-          localStorage.setItem('base44_registered_users', JSON.stringify(regUsers));
+          localStorage.setItem("base44_registered_users", JSON.stringify(regUsers));
         } catch (e) {}
       }
 
@@ -229,12 +293,12 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
           animate={{ scale: 1, y: 0 }}
           exit={{ scale: 0.95, y: 15 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-[480px] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+          className="w-full max-w-[520px] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
         >
           {/* Header */}
           <div className="bg-gradient-to-r from-[#17130e] via-[#2a2216] to-[#17130e] text-white p-4 flex items-center justify-between border-b border-[#948154]/30 shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#948154] to-[#6b5e3e] border border-[#948154]/50 text-white font-black text-[15px] flex items-center justify-center shadow-md">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#948154] to-[#6b5e3e] border border-[#948154]/50 text-white font-black text-[16px] flex items-center justify-center shadow-md">
                 {(fullName || user.email || "U").charAt(0).toUpperCase()}
               </div>
               <div>
@@ -246,22 +310,23 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                     {tier}
                   </span>
                 </div>
-                <p className="text-[10px] text-gray-300 font-mono">ID: {user.id}</p>
+                <p className="text-[10px] text-gray-300 font-mono">ID: {user.id?.slice(-12) || "N/A"}</p>
               </div>
             </div>
 
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white flex items-center justify-center"
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white flex items-center justify-center cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Tab Navigation */}
-          <div className="flex border-b border-gray-100 bg-gray-50/50 p-1.5 gap-1 shrink-0">
+          <div className="flex border-b border-gray-100 bg-gray-50/50 p-1.5 gap-1 shrink-0 overflow-x-auto">
             {[
-              { id: "overview", label: "Tổng quan & Quyền", icon: User },
+              { id: "overview", label: "Tổng quan & Sửa", icon: User },
+              { id: "registration", label: "Hồ sơ Đăng ký", icon: KeyRound },
               { id: "banks", label: `Ngân hàng (${bankAccounts.length})`, icon: Building2 },
               { id: "wallet", label: `Lịch sử Ví (${walletTxs.length})`, icon: Wallet },
               { id: "contracts", label: `Hợp đồng (${contracts.length})`, icon: FileCheck },
@@ -269,7 +334,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
-                className={`flex-1 py-2 rounded-xl text-[10.5px] font-bold flex items-center justify-center gap-1 transition-all ${
+                className={`py-2 px-2.5 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1 whitespace-nowrap transition-all cursor-pointer ${
                   activeTab === t.id
                     ? "bg-[#948154] text-white shadow-xs"
                     : "text-gray-500 hover:bg-gray-100"
@@ -283,25 +348,27 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
           {/* Modal Content */}
           <div className="p-4 overflow-y-auto flex-1 space-y-4">
-            {/* TAB 1: OVERVIEW & RBAC */}
+            {/* TAB 1: OVERVIEW & EDIT */}
             {activeTab === "overview" && (
               <div className="space-y-4">
                 {/* Balance & Investment Summary Cards */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-amber-500/10 rounded-2xl p-3 border border-amber-500/20">
                     <p className="text-[9.5px] text-amber-800 font-bold">Số dư ví khả dụng</p>
-                    <p className="text-[16px] font-black text-[#948154]">{fmt(totalBalance)} VNĐ</p>
+                    <p className="text-[17px] font-black text-[#948154]">{fmt(balance)} VNĐ</p>
                   </div>
                   <div className="bg-blue-500/10 rounded-2xl p-3 border border-blue-500/20">
                     <p className="text-[9.5px] text-blue-800 font-bold">Tổng tài sản đầu tư</p>
-                    <p className="text-[16px] font-black text-blue-900">{fmt(totalInvested)} VNĐ</p>
+                    <p className="text-[17px] font-black text-blue-900">{fmt(totalInvested)} VNĐ</p>
                   </div>
                 </div>
 
                 {/* Account Status Lock Banner */}
-                <div className={`p-3 rounded-2xl border flex items-center justify-between ${
-                  isLocked ? "bg-red-50 border-red-200 text-red-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"
-                }`}>
+                <div
+                  className={`p-3 rounded-2xl border flex items-center justify-between ${
+                    isLocked ? "bg-red-50 border-red-200 text-red-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     {isLocked ? (
                       <ShieldAlert className="w-5 h-5 text-red-600 shrink-0" />
@@ -320,7 +387,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   <button
                     type="button"
                     onClick={toggleLockUser}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold shadow-2xs flex items-center gap-1 ${
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold shadow-2xs flex items-center gap-1 cursor-pointer ${
                       isLocked ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-red-600 hover:bg-red-700 text-white"
                     }`}
                   >
@@ -329,10 +396,10 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   </button>
                 </div>
 
-                {/* Form Fields */}
+                {/* Form Fields: Quick Edit */}
                 <div className="space-y-3 bg-gray-50 rounded-2xl p-3.5 border border-gray-200/80">
                   <h3 className="text-[12px] font-extrabold text-black flex items-center gap-1">
-                    <User className="w-3.5 h-3.5 text-[#948154]" /> Hiệu chỉnh thông tin & Phân quyền
+                    <Edit3 className="w-3.5 h-3.5 text-[#948154]" /> Hiệu chỉnh Thông tin, Số dư & Quyền
                   </h3>
 
                   <div>
@@ -368,16 +435,39 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                     </div>
                   </div>
 
+                  {/* Financial Balance Modification */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-[#948154] block mb-1">Số dư khả dụng (VNĐ)</label>
+                      <input
+                        type="number"
+                        value={balance}
+                        onChange={(e) => setBalance(Number(e.target.value) || 0)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-[#948154]/40 text-[12px] font-bold text-[#948154] focus:outline-none focus:border-[#948154]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-600 block mb-1">Tổng tiền đã nạp (VNĐ)</label>
+                      <input
+                        type="number"
+                        value={totalDeposited}
+                        onChange={(e) => setTotalDeposited(Number(e.target.value) || 0)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[12px] font-bold text-gray-800 focus:outline-none focus:border-[#948154]"
+                      />
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     {/* Role Access */}
                     <div>
-                      <label className="text-[10px] font-bold text-gray-600 block mb-1">Vai trò hệ thống (Role)</label>
+                      <label className="text-[10px] font-bold text-gray-600 block mb-1">Vai trò hệ thống</label>
                       <select
                         value={role}
                         onChange={(e) => setRole(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[11.5px] font-bold focus:outline-none focus:border-[#948154]"
                       >
-                        <option value="user">User (Thành viên VIP)</option>
+                        <option value="user">User (Thành viên)</option>
                         <option value="admin">Admin (Quản trị viên)</option>
                       </select>
                     </div>
@@ -407,7 +497,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   disabled={saving}
                   className="w-full py-3 rounded-2xl bg-[#948154] text-white text-[12px] font-bold shadow-md hover:bg-[#837045] active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <Check className="w-4 h-4" /> Lưu thông tin & Phân quyền
+                  <Check className="w-4 h-4" /> Lưu & Đồng bộ Toàn diện
                 </button>
 
                 {isSuperAdmin && (
@@ -423,7 +513,62 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
               </div>
             )}
 
-            {/* TAB 2: LINKED BANK ACCOUNTS */}
+            {/* TAB 2: FULL REGISTRATION DOSSIER */}
+            {activeTab === "registration" && (
+              <div className="space-y-3">
+                <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
+                  <KeyRound className="w-4 h-4 text-[#948154]" /> Toàn bộ Thông tin Đăng ký & Định danh
+                </h3>
+
+                <div className="bg-gray-50 rounded-2xl p-3.5 border border-gray-200 space-y-3 text-[11.5px]">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><User className="w-3.5 h-3.5" /> Họ và tên</span>
+                    <span className="font-bold text-black">{fullName || user.full_name || user.name || "—"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> Email đăng nhập</span>
+                    <span className="font-mono font-semibold text-black">{user.email || "—"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> Số điện thoại</span>
+                    <span className="font-mono font-semibold text-black">{user.phone || phone || "Chưa cập nhật"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Tên định danh (Identifier)</span>
+                    <span className="font-mono font-semibold text-black">{user.identifier || identifier || user.email}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Crown className="w-3.5 h-3.5 text-amber-500" /> Mã giới thiệu</span>
+                    <span className="font-mono font-bold text-[#948154]">{user.referral_code || referralCode || "Không có"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Ngày đăng ký</span>
+                    <span className="font-semibold text-gray-700">
+                      {user.created_at || user.created_date ? new Date(user.created_at || user.created_date).toLocaleString("vi-VN") : "Hệ thống ban đầu"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Smartphone className="w-3.5 h-3.5" /> Hoạt động / Đồng bộ gần nhất</span>
+                    <span className="font-semibold text-emerald-700">
+                      {user.last_active || user.last_synced_device_at ? new Date(user.last_active || user.last_synced_device_at).toLocaleString("vi-VN") : "Vừa xong"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500 flex items-center gap-1"><KeyRound className="w-3.5 h-3.5" /> Mã định danh Database (ID)</span>
+                    <span className="font-mono text-[10px] text-gray-600">{user.id}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: LINKED BANK ACCOUNTS */}
             {activeTab === "banks" && (
               <div className="space-y-3">
                 <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
@@ -448,13 +593,9 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                             </span>
                           )}
                         </div>
-                        <div className="flex justify-between text-black">
-                          <span className="text-gray-500">Số tài khoản:</span>
-                          <span className="font-mono font-bold">{b.account_number}</span>
-                        </div>
-                        <div className="flex justify-between text-black">
-                          <span className="text-gray-500">Chủ tài khoản:</span>
-                          <span className="font-bold uppercase">{b.account_holder}</span>
+                        <div className="flex items-center justify-between text-gray-700">
+                          <span className="font-mono font-bold text-[12px]">{b.account_number}</span>
+                          <span className="font-semibold uppercase">{b.account_holder}</span>
                         </div>
                       </div>
                     ))}
@@ -463,32 +604,53 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
               </div>
             )}
 
-            {/* TAB 3: WALLET HISTORY */}
+            {/* TAB 4: WALLET TRANSACTIONS */}
             {activeTab === "wallet" && (
               <div className="space-y-3">
                 <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
-                  <History className="w-4 h-4 text-[#948154]" /> Lịch sử Giao dịch Ví gần đây
+                  <Wallet className="w-4 h-4 text-[#948154]" /> Lịch sử Nạp & Rút Tiền ({walletTxs.length})
                 </h3>
 
                 {loading ? (
                   <p className="text-[11px] text-gray-400 text-center py-4">Đang tải lịch sử ví...</p>
                 ) : walletTxs.length === 0 ? (
                   <div className="p-6 text-center text-gray-400 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-[11px]">
-                    Chưa có giao dịch ví nào được thực hiện.
+                    Chưa có giao dịch nạp hoặc rút tiền nào.
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {walletTxs.map((t) => (
-                      <div key={t.id} className="p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-[10.5px] flex items-center justify-between">
-                        <div>
-                          <p className="font-bold text-black">{t.description || "Giao dịch ví"}</p>
-                          <p className="text-[9px] text-gray-400 font-mono">
-                            {t.created_date ? new Date(t.created_date).toLocaleString("vi-VN") : "—"}
-                          </p>
+                  <div className="space-y-2">
+                    {walletTxs.map((tx) => (
+                      <div key={tx.id} className="p-3 bg-white rounded-2xl border border-gray-200 shadow-2xs space-y-1 text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-[10px] text-gray-400">{tx.code || tx.id?.slice(-8)}</span>
+                          <span
+                            className={`px-2 py-0.2 rounded-full text-[8.5px] font-bold ${
+                              tx.status === "completed"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : tx.status === "rejected"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-amber-100 text-amber-800"
+                            }`}
+                          >
+                            {tx.status === "completed" ? "Đã duyệt" : tx.status === "rejected" ? "Từ chối" : "Chờ duyệt"}
+                          </span>
                         </div>
-                        <span className={`font-black text-[12px] ${t.type === "deposit" ? "text-emerald-600" : "text-orange-600"}`}>
-                          {t.type === "deposit" ? "+" : "-"}{fmt(t.amount)} VNĐ
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-gray-800">
+                            {tx.type === "deposit" ? "Nạp tiền" : "Rút tiền"}
+                          </span>
+                          <span
+                            className={`font-black text-[13px] ${
+                              tx.type === "deposit" ? "text-emerald-600" : "text-red-600"
+                            }`}
+                          >
+                            {tx.type === "deposit" ? "+" : "-"}
+                            {fmt(tx.amount)} VNĐ
+                          </span>
+                        </div>
+                        <p className="text-[9.5px] text-gray-400">
+                          {tx.created_date ? new Date(tx.created_date).toLocaleString("vi-VN") : "—"}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -496,30 +658,30 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
               </div>
             )}
 
-            {/* TAB 4: INVESTMENT CONTRACTS */}
+            {/* TAB 5: CONTRACTS */}
             {activeTab === "contracts" && (
               <div className="space-y-3">
                 <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
-                  <FileCheck className="w-4 h-4 text-[#948154]" /> Danh mục Hợp đồng Đầu tư ({contracts.length})
+                  <FileCheck className="w-4 h-4 text-[#948154]" /> Hợp đồng Đầu tư ({contracts.length})
                 </h3>
 
                 {loading ? (
                   <p className="text-[11px] text-gray-400 text-center py-4">Đang tải hợp đồng...</p>
                 ) : contracts.length === 0 ? (
                   <div className="p-6 text-center text-gray-400 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-[11px]">
-                    Người dùng chưa sở hữu hợp đồng đầu tư nào.
+                    Chưa có hợp đồng đầu tư nào.
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  <div className="space-y-2">
                     {contracts.map((c) => (
-                      <div key={c.id} className="p-3 bg-white rounded-2xl border border-gray-200 text-[11px] space-y-1">
-                        <div className="flex justify-between font-bold text-black">
-                          <span>{c.project_name || "Dự án đầu tư VinClub"}</span>
-                          <span className="text-emerald-600 font-black">{fmt(c.amount)} VNĐ</span>
+                      <div key={c.id} className="p-3 bg-white rounded-2xl border border-gray-200 shadow-2xs space-y-1 text-[11px]">
+                        <div className="flex items-center justify-between font-bold text-black">
+                          <span>{c.project_title || "Dự án đầu tư"}</span>
+                          <span className="text-[#948154] font-black">{fmt(c.amount)} VNĐ</span>
                         </div>
-                        <div className="flex justify-between text-[9.5px] text-gray-500">
-                          <span>Trạng thái: <strong className="text-black uppercase">{c.contract_status || c.status || "Hoạt động"}</strong></span>
-                          <span>Ngày tạo: {c.created_date ? new Date(c.created_date).toLocaleDateString("vi-VN") : "—"}</span>
+                        <div className="flex items-center justify-between text-[9.5px] text-gray-500">
+                          <span>Lợi nhuận: +{fmt(c.profit || 0)} VNĐ</span>
+                          <span>{c.created_date ? new Date(c.created_date).toLocaleString("vi-VN") : "—"}</span>
                         </div>
                       </div>
                     ))}

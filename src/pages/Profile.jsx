@@ -105,6 +105,21 @@ export default function Profile() {
     setSigs(s);
     setBanks(finalBanks || []);
     setLoading(false);
+
+    // Auto-heal balance if completed deposits exceed current cached balance
+    const depSum = (wt || [])
+      .filter((tx) => tx.type === "deposit" && tx.status === "completed")
+      .reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
+    const withSum = (wt || [])
+      .filter((tx) => tx.type === "withdraw" && tx.status === "completed")
+      .reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
+    const netCalculated = Math.max(0, depSum - withSum);
+
+    if (netCalculated > Number(me.balance || 0)) {
+      import("@/lib/balanceSync").then(({ updateUserBalance }) => {
+        updateUserBalance(me.id, netCalculated, depSum);
+      });
+    }
   };
 
   const location = useLocation();
@@ -126,9 +141,7 @@ export default function Profile() {
     window.addEventListener("vinclub:bank_updated", handleDataUpdate);
 
     // Đăng ký realtime cho lịch sử giao dịch: khi Admin duyệt/từ chối một
-    // lệnh rút, Firestore đẩy cập nhật về và gọi notifySubscribers() ở đây -
-    // trước đây trang này chỉ tải lại khi số dư đổi, nên riêng hành động
-    // "Phê duyệt" (không đổi số dư) không bao giờ cập nhật màn hình người dùng.
+    // lệnh rút, Firestore đẩy cập nhật về và gọi notifySubscribers() ở đây
     const unsubWalletTx = base44.entities.WalletTransaction.subscribe(() => fetchData());
 
     return () => {
@@ -138,12 +151,17 @@ export default function Profile() {
     };
   }, [user, location.search]);
 
-  const currentBalance = Number(user?.balance || 0);
-
   const depositSumFromTxs = walletTxs
     .filter((t) => t.type === "deposit" && t.status === "completed")
-    .reduce((s, t) => s + (t.amount || 0), 0);
-  const totalDepositSum = (Number(user?.total_deposited) || 0) + depositSumFromTxs;
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const withdrawSumFromTxs = walletTxs
+    .filter((t) => t.type === "withdraw" && t.status === "completed")
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+  const netCalculatedBalance = Math.max(0, depositSumFromTxs - withdrawSumFromTxs);
+  const currentBalance = Math.max(Number(user?.balance || 0), netCalculatedBalance);
+
+  const totalDepositSum = Math.max(Number(user?.total_deposited || 0), depositSumFromTxs);
   const userTier = getCardTierInfo(totalDepositSum);
 
   const totalInvested = txs.reduce((s, t) => s + (t.amount || 0), 0);
