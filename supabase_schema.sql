@@ -119,6 +119,18 @@ ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS text TEXT DEFAULT '';
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+-- Ứng dụng thực tế dùng content/attachments/conversation_id (không phải
+-- text/images) cho tin nhắn CSKH - bổ sung để khớp đúng field app đang ghi.
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS conversation_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON public.messages(conversation_id);
+-- Cột "extra" hứng mọi field phụ mà app gửi lên nhưng chưa có cột riêng,
+-- để việc ghi xuống Postgres không bao giờ lỗi "column does not exist"
+-- khi code phía client thêm field mới trong tương lai.
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
 
 -- 5. BẢNG INVESTMENT_PROJECTS
 CREATE TABLE IF NOT EXISTS public.investment_projects (
@@ -160,6 +172,115 @@ ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS is_active BOOLEA
 ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
 ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
 
+-- 6. BẢNG BANK_ACCOUNTS (tài khoản ngân hàng đã liên kết của hội viên)
+CREATE TABLE IF NOT EXISTS public.bank_accounts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  bank_name TEXT DEFAULT '',
+  bank_code TEXT DEFAULT '',
+  account_number TEXT DEFAULT '',
+  account_holder TEXT DEFAULT '',
+  is_default BOOLEAN DEFAULT FALSE,
+  created_date TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS bank_name TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS bank_code TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS account_number TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- 7. BẢNG SIGNATURES (chữ ký điện tử dùng để ký hợp đồng đầu tư)
+CREATE TABLE IF NOT EXISTS public.signatures (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  type TEXT DEFAULT 'draw',
+  content TEXT DEFAULT '',
+  label TEXT DEFAULT '',
+  created_date TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'draw';
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS label TEXT DEFAULT '';
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- 8. BẢNG TRANSACTIONS (hợp đồng đầu tư - dự án, chứng khoán, đất nền...
+-- khác với wallet_transactions vốn chỉ dùng cho lệnh nạp/rút ví)
+CREATE TABLE IF NOT EXISTS public.transactions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  user_email TEXT DEFAULT '',
+  user_name TEXT DEFAULT '',
+  project_id TEXT,
+  project_name TEXT DEFAULT '',
+  project_title TEXT DEFAULT '',
+  category TEXT DEFAULT '',
+  amount NUMERIC DEFAULT 0,
+  shares NUMERIC,
+  method TEXT DEFAULT '',
+  rate NUMERIC,
+  duration_days NUMERIC,
+  profit NUMERIC DEFAULT 0,
+  total NUMERIC DEFAULT 0,
+  status TEXT DEFAULT 'completed',
+  payout_status TEXT,
+  contract_status TEXT DEFAULT 'pending',
+  signature_type TEXT,
+  signature_content TEXT,
+  note TEXT DEFAULT '',
+  created_date TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS project_id TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS project_name TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS project_title TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS category TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS shares NUMERIC;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS method TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS rate NUMERIC;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS duration_days NUMERIC;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS profit NUMERIC DEFAULT 0;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS total NUMERIC DEFAULT 0;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS payout_status TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS contract_status TEXT DEFAULT 'pending';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS signature_type TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS signature_content TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS note TEXT DEFAULT '';
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- 9. BẢNG AUDIT_LOGS (nhật ký thao tác Admin - phê duyệt/từ chối nạp rút,
+-- khóa/mở/xóa tài khoản...). Trước đây chỉ lưu localStorage nên biến mất
+-- hoàn toàn khi Admin xóa cache hoặc đổi thiết bị - mất dấu vết trách nhiệm.
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id TEXT PRIMARY KEY,
+  action TEXT DEFAULT '',
+  tx_code TEXT,
+  amount NUMERIC,
+  user_id TEXT,
+  user_name TEXT DEFAULT '',
+  admin_email TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_date TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS action TEXT DEFAULT '';
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS tx_code TEXT;
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS amount NUMERIC;
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT '';
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS admin_email TEXT DEFAULT '';
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
 -- ====================================================================
 -- CHỈ MỤC (INDEXES)
 -- ====================================================================
@@ -171,6 +292,12 @@ CREATE INDEX IF NOT EXISTS idx_wallet_tx_status ON public.wallet_transactions(st
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON public.wallet_transactions(created_date DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_user ON public.messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_bank_accounts_user ON public.bank_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_signatures_user ON public.signatures(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_user ON public.transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_created ON public.transactions(created_date DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON public.audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON public.audit_logs(created_date DESC);
 
 -- ====================================================================
 -- ROW LEVEL SECURITY (RLS) & POLICIES
@@ -180,6 +307,10 @@ ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.investment_projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bank_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.signatures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Public access users" ON public.users;
 CREATE POLICY "Public access users" ON public.users FOR ALL USING (true) WITH CHECK (true);
@@ -195,6 +326,18 @@ CREATE POLICY "Public access messages" ON public.messages FOR ALL USING (true) W
 
 DROP POLICY IF EXISTS "Public access investment_projects" ON public.investment_projects;
 CREATE POLICY "Public access investment_projects" ON public.investment_projects FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access bank_accounts" ON public.bank_accounts;
+CREATE POLICY "Public access bank_accounts" ON public.bank_accounts FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access signatures" ON public.signatures;
+CREATE POLICY "Public access signatures" ON public.signatures FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access transactions" ON public.transactions;
+CREATE POLICY "Public access transactions" ON public.transactions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access audit_logs" ON public.audit_logs;
+CREATE POLICY "Public access audit_logs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
 
 -- ====================================================================
 -- TRIGGER AUTH KHI CÓ USER MỚI ĐĂNG KÝ

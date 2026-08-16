@@ -1,11 +1,19 @@
 import { appParams } from '@/lib/app-params';
 import { pushUserToRTDB } from '@/lib/rtdbSync';
-import { 
-  upsertSupabaseUser, 
-  updateSupabaseUser, 
-  createSupabaseWalletTransaction, 
-  updateSupabaseWalletTransaction 
+import {
+  upsertSupabaseUser,
+  updateSupabaseUser,
+  createSupabaseWalletTransaction,
+  updateSupabaseWalletTransaction,
+  upsertSupabaseEntity,
+  deleteSupabaseEntity,
 } from '@/lib/supabaseDb';
+
+// Các entity được ghi write-through xuống Postgres (Supabase) như một lớp
+// lưu trữ bền vững bổ sung - xem chi tiết trong supabaseDb.js mục 4.
+const SUPABASE_BACKED_ENTITIES = new Set([
+  'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
+]);
 
 // LocalStorage fallback implementation
 const entityNames = [
@@ -535,6 +543,10 @@ class LocalEntityClient {
         });
       }
 
+      if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
+        upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
+      }
+
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
         pushEntityToFirestore(this.entityName, newItem.id, newItem, 'upsert');
       });
@@ -575,6 +587,10 @@ class LocalEntityClient {
           });
         }
 
+        if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
+          upsertSupabaseEntity(this.entityName, updated).catch(() => null);
+        }
+
         import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
           pushEntityToFirestore(this.entityName, id, updated, 'upsert');
         });
@@ -600,6 +616,9 @@ class LocalEntityClient {
         import('@/lib/rtdbSync').then(({ deleteMessageFromRTDB }) => {
           deleteMessageFromRTDB(id);
         });
+      }
+      if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
+        deleteSupabaseEntity(this.entityName, id).catch(() => null);
       }
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
         pushEntityToFirestore(this.entityName, id, {}, 'delete');

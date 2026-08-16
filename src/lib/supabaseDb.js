@@ -339,3 +339,128 @@ export function subscribeSupabaseWalletTransactionsTable(callback) {
     supabase.removeChannel(channel);
   };
 }
+
+// ==========================================
+// 4. WRITE-THROUGH BỀN VỮNG CHO CÁC THỰC THỂ CÒN LẠI
+// ==========================================
+// Message, Notification, Project, BankAccount, Signature, Transaction,
+// AuditLog trước đây chỉ tồn tại trong localStorage + Firebase (mất dữ
+// liệu vĩnh viễn nếu người dùng/Admin xóa cache trình duyệt hoặc đổi
+// thiết bị). Các hàm dưới đây ghi (write-through) mọi thay đổi của các
+// thực thể này xuống Postgres như một lớp lưu trữ bền vững bổ sung -
+// KHÔNG thay thế luồng đọc/localStorage/Firebase hiện có, chỉ cộng thêm
+// một bản sao đáng tin cậy ở phía sau. Lỗi ghi Supabase ở đây luôn được
+// nuốt (catch) và không bao giờ chặn luồng chính của ứng dụng.
+
+const ENTITY_TABLE_MAP = {
+  Message: 'messages',
+  Notification: 'notifications',
+  Project: 'investment_projects',
+  BankAccount: 'bank_accounts',
+  Signature: 'signatures',
+  Transaction: 'transactions',
+  AuditLog: 'audit_logs',
+};
+
+// Whitelist cột thật của từng bảng - field nào không nằm trong danh sách
+// này sẽ được gom vào cột JSONB "extra" thay vì làm hỏng câu lệnh upsert
+// với lỗi "column does not exist" khi phía client gửi field lạ/mới.
+const ENTITY_COLUMNS = {
+  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'is_read', 'created_date'],
+  Notification: ['id', 'user_id', 'title', 'content', 'image', 'type', 'is_read', 'created_date'],
+  Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'scale', 'is_active', 'description', 'created_date'],
+  BankAccount: ['id', 'user_id', 'bank_name', 'bank_code', 'account_number', 'account_holder', 'is_default', 'created_date'],
+  Signature: ['id', 'user_id', 'type', 'content', 'label', 'created_date'],
+  Transaction: ['id', 'user_id', 'user_email', 'user_name', 'project_id', 'project_name', 'project_title', 'category', 'amount', 'shares', 'method', 'rate', 'duration_days', 'profit', 'total', 'status', 'payout_status', 'contract_status', 'signature_type', 'signature_content', 'note', 'created_date'],
+  AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
+};
+
+/** Tách một object thành {cột thật theo whitelist..., extra: {phần còn lại}} */
+function shapeRowForTable(entityName, row) {
+  const columns = ENTITY_COLUMNS[entityName] || [];
+  const shaped = {};
+  const extra = {};
+  Object.entries(row || {}).forEach(([key, value]) => {
+    if (columns.includes(key)) shaped[key] = value;
+    else extra[key] = value;
+  });
+  if (Object.keys(extra).length > 0) shaped.extra = extra;
+  return shaped;
+}
+
+async function genericUpsertEntity(entityName, row) {
+  const table = ENTITY_TABLE_MAP[entityName];
+  if (!table || !row || !row.id) return null;
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .upsert(shapeRowForTable(entityName, row), { onConflict: 'id' })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.warn(`[SupabaseDb] upsert ${entityName} error:`, error.message);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn(`[SupabaseDb] upsert ${entityName} exception:`, e);
+    return null;
+  }
+}
+
+async function genericDeleteEntity(entityName, id) {
+  const table = ENTITY_TABLE_MAP[entityName];
+  if (!table || !id) return false;
+  try {
+    const { error } = await supabase.from(table).delete().eq('id', id);
+    if (error) {
+      console.warn(`[SupabaseDb] delete ${entityName} error:`, error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn(`[SupabaseDb] delete ${entityName} exception:`, e);
+    return false;
+  }
+}
+
+async function genericListEntity(entityName, filter = {}, sort = '-created_date', limit = 500) {
+  const table = ENTITY_TABLE_MAP[entityName];
+  if (!table) return [];
+  try {
+    let query = supabase.from(table).select('*');
+    Object.entries(filter || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) query = query.eq(key, value);
+    });
+    const isDesc = sort.startsWith('-');
+    const sortField = isDesc ? sort.slice(1) : sort;
+    query = query.order(sortField || 'created_date', { ascending: !isDesc });
+    if (limit) query = query.limit(limit);
+
+    const { data, error } = await query;
+    if (error) {
+      console.warn(`[SupabaseDb] list ${entityName} error:`, error.message);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.warn(`[SupabaseDb] list ${entityName} exception:`, e);
+    return [];
+  }
+}
+
+/** Ghi (tạo mới hoặc cập nhật) một bản ghi của entityName xuống Postgres. */
+export function upsertSupabaseEntity(entityName, row) {
+  return genericUpsertEntity(entityName, row);
+}
+
+/** Xóa một bản ghi của entityName khỏi Postgres. */
+export function deleteSupabaseEntity(entityName, id) {
+  return genericDeleteEntity(entityName, id);
+}
+
+/** Đọc danh sách bản ghi của entityName từ Postgres (dùng cho hydrate/khôi phục). */
+export function listSupabaseEntity(entityName, filter, sort, limit) {
+  return genericListEntity(entityName, filter, sort, limit);
+}
