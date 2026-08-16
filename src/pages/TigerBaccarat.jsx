@@ -797,11 +797,6 @@ export default function TigerBaccarat() {
         <div className="relative z-10 w-full max-w-5xl mx-auto px-4">
           <GameCountdownTimer
             phase={phase}
-            onTimeZero={() => {
-              if (phase === "waiting_timer") {
-                triggerDealAndReveal();
-              }
-            }}
             manualFastForward={triggerDealAndReveal}
             gameTitle={gameTitle}
           />
