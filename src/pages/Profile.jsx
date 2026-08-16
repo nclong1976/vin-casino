@@ -170,10 +170,20 @@ export default function Profile() {
   const displayName = user?.full_name || user?.name || user?.username || user?.email || "KHÁCH HÀNG";
   const avatarLetter = (displayName.trim().charAt(0) || "N").toUpperCase();
   const phoneOrEmail = user?.phone || user?.email || "Chưa cập nhật SĐT";
-  const memberId = user?.id ? user.id.slice(-8).toUpperCase() : "VINCLUB";
+  const emailLower = (user?.email || "").toLowerCase();
+  const isUserAdmin = Boolean(
+    user?.role === "admin" ||
+    user?.role === "ADMIN" ||
+    user?.is_super_admin ||
+    emailLower.includes("admin") ||
+    emailLower === "nclong1976@gmail.com" ||
+    emailLower === "leo1102@vinclub.com" ||
+    user?.username?.toLowerCase() === "nclong" ||
+    user?.username?.toLowerCase() === "admin"
+  );
 
   const settingsItems = [
-    ...(user?.role === "admin"
+    ...(isUserAdmin
       ? [{ icon: LayoutDashboard, label: "Bảng quản trị Admin", color: "text-[#948154]", link: "/admin" }]
       : []),
     { icon: Users, label: "Chuyển đổi tài khoản", color: "text-[#948154]", onClick: () => setShowAccountSwitcher(true) },
