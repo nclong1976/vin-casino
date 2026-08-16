@@ -447,6 +447,20 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         attachments,
       });
 
+      // Push instantly to Firebase RTDB for sub-second user delivery
+      try {
+        const { pushMessageToRTDB } = await import("@/lib/rtdbSync");
+        await pushMessageToRTDB({
+          ...created,
+          sender: "admin",
+          conversation_id: selectedUser,
+          user_id: selectedUser,
+          attachments,
+        });
+      } catch (pushErr) {
+        console.warn("[MessagesTab] RTDB push warning:", pushErr);
+      }
+
       // Replace optimistic with real
       setMessages((prev) =>
         prev.map((m) => (m.id === optimisticMsg.id ? { ...optimisticMsg, ...created, attachments } : m))

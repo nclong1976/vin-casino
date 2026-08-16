@@ -475,25 +475,34 @@ export async function pushGenericEntityToRTDB(entityName, id, data) {
 
   if (entityName === "Message") {
     await safeWriteRTDB(`messages/${id}`, payload, "set");
+    const convId = data.conversation_id || data.user_id;
+    if (convId) {
+      await safeWriteRTDB(`conversations/${convId}/${id}`, payload, "set");
+    }
   }
   return true;
 }
 
 export async function pushMessageToRTDB(msg) {
+  if (!msg || !msg.id) return false;
   return pushGenericEntityToRTDB("Message", msg.id, msg);
 }
 
 /**
- * Xóa 1 tin nhắn khỏi RTDB (cả 2 node entities/Message và messages legacy)
- * để việc xóa thực sự lan truyền tới mọi thiết bị khác đang subscribe, thay
- * vì chỉ biến mất trên máy admin đang bấm xóa.
+ * Xóa 1 tin nhắn khỏi RTDB (cả entities/Message, messages, và conversations)
  */
-export async function deleteMessageFromRTDB(id) {
+export async function deleteMessageFromRTDB(id, convId = null) {
   if (!id) return false;
   await firebaseAuthReady;
   try {
-    await remove(ref(rtdb, `entities/Message/${id}`));
-    await remove(ref(rtdb, `messages/${id}`));
+    const promises = [
+      remove(ref(rtdb, `entities/Message/${id}`)),
+      remove(ref(rtdb, `messages/${id}`)),
+    ];
+    if (convId) {
+      promises.push(remove(ref(rtdb, `conversations/${convId}/${id}`)));
+    }
+    await Promise.allSettled(promises);
     return true;
   } catch (e) {
     console.error("[RTDB] Failed to delete message:", e);
@@ -501,68 +510,86 @@ export async function deleteMessageFromRTDB(id) {
   }
 }
 
+/**
+ * Lắng nghe dòng tin nhắn thời gian thực của MỘT hội viên cụ thể (User flow: /support)
+ * Nhận tin nhắn từ Admin tức thì (< 50ms)
+ */
+export function subscribeConversationFromRTDB(userId, onMessagesReceived) {
+  if (!userId) return () => {};
+  return deferredSubscribe(() => {
+    const convRef = ref(rtdb, `conversations/${userId}`);
+    return onValue(convRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const msgList = data ? Object.values(data) : [];
+
+        // Save to local cache
+        try {
+          const raw = localStorage.getItem("base44_entity_Message");
+          let localMsgs = raw ? JSON.parse(raw) : [];
+          let modified = false;
+          msgList.forEach((m) => {
+            const idx = localMsgs.findIndex((lm) => lm.id === m.id);
+            if (idx === -1) {
+              localMsgs.push(m);
+              modified = true;
+            } else if (JSON.stringify(localMsgs[idx]) !== JSON.stringify(m)) {
+              localMsgs[idx] = m;
+              modified = true;
+            }
+          });
+          if (modified) {
+            localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
+            localStorage.setItem("vinclub_msg_update", Date.now().toString());
+          }
+        } catch (e) {}
+
+        if (typeof onMessagesReceived === "function") {
+          onMessagesReceived(msgList);
+        }
+      }
+    }, (err) => console.warn(`[RTDB Conv Sub ${userId}] Error:`, err));
+  });
+}
+
 export function subscribeMessagesFromRTDB(onMessagesReceived) {
   return deferredSubscribe(() => {
-  const messagesRef = ref(rtdb, "entities/Message");
-  const legacyMessagesRef = ref(rtdb, "messages");
+    const messagesRef = ref(rtdb, "entities/Message");
 
-  const notify = (msgMap, isEmpty = false) => {
-    if (!msgMap && !isEmpty) return;
-    const msgList = msgMap ? Object.values(msgMap) : [];
-    const remoteIds = new Set(msgList.map(m => m.id));
-    try {
-      const rawMsgs = localStorage.getItem("base44_entity_Message");
-      let localMsgs = rawMsgs ? JSON.parse(rawMsgs) : [];
-      let modified = false;
+    return onValue(messagesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const msgMap = snapshot.val();
+        const msgList = msgMap ? Object.values(msgMap) : [];
+        try {
+          const rawMsgs = localStorage.getItem("base44_entity_Message");
+          let localMsgs = rawMsgs ? JSON.parse(rawMsgs) : [];
+          let modified = false;
 
-      msgList.forEach(m => {
-        const idx = localMsgs.findIndex(lm => lm.id === m.id);
-        if (idx === -1) {
-          localMsgs.push(m);
-          modified = true;
-        } else {
-          if (JSON.stringify(localMsgs[idx]) !== JSON.stringify(m)) {
-            localMsgs[idx] = m;
-            modified = true;
+          msgList.forEach((m) => {
+            const idx = localMsgs.findIndex((lm) => lm.id === m.id);
+            if (idx === -1) {
+              localMsgs.push(m);
+              modified = true;
+            } else if (JSON.stringify(localMsgs[idx]) !== JSON.stringify(m)) {
+              localMsgs[idx] = m;
+              modified = true;
+            }
+          });
+
+          if (modified) {
+            localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
+            localStorage.setItem("vinclub_msg_update", Date.now().toString());
+            if (base44.entities.Message) {
+              base44.entities.Message.notifySubscribers();
+            }
           }
-        }
-      });
+        } catch (e) {}
 
-      // Loại bỏ tin nhắn đã bị admin xóa ở RTDB nhưng vẫn còn sót trong cache
-      // cục bộ của thiết bị này (trước đây notify() chỉ thêm/cập nhật, không
-      // bao giờ xóa, nên hành động xóa của admin không lan truyền được).
-      const prunedMsgs = localMsgs.filter(lm => remoteIds.has(lm.id));
-      if (prunedMsgs.length !== localMsgs.length) {
-        localMsgs = prunedMsgs;
-        modified = true;
-      }
-
-      if (modified) {
-        localStorage.setItem("base44_entity_Message", JSON.stringify(localMsgs));
-        localStorage.setItem("vinclub_msg_update", Date.now().toString());
-        if (base44.entities.Message) {
-          base44.entities.Message.notifySubscribers();
+        if (typeof onMessagesReceived === "function") {
+          onMessagesReceived(msgList);
         }
       }
-    } catch (e) {}
-
-    if (typeof onMessagesReceived === "function") {
-      onMessagesReceived(msgList);
-    }
-  };
-
-  const unsub1 = onValue(messagesRef, (snapshot) => {
-    notify(snapshot.exists() ? snapshot.val() : null, !snapshot.exists());
-  });
-
-  const unsub2 = onValue(legacyMessagesRef, (snapshot) => {
-    notify(snapshot.exists() ? snapshot.val() : null, !snapshot.exists());
-  });
-
-  return () => {
-    unsub1();
-    unsub2();
-  };
+    }, (err) => console.warn("[RTDB Messages Sub] Error:", err));
   });
 }
 

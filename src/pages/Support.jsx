@@ -72,18 +72,25 @@ export default function Support() {
 
     // 2. Real-time Subscription via Firebase Realtime Database
     let unsubRTDB;
-    import('@/lib/rtdbSync').then(({ subscribeMessagesFromRTDB }) => {
-      unsubRTDB = subscribeMessagesFromRTDB(() => {
-        loadMessages(user.id, user);
+    import("@/lib/rtdbSync").then(({ subscribeConversationFromRTDB }) => {
+      unsubRTDB = subscribeConversationFromRTDB(user.id, (rtdbMsgs) => {
+        if (Array.isArray(rtdbMsgs) && rtdbMsgs.length > 0) {
+          const sorted = [...rtdbMsgs].sort(
+            (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
+          );
+          setMessages(sorted);
+          setLoading(false);
+        } else {
+          loadMessages(user.id, user);
+        }
       });
     }).catch(() => null);
 
-    const unsub = base44.entities.Message.subscribe((event) => {
-      if (event.data?.conversation_id !== user.id && event.data?.user_id !== user.id) return;
+    const unsub = base44.entities.Message.subscribe(() => {
       loadMessages(user.id, user);
     });
 
-    // 3. Guaranteed Polling interval (Every 2s) for instant real-time sync
+    // 3. Polling fallback (Every 2s) for non-RTDB environments
     const pollInterval = setInterval(() => {
       loadMessages(user.id, user);
     }, 2000);
@@ -98,7 +105,7 @@ export default function Support() {
 
     return () => {
       if (typeof unsubRTDB === "function") unsubRTDB();
-      unsub();
+      if (typeof unsub === "function") unsub();
       clearInterval(pollInterval);
       window.removeEventListener("storage", handleStorageChange);
     };
