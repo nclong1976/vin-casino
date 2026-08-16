@@ -31,10 +31,32 @@ export function sanitizeDeviceCache(targetUserId = null) {
       if (!targetUserId || (parsed.id && parsed.id !== targetUserId && parsed.email !== targetUserId)) {
         console.log("[SyncEngine] 🧹 Dọn sạch cache phiên cũ trên thiết bị...");
         localStorage.removeItem("base44_local_user");
-        localStorage.removeItem("base44_entity_Message");
-        localStorage.removeItem("base44_entity_Transaction");
-        localStorage.removeItem("base44_entity_WalletTransaction");
-        localStorage.removeItem("base44_entity_Signature");
+
+        // Các cache dưới đây là DÙNG CHUNG cho toàn app (Admin cần duyệt lịch
+        // sử của MỌI người dùng từ chính các key này), KHÔNG phải cache riêng
+        // của 1 phiên đăng nhập - xoá sạch toàn bộ store sẽ làm "biến mất"
+        // dữ liệu của những người dùng KHÁC (không liên quan gì đến việc đổi
+        // tài khoản trên thiết bị này) cho đến khi RTDB merge lại, khiến admin
+        // tưởng nhầm là dữ liệu bị mất. Chỉ lọc bỏ đúng các bản ghi THUỘC VỀ
+        // người dùng cũ (người vừa đăng xuất/bị thay thế trên thiết bị này).
+        const prevId = parsed.id;
+        const prevEmail = parsed.email;
+        const belongsToPrevUser = (item) =>
+          !!item &&
+          ((prevId && (item.user_id === prevId || item.created_by_id === prevId || item.conversation_id === prevId)) ||
+            (prevEmail && (item.user_id === prevEmail || item.created_by_id === prevEmail)));
+
+        ["base44_entity_Message", "base44_entity_Transaction", "base44_entity_WalletTransaction", "base44_entity_Signature"].forEach(
+          (key) => {
+            try {
+              const raw = localStorage.getItem(key);
+              if (!raw) return;
+              const list = JSON.parse(raw);
+              if (!Array.isArray(list)) return;
+              localStorage.setItem(key, JSON.stringify(list.filter((item) => !belongsToPrevUser(item))));
+            } catch (e) {}
+          }
+        );
       }
     }
   } catch (e) {
