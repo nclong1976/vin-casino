@@ -570,36 +570,50 @@ class LocalEntityClient {
       }
       return i;
     });
+
+    // Bản ghi có thể không có trong cache cục bộ của THIẾT BỊ NÀY dù vẫn
+    // tồn tại thật trên Supabase/Firestore/RTDB (ví dụ: Admin duyệt một
+    // giao dịch mà Firestore listener của máy đó vừa lọc/ghi đè cache -
+    // xem firebaseSync.js). Trước đây update() im lặng bỏ qua toàn bộ đồng
+    // bộ trong trường hợp này: Admin thấy toast "thành công", tiền đã được
+    // cộng/trừ qua adjustUserBalance, nhưng trạng thái giao dịch không được
+    // ghi ở đâu cả. Vẫn đẩy đi một bản vá (partial patch) thay vì bỏ qua -
+    // các hàm upsert/merge phía dưới đều an toàn với dữ liệu thiếu field.
+    if (!updated) {
+      updated = { id, ...data };
+    }
     setLocalStore(this.entityName, items);
     this.notifySubscribers();
 
-    if (updated) {
-      try {
-        if (this.entityName === 'User') {
-          updateSupabaseUser(id, updated).catch(() => null);
-          import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
-            pushUserToRTDB(updated);
-          });
-        } else if (this.entityName === 'WalletTransaction') {
-          updateSupabaseWalletTransaction(id, updated).catch(() => null);
-          import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
-            pushWalletTransactionToRTDB(updated);
-          });
-        }
-
-        if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-          upsertSupabaseEntity(this.entityName, updated).catch(() => null);
-        }
-
-        import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
-          pushEntityToFirestore(this.entityName, id, updated, 'upsert');
+    try {
+      if (this.entityName === 'User') {
+        updateSupabaseUser(id, updated).catch(() => null);
+        import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
+          pushUserToRTDB(updated);
         });
-        import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
-          pushGenericEntityToRTDB(this.entityName, id, updated);
+      } else if (this.entityName === 'WalletTransaction') {
+        updateSupabaseWalletTransaction(id, updated).catch(() => null);
+        import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
+          pushWalletTransactionToRTDB(updated);
         });
-      } catch (e) {
-        console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (update):", e);
       }
+
+      if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
+        upsertSupabaseEntity(this.entityName, updated).catch(() => null);
+      }
+
+      import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
+        pushEntityToFirestore(this.entityName, id, updated, 'upsert');
+      });
+      import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
+        // "update" (merge), không phải "set": khi bản ghi không có trong
+        // cache cục bộ, `updated` chỉ có id + field vừa sửa - "set" sẽ xoá
+        // mọi field khác đang có trên RTDB. "update" an toàn trong cả 2
+        // trường hợp (đủ field hay chỉ vá thiếu).
+        pushGenericEntityToRTDB(this.entityName, id, updated, 'update');
+      });
+    } catch (e) {
+      console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (update):", e);
     }
 
     return updated;

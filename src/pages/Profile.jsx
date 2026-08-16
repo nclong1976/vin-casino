@@ -23,6 +23,26 @@ import SignatureList from "@/components/profile/SignatureList";
 import ProfitChart from "@/components/profile/ProfitChart";
 import AccountSwitcherModal from "@/components/profile/AccountSwitcherModal";
 
+// Mọi loại WalletTransaction từng ghi nhận trong app: "deposit" luôn là tiền
+// VÀO (nạp thật, thắng casino, thưởng vòng quay, lãi VIP, đáo hạn dự án).
+// "withdraw" (rút ví), "investment" (đầu tư dự án/chứng khoán) và
+// "withdrawal" (đặt cược casino) đều là tiền RA. Trạng thái đã chốt tiền là
+// "completed" (luồng cần Admin duyệt) HOẶC "approved" (luồng tự động tức
+// thì như casino/lãi suất) - "pending"/"rejected"/"failed" thì chưa/không
+// tính. Dùng chung 1 hàm để 2 chỗ tính (auto-heal + hiển thị) không lệch nhau.
+const SETTLED_WALLET_STATUSES = new Set(["completed", "approved"]);
+const OUTGOING_WALLET_TYPES = new Set(["withdraw", "investment", "withdrawal"]);
+
+function computeWalletNet(walletTxs) {
+  const depSum = (walletTxs || [])
+    .filter((tx) => tx.type === "deposit" && SETTLED_WALLET_STATUSES.has(tx.status))
+    .reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
+  const outSum = (walletTxs || [])
+    .filter((tx) => OUTGOING_WALLET_TYPES.has(tx.type) && SETTLED_WALLET_STATUSES.has(tx.status))
+    .reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
+  return { depSum, outSum, netCalculated: Math.max(0, depSum - outSum) };
+}
+
 export default function Profile() {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
@@ -106,14 +126,13 @@ export default function Profile() {
     setBanks(finalBanks || []);
     setLoading(false);
 
-    // Auto-heal balance if completed deposits exceed current cached balance
-    const depSum = (wt || [])
-      .filter((tx) => tx.type === "deposit" && tx.status === "completed")
-      .reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
-    const withSum = (wt || [])
-      .filter((tx) => tx.type === "withdraw" && tx.status === "completed")
-      .reduce((s, tx) => s + (Number(tx.amount) || 0), 0);
-    const netCalculated = Math.max(0, depSum - withSum);
+    // Auto-heal balance if ground-truth wallet history exceeds current cached
+    // balance. Must account for EVERY type that moves money, not just bank
+    // deposit/withdraw - otherwise this "heals" the balance right back up
+    // after a real deduction (casino bet, project/stock investment) that
+    // used type "investment"/"withdrawal" instead of "withdraw", handing the
+    // user free money. See computeWalletNet() below for the shared rule.
+    const { depSum, netCalculated } = computeWalletNet(wt);
 
     if (netCalculated > Number(me.balance || 0)) {
       import("@/lib/balanceSync").then(({ updateUserBalance }) => {
@@ -151,14 +170,7 @@ export default function Profile() {
     };
   }, [user, location.search]);
 
-  const depositSumFromTxs = walletTxs
-    .filter((t) => t.type === "deposit" && t.status === "completed")
-    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const withdrawSumFromTxs = walletTxs
-    .filter((t) => t.type === "withdraw" && t.status === "completed")
-    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-
-  const netCalculatedBalance = Math.max(0, depositSumFromTxs - withdrawSumFromTxs);
+  const { depSum: depositSumFromTxs, netCalculated: netCalculatedBalance } = computeWalletNet(walletTxs);
   const currentBalance = Math.max(Number(user?.balance || 0), netCalculatedBalance);
 
   const totalDepositSum = Math.max(Number(user?.total_deposited || 0), depositSumFromTxs);

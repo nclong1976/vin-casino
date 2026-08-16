@@ -25,6 +25,7 @@ import { getFreshUserBalance } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
+import BalanceAmount from "@/components/admin/BalanceAmount";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -59,6 +60,26 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
 
   const rtdbUsersRef = useRef([]);
   const isFetchingRef = useRef(false);
+  const txBalanceMapRef = useRef({});
+
+  // Dùng CHUNG cho cả fetchUsers (Supabase/local) lẫn callback RTDB bên dưới,
+  // để 2 luồng không "chốt" số dư theo 2 công thức khác nhau. Trước đây
+  // callback RTDB tin thẳng ru.balance bất kể giá trị đó mới hay cũ - RTDB
+  // có thể tạm thời chưa nhận kịp bản ghi mới nhất (đặc biệt ngay sau khi
+  // Admin vừa điều chỉnh ví), khiến số dư đang hiển thị đúng bị thay bằng 0
+  // hoặc số cũ trong vài giây trước khi RTDB bắt kịp. Lấy max qua mọi nguồn
+  // đã biết (kể cả tổng từ lịch sử WalletTransaction) loại bỏ hẳn kiểu giật
+  // lùi này.
+  const resolveBalance = useCallback((u, currentBal = 0) => {
+    const map = txBalanceMapRef.current;
+    const candidates = [
+      Number(u?.balance),
+      Number(map[u?.id]),
+      Number(map[u?.email]),
+      Number(currentBal),
+    ].filter((n) => typeof n === "number" && !isNaN(n));
+    return Math.max(0, ...candidates);
+  }, []);
 
   const fetchUsers = useCallback((isInitial = false) => {
     if (isFetchingRef.current && !isInitial) return;
@@ -95,15 +116,10 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
         if (rawReg) regUsers = JSON.parse(rawReg);
       } catch (e) {}
 
-      const resolveBalance = (u, currentBal = 0) => {
-        const candidates = [
-          Number(u?.balance),
-          Number(userTxBalanceMap[u?.id]),
-          Number(userTxBalanceMap[u?.email]),
-          Number(currentBal)
-        ].filter(n => typeof n === "number" && !isNaN(n));
-        return Math.max(0, ...candidates);
-      };
+      // Cập nhật map dùng chung TRƯỚC khi resolveBalance() gọi bên dưới, và
+      // để callback RTDB (ngoài effect) cũng thấy được ground-truth mới nhất
+      // từ lịch sử WalletTransaction thay vì chỉ có sẵn lúc component mount.
+      txBalanceMapRef.current = userTxBalanceMap;
 
       const mergedMap = {};
 
@@ -188,7 +204,12 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
                 mergedMap[k] = {
                   ...existing,
                   ...ru,
-                  balance: ru.balance !== undefined && ru.balance !== null ? Number(ru.balance) : Number(existing.balance ?? 0),
+                  // resolveBalance() thay vì tin thẳng ru.balance: RTDB có
+                  // thể tạm thời chưa nhận kịp bản ghi mới nhất (nhất là
+                  // ngay sau khi Admin vừa điều chỉnh ví), nên push RTDB
+                  // không được phép GHI ĐÈ một số dư đã biết là đúng bằng
+                  // một giá trị cũ/0 hơn.
+                  balance: resolveBalance(ru, existing.balance || 0),
                 };
               }
             });
@@ -499,9 +520,13 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
 
                 {/* Right Section: Balance & Quick Actions */}
                 <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100 shrink-0">
-                  <div className="text-left sm:text-right">
+                  <div className="text-left sm:text-right min-w-0 max-w-[140px] sm:max-w-[180px]">
                     <p className="text-[8.5px] text-gray-400 font-medium">Số dư khả dụng</p>
-                    <p className="text-[13px] font-black text-[#948154]">{fmt(userBal)} VNĐ</p>
+                    <BalanceAmount
+                      value={userBal}
+                      loading={loading}
+                      className="text-[13px] font-black text-[#948154] text-left sm:text-right"
+                    />
                   </div>
 
                   {/* Actions Buttons */}

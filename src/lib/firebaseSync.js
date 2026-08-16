@@ -113,38 +113,37 @@ export async function startFirebaseSync() {
       // Sắp xếp theo ngày tạo (mặc định) nếu có
       items.sort((a, b) => new Date(b.created_date || b.created_at || 0) - new Date(a.created_date || a.created_at || 0));
 
-      if (entityName === "Message") {
-        // Hợp nhất thay vì ghi đè toàn bộ cache cục bộ: write-through của
-        // Firestore và RTDB chạy song song không đồng bộ, nên một snapshot
-        // Firestore tới muộn hơn có thể tạm thời chưa thấy tin nhắn mà RTDB
-        // đã phát tức thì trước đó. Ghi đè thẳng sẽ xoá mất tin nhắn đó khỏi
-        // màn hình cho tới khi có thay đổi tiếp theo. RTDB vẫn là nguồn xử
-        // lý việc xoá tin nhắn (deleteMessageFromRTDB), nên gộp ở đây chỉ
-        // thêm/cập nhật, không xoá.
-        try {
-          const raw = localStorage.getItem(`base44_entity_${entityName}`);
-          const local = raw ? JSON.parse(raw) : [];
-          let modified = false;
-          items.forEach((it) => {
-            const idx = local.findIndex((l) => l.id === it.id);
-            if (idx === -1) {
-              local.push(it);
-              modified = true;
-            } else if (JSON.stringify(local[idx]) !== JSON.stringify(it)) {
-              local[idx] = { ...local[idx], ...it };
-              modified = true;
-            }
-          });
-          if (modified) {
-            localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(local));
+      // Hợp nhất thay vì ghi đè toàn bộ cache cục bộ cho MỌI thực thể ở đây
+      // (không chỉ riêng Message): write-through của Firestore và RTDB chạy
+      // song song không đồng bộ, nên một snapshot Firestore tới muộn hơn có
+      // thể tạm thời chưa thấy bản ghi mà RTDB đã phát tức thì trước đó -
+      // đặc biệt nghiêm trọng trên thiết bị Admin, nơi query Firestore chỉ
+      // trả về đúng bản ghi CỦA ADMIN (userId == admin), nên "ghi đè thẳng"
+      // sẽ xoá sạch mọi lệnh nạp/rút/hợp đồng đang chờ duyệt của TẤT CẢ hội
+      // viên khác khỏi cache cục bộ mà admin đang xem. RTDB vẫn là nguồn xử
+      // lý việc xoá bản ghi (deleteMessageFromRTDB cho Message; các entity
+      // khác hiện không có luồng xoá cứng), nên gộp ở đây chỉ thêm/cập nhật.
+      try {
+        const raw = localStorage.getItem(`base44_entity_${entityName}`);
+        const local = raw ? JSON.parse(raw) : [];
+        let modified = false;
+        items.forEach((it) => {
+          const idx = local.findIndex((l) => l.id === it.id);
+          if (idx === -1) {
+            local.push(it);
+            modified = true;
+          } else if (JSON.stringify(local[idx]) !== JSON.stringify(it)) {
+            local[idx] = { ...local[idx], ...it };
+            modified = true;
+          }
+        });
+        if (modified) {
+          localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(local));
+          if (entityName === "Message") {
             localStorage.setItem("vinclub_msg_update", Date.now().toString());
           }
-        } catch (e) {
-          localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(items));
         }
-      } else {
-        // Các thực thể khác giữ nguyên hành vi ghi đè (Firestore là nguồn
-        // duy nhất xử lý xoá cho các loại dữ liệu này).
+      } catch (e) {
         localStorage.setItem(`base44_entity_${entityName}`, JSON.stringify(items));
       }
 

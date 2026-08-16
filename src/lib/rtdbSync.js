@@ -464,20 +464,28 @@ export function subscribeNotificationsFromRTDB(onNotifsReceived) {
  * 7. Node: entities/{entityName}/{uid}
  * Lưu ngân hàng đã liên kết (BankAccount), hợp đồng chữ ký số (Signature) và tin nhắn hỗ trợ (Message).
  */
-export async function pushGenericEntityToRTDB(entityName, id, data) {
+/**
+ * @param {"set"|"update"} mode - "set" ghi đè toàn bộ node (dùng khi `data`
+ *   chắc chắn là bản ghi ĐẦY ĐỦ, ví dụ vừa tạo mới). "update" chỉ hợp nhất
+ *   các field có trong `data` vào node hiện có, không đụng tới field khác -
+ *   BẮT BUỘC dùng khi `data` có thể chỉ là bản vá THIẾU (ví dụ update() gọi
+ *   với 1 object không tìm thấy trong cache cục bộ của thiết bị này), nếu
+ *   không "set" sẽ xoá sạch mọi field khác đang có trên RTDB.
+ */
+export async function pushGenericEntityToRTDB(entityName, id, data, mode = "set") {
   if (!entityName || !id || !data) return;
   const payload = {
     ...data,
     synced_at: new Date().toISOString()
   };
 
-  await safeWriteRTDB(`entities/${entityName}/${id}`, payload, "set");
+  await safeWriteRTDB(`entities/${entityName}/${id}`, payload, mode);
 
   if (entityName === "Message") {
-    await safeWriteRTDB(`messages/${id}`, payload, "set");
+    await safeWriteRTDB(`messages/${id}`, payload, mode);
     const convId = data.conversation_id || data.user_id;
     if (convId) {
-      await safeWriteRTDB(`conversations/${convId}/${id}`, payload, "set");
+      await safeWriteRTDB(`conversations/${convId}/${id}`, payload, mode);
     }
   }
   return true;

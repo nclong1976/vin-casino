@@ -3,6 +3,7 @@ import { X, Plus, Minus, Wallet, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { adjustUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import BalanceAmount from "@/components/admin/BalanceAmount";
 import { toast } from "sonner";
 
 const QUICK = [100000, 500000, 1000000, 5000000, 10000000, 50000000];
@@ -121,13 +122,13 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
                   </p>
                   <p className="text-[10px] text-gray-400 truncate">{user.email}</p>
                 </div>
-                <div className="text-right">
+                <div className="text-right min-w-0 max-w-[130px] shrink-0">
                   {loadingBal ? (
-                    <Loader2 className="w-3.5 h-3.5 text-gray-300 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 text-gray-300 animate-spin ml-auto" />
                   ) : (
                     <>
                       <p className="text-[8px] text-gray-400">Số dư</p>
-                      <p className="text-[12px] font-bold text-[#948154]">{fmt(balance)}</p>
+                      <BalanceAmount value={balance} className="text-[12px] font-bold text-[#948154] text-right" />
                     </>
                   )}
                 </div>
