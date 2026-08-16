@@ -350,7 +350,7 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
             <span className="text-[10px] font-bold">Tổng số dư Ví</span>
             <Wallet className="w-4 h-4 text-amber-600" />
           </div>
-          <p className="text-[16px] font-black text-[#948154] truncate">{fmt(totalSystemBalance)} VNĐ</p>
+          <p className="text-[15px] sm:text-[16px] font-black text-[#948154] break-words leading-tight">{fmt(totalSystemBalance)} VNĐ</p>
           <p className="text-[9.5px] text-amber-700/60 font-medium">Toàn hệ thống</p>
         </div>
 

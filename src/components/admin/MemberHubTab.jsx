@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import UsersTab from "@/components/admin/UsersTab";
 import MessagesTab from "@/components/admin/MessagesTab";
 import TransactionsTab from "@/components/admin/TransactionsTab";
+import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import { base44 } from "@/api/base44Client";
 
 export default function MemberHubTab({ initialSubTab = "users" }) {
@@ -134,25 +135,27 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
 
       {/* ── SubTab Content Rendering ── */}
       <div>
-        {subTab === "users" && (
-          <UsersTab
-            onNavigateToChat={handleNavigateToChat}
-            onNavigateToTransactions={handleNavigateToTransactions}
-          />
-        )}
+        <AdminErrorBoundary resetKey={subTab}>
+          {subTab === "users" && (
+            <UsersTab
+              onNavigateToChat={handleNavigateToChat}
+              onNavigateToTransactions={handleNavigateToTransactions}
+            />
+          )}
 
-        {subTab === "messages" && (
-          <MessagesTab
-            initialSelectedUserId={chatTargetUserId}
-          />
-        )}
+          {subTab === "messages" && (
+            <MessagesTab
+              initialSelectedUserId={chatTargetUserId}
+            />
+          )}
 
-        {subTab === "transactions" && (
-          <TransactionsTab
-            initialSearchQuery={txSearchQuery}
-            onNavigateToChat={handleNavigateToChat}
-          />
-        )}
+          {subTab === "transactions" && (
+            <TransactionsTab
+              initialSearchQuery={txSearchQuery}
+              onNavigateToChat={handleNavigateToChat}
+            />
+          )}
+        </AdminErrorBoundary>
       </div>
     </div>
   );

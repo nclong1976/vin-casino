@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
+import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
 import ContractsTab from "@/components/admin/ContractsTab";
@@ -153,13 +154,15 @@ export default function Admin() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-4">
-        {tab === "overview" && <OverviewTab stats={stats} />}
-        {tab === "member_hub" && <MemberHubTab />}
-        {tab === "stocks" && <StocksTab />}
-        {tab === "casino" && <CasinoTab />}
-        {tab === "contracts" && <ContractsTab />}
-        {tab === "projects" && <ProjectsTab />}
-        {tab === "notifications" && <NotificationsTab />}
+        <AdminErrorBoundary resetKey={tab}>
+          {tab === "overview" && <OverviewTab stats={stats} />}
+          {tab === "member_hub" && <MemberHubTab />}
+          {tab === "stocks" && <StocksTab />}
+          {tab === "casino" && <CasinoTab />}
+          {tab === "contracts" && <ContractsTab />}
+          {tab === "projects" && <ProjectsTab />}
+          {tab === "notifications" && <NotificationsTab />}
+        </AdminErrorBoundary>
       </div>
     </div>
   );
