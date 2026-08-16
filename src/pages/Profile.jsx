@@ -302,7 +302,7 @@ export default function Profile() {
             </button>
           </div>
           {tab === "wallet" ? (
-            <WalletTransactionList items={walletTxs} loading={loading} />
+            <WalletTransactionList items={walletTxs} loading={loading} currentBalance={currentBalance} />
           ) : (
             <TransactionList txs={txs} loading={loading} />
           )}
