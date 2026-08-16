@@ -32,25 +32,34 @@ export default function ContractDocument({
           CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
         </p>
         <p className="text-[8px] text-gray-400">Độc lập - Tự do - Hạnh phúc</p>
-        <h2 className="text-[14px] font-bold text-black mt-2">HỢP ĐỒNG ĐẦU TƯ</h2>
+        <div className="w-6 border-t border-gray-300 mx-auto my-1" />
+        <h2 className="text-[14px] font-bold text-black mt-1 tracking-wide">HỢP ĐỒNG HỢP TÁC ĐẦU TƯ</h2>
         <p className="text-[9px] text-gray-400">
-          Số: VC/{Date.now().toString().slice(-6)}
+          Số: VC/{Date.now().toString().slice(-6)}/HĐHTĐT
         </p>
       </div>
 
+      {/* Legal basis */}
+      <p className="text-[8.5px] text-gray-400 italic leading-relaxed mb-2.5">
+        Căn cứ Bộ luật Dân sự nước CHXHCN Việt Nam; căn cứ nhu cầu góp vốn đầu tư của Bên B và khả
+        năng tiếp nhận, quản lý vốn của Bên A, hai Bên thống nhất giao kết Hợp đồng với các điều
+        khoản sau:
+      </p>
+
       {/* Parties */}
-      <div className="space-y-1 text-[10px] text-gray-700 mb-3">
+      <div className="space-y-1.5 text-[10px] text-gray-700 mb-3">
         <p>
-          <b>Bên A (Bên nhận đầu tư):</b> VinClub — đại diện bởi Ông Nguyễn Việt Quang.
+          <b>Bên A (Bên nhận ủy thác đầu tư):</b> VinClub — đại diện bởi Ông Nguyễn Việt Quang, chức
+          vụ Giám đốc điều hành.
         </p>
         <p>
-          <b>Bên B (Nhà đầu tư):</b> {user?.full_name || "…"}
+          <b>Bên B (Bên ủy thác đầu tư / Nhà đầu tư):</b> {user?.full_name || "…"}
           {user?.email ? ` — ${user.email}` : ""}
         </p>
       </div>
 
       {/* Investment details */}
-      <p className="text-[10px] font-semibold text-black mb-1">Điều 1. Nội dung đầu tư</p>
+      <p className="text-[10px] font-semibold text-black mb-1">Điều 1. Đối tượng và nội dung đầu tư</p>
       <div className="rounded-lg bg-gray-50 p-2 space-y-1 text-[10px] mb-3">
         {[
           ["Dự án", project.title],
@@ -69,10 +78,28 @@ export default function ContractDocument({
       </div>
 
       {/* Terms */}
-      <p className="text-[10px] font-semibold text-black mb-1">Điều 2. Điều khoản</p>
+      <p className="text-[10px] font-semibold text-black mb-1">Điều 2. Quyền và nghĩa vụ của Bên A</p>
+      <p className="text-[9px] text-gray-500 leading-relaxed mb-2.5">
+        Quản lý, sử dụng số vốn nhận ủy thác đúng mục đích đầu tư đã nêu tại Điều 1; thanh toán đầy
+        đủ, đúng hạn gốc và lãi cho Bên B khi kết thúc kỳ hạn; bảo mật thông tin cá nhân của Bên B.
+      </p>
+
+      <p className="text-[10px] font-semibold text-black mb-1">Điều 3. Quyền và nghĩa vụ của Bên B</p>
+      <p className="text-[9px] text-gray-500 leading-relaxed mb-2.5">
+        Cam kết nguồn vốn ủy thác là hợp pháp; có quyền được cung cấp thông tin về tình hình sử
+        dụng vốn khi có yêu cầu chính đáng và nhận đầy đủ gốc, lãi đúng thời hạn cam kết.
+      </p>
+
+      <p className="text-[10px] font-semibold text-black mb-1">Điều 4. Chấm dứt hợp đồng và Bất khả kháng</p>
+      <p className="text-[9px] text-gray-500 leading-relaxed mb-2.5">
+        Hợp đồng đương nhiên chấm dứt khi Bên A hoàn tất nghĩa vụ thanh toán tại Điều 1. Trường hợp
+        xảy ra sự kiện bất khả kháng, hai Bên cùng thương lượng trên tinh thần thiện chí, hợp tác.
+      </p>
+
+      <p className="text-[10px] font-semibold text-black mb-1">Điều 5. Điều khoản chung</p>
       <p className="text-[9px] text-gray-500 leading-relaxed mb-3">
-        Bên B đồng ý ủy quyền số tiền trên cho Bên A quản lý trong thời gian đầu tư. Gốc và lãi
-        được thanh toán cho Bên B khi kết thúc kỳ hạn. Hợp đồng có hiệu lực kể từ ngày ký.
+        Hợp đồng có hiệu lực kể từ thời điểm Bên B hoàn tất ký xác nhận điện tử, được lập thành 02
+        bản có giá trị pháp lý như nhau, mỗi Bên giữ 01 bản để theo dõi và thực hiện.
       </p>
 
       {/* Date */}

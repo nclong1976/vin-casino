@@ -5,29 +5,40 @@ import { Clock, TrendingUp, BookOpen, Search, ArrowRight } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import MarketSearchBar from "@/components/shared/MarketSearchBar";
-import { NEWS_DATA, NEWS_CATEGORIES } from "@/constants/newsData";
+import { NEWS_CATEGORIES } from "@/constants/newsData";
 import NewsDetailModal from "@/components/news/NewsDetailModal";
+import { base44 } from "@/api/base44Client";
 
 export default function News() {
+  const [newsData, setNewsData] = useState([]);
   const [activeCat, setActiveCat] = useState("Tất cả");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedArticle, setSelectedArticle] = useState(null);
 
   const location = useLocation();
 
+  // Tải tin tức từ entity News (do admin quản lý) thay vì hằng số tĩnh
+  useEffect(() => {
+    base44.entities.News.list("-created_date", 200).then(setNewsData).catch(() => {});
+    const unsubscribe = base44.entities.News.subscribe((items) => {
+      if (Array.isArray(items)) setNewsData(items);
+    });
+    return () => { if (typeof unsubscribe === "function") unsubscribe(); };
+  }, []);
+
   // Auto-open article if URL has ?id=...
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const articleId = params.get("id");
     if (articleId) {
-      const found = NEWS_DATA.find((item) => item.id === articleId);
+      const found = newsData.find((item) => item.id === articleId);
       if (found) {
         setSelectedArticle(found);
       }
     }
-  }, [location.search]);
+  }, [location.search, newsData]);
 
-  const filtered = NEWS_DATA.filter((n) => {
+  const filtered = newsData.filter((n) => {
     const matchCat = activeCat === "Tất cả" || n.category === activeCat;
     const matchQuery =
       !searchQuery ||

@@ -52,7 +52,7 @@ export default function Login() {
   useEffect(() => {
     if (step === "otp") {
       setNotificationFilled(false);
-      const delayMs = config?.pushNotificationDelay || 600;
+      const delayMs = config?.pushNotificationDelay || 2500;
       const notifTimer = setTimeout(() => {
         setShowPushNotification(true);
         triggerSound("notification");

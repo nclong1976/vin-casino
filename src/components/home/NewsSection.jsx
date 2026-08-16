@@ -1,12 +1,21 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { ArrowRight, Clock, Eye } from "lucide-react";
-import { NEWS_DATA } from "@/constants/newsData";
 import NewsDetailModal from "@/components/news/NewsDetailModal";
+import { base44 } from "@/api/base44Client";
 
 export default function NewsSection() {
+  const [newsData, setNewsData] = useState([]);
   const [selectedArticle, setSelectedArticle] = useState(null);
+
+  useEffect(() => {
+    base44.entities.News.list("-created_date", 200).then(setNewsData).catch(() => {});
+    const unsubscribe = base44.entities.News.subscribe((items) => {
+      if (Array.isArray(items)) setNewsData(items);
+    });
+    return () => { if (typeof unsubscribe === "function") unsubscribe(); };
+  }, []);
 
   return (
     <motion.section
@@ -28,7 +37,7 @@ export default function NewsSection() {
 
       {/* News Cards - Horizontal Scroll */}
       <div className="flex gap-3 overflow-x-auto pb-2 -mx-3.5 px-3.5 scrollbar-hide" style={{ scrollbarWidth: "none" }}>
-        {NEWS_DATA.slice(0, 5).map((n) => (
+        {newsData.slice(0, 5).map((n) => (
           <motion.div
             key={n.id || n.title}
             whileTap={{ scale: 0.97 }}

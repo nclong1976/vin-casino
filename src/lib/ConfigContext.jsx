@@ -17,7 +17,7 @@ const defaultConfig = {
   soundEnabled: true,
   soundVolume: 80,
   pushNotificationOtp: true,
-  pushNotificationDelay: 600,
+  pushNotificationDelay: 2500,
   otpOnRegister: false,
   termsModalOnRegister: true,
   gameWinMultiplier: 1.95,

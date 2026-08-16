@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
+import { checkScheduledProjects } from '@/lib/projectScheduler';
 import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/lib/rtdbSync';
 import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
 import { getSupabaseUser } from '@/lib/supabaseDb';
@@ -146,9 +147,11 @@ export const AuthProvider = ({ children }) => {
 
       refreshUserBalance();
       runDailyYieldAndMaturityCheck(user);
+      checkScheduledProjects();
 
       const yieldInterval = setInterval(() => {
         runDailyYieldAndMaturityCheck(user);
+        checkScheduledProjects();
       }, 30000);
 
       return () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Check, X, FileSignature } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -46,12 +47,10 @@ export default function ContractsTab() {
     try {
       await base44.entities.Transaction.update(tx.id, { contract_status: action });
       if (action === "approved" && tx.user_id) {
-        await base44.entities.Notification.create({
+        await notifyUser(tx.user_id, {
           title: "Hợp đồng đã được duyệt",
           content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã được Admin phê duyệt. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ.`,
           type: "contract",
-          user_id: tx.user_id,
-          is_read: false,
         });
       }
       toast.success(action === "approved" ? "Đã duyệt hợp đồng" : "Đã từ chối hợp đồng");

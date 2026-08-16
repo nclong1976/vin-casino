@@ -3,6 +3,7 @@ import { X, Plus, Minus, Wallet, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { adjustUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import { notifyUser } from "@/lib/notifyUser";
 import BalanceAmount from "@/components/admin/BalanceAmount";
 import { toast } from "sonner";
 
@@ -56,15 +57,13 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
             ? `Admin cộng tiền vào ví`
             : `Admin trừ tiền từ ví`),
       });
-      await base44.entities.Notification.create({
+      await notifyUser(user.id, {
         title: mode === "add" ? "Ví đã được nạp tiền" : "Ví đã bị trừ tiền",
         content:
           mode === "add"
             ? `Admin đã cộng ${fmt(numAmount)} VNĐ vào ví của bạn. ${note ? "Lý do: " + note : ""}`
             : `Admin đã trừ ${fmt(numAmount)} VNĐ từ ví của bạn. ${note ? "Lý do: " + note : ""}`,
         type: "wallet",
-        user_id: user.id,
-        is_read: false,
       });
       toast.success(
         `Đã ${mode === "add" ? "cộng" : "trừ"} ${fmt(numAmount)} VNĐ ${

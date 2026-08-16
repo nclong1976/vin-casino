@@ -466,16 +466,10 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         prev.map((m) => (m.id === optimisticMsg.id ? { ...optimisticMsg, ...created, attachments } : m))
       );
 
-      try {
-        await base44.entities.Notification.create({
-          title: "Phản hồi mới từ Chăm sóc Khách hàng VinClub",
-          content: optimisticMsg.content || "Quản trị viên đã gửi tệp đính kèm mới.",
-          type: "system",
-          user_id: selectedUser,
-          is_read: false,
-        });
-      } catch {}
-
+      // Không tạo thêm Notification "có tin nhắn mới" nữa - tin nhắn admin
+      // vừa gửi ở trên đã tự nó là thông báo (hiển thị trực tiếp qua khung
+      // chat CSKH real-time), tạo thêm Notification riêng theo user_id chỉ
+      // gây trùng lặp và đi ngược quy tắc "chuông chỉ hiện tin chung".
       localStorage.setItem("vinclub_msg_update", Date.now().toString());
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));

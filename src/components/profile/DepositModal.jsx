@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { X, ArrowDownToLine } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
+import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -10,6 +12,7 @@ const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
 export default function DepositModal({ open, onClose, banks, onDone }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -43,12 +46,10 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
         attachments: [],
       });
 
-      await base44.entities.Notification.create({
+      await notifyUser(user.id, {
         title: "Yêu cầu nạp tiền đang chờ phê duyệt",
         content: `Yêu cầu nạp ${fmt(numAmount)} VNĐ vào ví VinClub đang chờ Admin phê duyệt. Mã GD: ${code}`,
         type: "deposit",
-        user_id: user.id,
-        is_read: false,
       });
 
       try {
@@ -64,6 +65,9 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
       toast.success(`Đã gửi yêu cầu nạp tiền (Mã ${code}), đang chờ Admin phê duyệt`);
       onClose();
       setAmount("");
+      // Điều hướng ngay về khung chat CSKH để hội viên thấy tin nhắn mẫu
+      // vừa gửi và tiếp tục trao đổi trực tiếp với chăm sóc khách hàng
+      navigate("/support");
     } catch (e) {
       toast.error("Không thể gửi yêu cầu");
     } finally {

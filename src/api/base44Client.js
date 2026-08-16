@@ -1,5 +1,6 @@
 import { appParams } from '@/lib/app-params';
 import { pushUserToRTDB } from '@/lib/rtdbSync';
+import { NEWS_DATA } from '@/constants/newsData';
 import {
   upsertSupabaseUser,
   updateSupabaseUser,
@@ -21,6 +22,7 @@ const entityNames = [
   'AuditLog',
   'BankAccount',
   'Message',
+  'News',
   'Notification',
   'Project',
   'Signature',
@@ -378,7 +380,8 @@ const seedData = {
   ],
   User: [
     { id: 'u_admin1', email: 'admin1@gmail.com', name: 'Quản trị viên (admin1)', role: 'admin', balance: 999999999 }
-  ]
+  ],
+  News: NEWS_DATA
 };
 
 function getLocalStore(name) {

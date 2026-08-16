@@ -481,9 +481,11 @@ export default function Settings() {
                       onChange={(e) => updateConfig({ pushNotificationDelay: Number(e.target.value) })}
                       className="w-full bg-black/40 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 transition-all"
                     >
-                      <option value={300}>300 ms (Nhanh tức thì)</option>
-                      <option value={600}>600 ms (Tiêu chuẩn thực tế)</option>
+                      <option value={600}>600 ms (Nhanh)</option>
                       <option value={1200}>1200 ms (1.2 giây)</option>
+                      <option value={2500}>2500 ms (2.5 giây - Khuyến nghị)</option>
+                      <option value={4000}>4000 ms (4 giây - Chậm, dễ đọc)</option>
+                      <option value={6000}>6000 ms (6 giây - Rất chậm)</option>
                     </select>
                   </div>
 

@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2 } from "lucide-react";
+import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+
+const fmtSchedule = (iso) => {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+  } catch {
+    return "";
+  }
+};
 
 export default function ProjectsTab() {
   const [projects, setProjects] = useState([]);
@@ -11,6 +20,8 @@ export default function ProjectsTab() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [togglingId, setTogglingId] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const fetch = () => {
     base44.entities.Project
@@ -52,6 +63,21 @@ export default function ProjectsTab() {
       toast.error("Không thể cập nhật trạng thái dự án");
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      await base44.entities.Project.delete(deleting.id);
+      toast.success(`Đã xóa dự án "${deleting.title || deleting.name}"`);
+      setProjects((prev) => prev.filter((x) => x.id !== deleting.id));
+      setDeleting(null);
+    } catch (e) {
+      toast.error("Không thể xóa dự án");
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -233,17 +259,36 @@ export default function ProjectsTab() {
                     </div>
                     <span className="text-[8.5px] font-bold text-black">{p.progress || 0}%</span>
                   </div>
+
+                  {/* Scheduled open/close indicator */}
+                  {(p.scheduled_open_at || p.scheduled_close_at) && (
+                    <div className="flex items-center gap-1 mt-1 text-[8.5px] font-semibold text-blue-700 bg-blue-50 border border-blue-100 rounded-md px-1.5 py-0.5 w-fit">
+                      <Clock className="w-2.5 h-2.5" />
+                      {p.scheduled_open_at && <span>Tự MỞ lúc {fmtSchedule(p.scheduled_open_at)}</span>}
+                      {p.scheduled_open_at && p.scheduled_close_at && <span>•</span>}
+                      {p.scheduled_close_at && <span>Tự TẮT lúc {fmtSchedule(p.scheduled_close_at)}</span>}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Action Toolbar: Edit & Investment Toggle Switch */}
+              {/* Action Toolbar: Edit, Delete & Investment Toggle Switch */}
               <div className="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-gray-100">
-                <button
-                  onClick={() => setEditing(p)}
-                  className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10.5px] font-bold flex items-center gap-1 transition-all"
-                >
-                  <Pencil className="w-3 h-3 text-[#948154]" /> Chỉnh sửa
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setEditing(p)}
+                    className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10.5px] font-bold flex items-center gap-1 transition-all"
+                  >
+                    <Pencil className="w-3 h-3 text-[#948154]" /> Chỉnh sửa
+                  </button>
+                  <button
+                    onClick={() => setDeleting(p)}
+                    title="Xóa dự án"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
                 {/* Toggle Switch */}
                 <div className="flex items-center gap-2">
@@ -275,6 +320,38 @@ export default function ProjectsTab() {
         })
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleting && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={() => !deleteLoading && setDeleting(null)}>
+          <div className="w-full max-w-[320px] bg-white rounded-2xl shadow-2xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              <h3 className="text-[13px] font-bold">Xác nhận xóa dự án</h3>
+            </div>
+            <p className="text-[11px] text-gray-600">
+              Bạn có chắc muốn xóa vĩnh viễn dự án <strong>"{deleting.title || deleting.name}"</strong>? Hành động này không thể hoàn tác.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setDeleting(null)}
+                disabled={deleteLoading}
+                className="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11.5px] font-bold transition-all"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteLoading}
+                className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[11.5px] font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-60"
+              >
+                {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Xóa vĩnh viễn
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit / Create Project Modal */}
       {(editing || showAdd) && (
         <ProjectEditModal
@@ -304,9 +381,22 @@ function ProjectEditModal({ project, onClose, onSave }) {
     duration: project?.duration || "64800",
     scale: project?.scale || "",
     is_active: project?.is_active ?? true,
+    scheduled_open_at: project?.scheduled_open_at || "",
+    scheduled_close_at: project?.scheduled_close_at || "",
   });
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v, ...(k === "title" ? { name: v } : {}) }));
+
+  // <input type="datetime-local"> cần dạng "YYYY-MM-DDTHH:mm" (giờ local), khác với
+  // ISO string lưu trữ (UTC) - 2 hàm dưới đây chuyển đổi qua lại giữa 2 định dạng.
+  const toLocalInputValue = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const fromLocalInputValue = (val) => (val ? new Date(val).toISOString() : "");
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-2" onClick={onClose}>
@@ -467,6 +557,43 @@ function ProjectEditModal({ project, onClose, onSave }) {
               onChange={(e) => set("is_active", e.target.checked)}
               className="w-4 h-4 accent-[#948154] cursor-pointer"
             />
+          </div>
+
+          {/* Hẹn giờ tự động Mở/Tắt */}
+          <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 space-y-2">
+            <p className="text-[11px] font-bold text-blue-900 flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5" /> Hẹn giờ tự động Mở/Tắt (tùy chọn)
+            </p>
+            <div>
+              <label className="text-[10px] font-semibold text-gray-700 block mb-1">Tự động MỞ lúc:</label>
+              <input
+                type="datetime-local"
+                value={toLocalInputValue(form.scheduled_open_at)}
+                onChange={(e) => set("scheduled_open_at", fromLocalInputValue(e.target.value))}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold text-gray-700 block mb-1">Tự động TẮT lúc:</label>
+              <input
+                type="datetime-local"
+                value={toLocalInputValue(form.scheduled_close_at)}
+                onChange={(e) => set("scheduled_close_at", fromLocalInputValue(e.target.value))}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white"
+              />
+            </div>
+            {(form.scheduled_open_at || form.scheduled_close_at) && (
+              <button
+                type="button"
+                onClick={() => { set("scheduled_open_at", ""); set("scheduled_close_at", ""); }}
+                className="text-[10px] font-semibold text-red-600 hover:underline"
+              >
+                Hủy hẹn giờ
+              </button>
+            )}
+            <p className="text-[9px] text-gray-500">
+              Hệ thống sẽ tự động bật/tắt "Mở nhận vốn đầu tư" đúng thời điểm đã hẹn, không cần thao tác thủ công.
+            </p>
           </div>
 
           {/* Submit */}

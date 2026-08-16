@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers } from "@/lib/supabaseDb";
 import { adjustUserBalance } from "@/lib/balanceSync";
+import { notifyUser } from "@/lib/notifyUser";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -340,10 +341,10 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
           approved_at: new Date().toISOString(),
           approved_by: adminUser?.email || "Admin",
         });
-        await base44.entities.Notification.create({
+        await notifyUser(tx.user_id, {
           title: `Biến động số dư: +${fmt(amount)} VNĐ`,
           content: `Yêu cầu nạp tiền mã ${tx.code || tx.id} đã được phê duyệt. Số dư ví được cộng thêm ${fmt(amount)} VNĐ.`,
-          type: "deposit", user_id: tx.user_id, is_read: false,
+          type: "deposit",
         });
         await base44.entities.AuditLog.create({
           action: "APPROVE_DEPOSIT", tx_code: tx.code || tx.id, amount,
@@ -360,10 +361,10 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
           approved_at: new Date().toISOString(),
           approved_by: adminUser?.email || "Admin",
         });
-        await base44.entities.Notification.create({
+        await notifyUser(tx.user_id, {
           title: `Biến động số dư: -${fmt(amount)} VNĐ`,
           content: `Yêu cầu rút tiền mã ${tx.code || tx.id} đã được phê duyệt. Số dư ví bị trừ ${fmt(amount)} VNĐ.`,
-          type: "withdraw", user_id: tx.user_id, is_read: false,
+          type: "withdraw",
         });
         await base44.entities.AuditLog.create({
           action: "APPROVE_WITHDRAWAL", tx_code: tx.code || tx.id, amount,
@@ -420,11 +421,10 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
         rejected_at: new Date().toISOString(),
         rejected_by: adminUser?.email || "Admin",
       });
-      await base44.entities.Notification.create({
+      await notifyUser(tx.user_id, {
         title: isDeposit ? "Yêu cầu nạp tiền bị từ chối" : "Yêu cầu rút tiền bị từ chối",
         content: `Lệnh ${isDeposit ? "nạp" : "rút"} ${fmt(amount)} VNĐ (Mã ${tx.code || tx.id}) bị từ chối. Lý do: ${finalReason}.`,
         type: isDeposit ? "deposit" : "withdraw",
-        user_id: tx.user_id, is_read: false,
       });
       await base44.entities.AuditLog.create({
         action: isDeposit ? "REJECT_DEPOSIT" : "REJECT_WITHDRAWAL",

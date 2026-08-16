@@ -34,10 +34,14 @@ export default function NotificationBell() {
     base44.entities.Notification
       .list("-created_date", 50)
       .then((list) => {
-        // "admin" là giá trị đặc biệt dùng khi user gửi thông báo tới toàn
-        // bộ quản trị viên (không phải id thật) - mọi admin đều cần thấy nó
+        // Chuông thông báo CHỈ hiển thị tin CHUNG toàn hệ thống (không gắn
+        // user_id) hoặc broadcast tới admin ("admin" là giá trị đặc biệt,
+        // không phải id thật) - mọi thông tin gắn với 1 tài khoản cụ thể giờ
+        // đã được gửi thẳng vào khung chat CSKH riêng (xem lib/notifyUser.js)
+        // thay vì tạo Notification theo user_id như trước, nên các bản ghi
+        // user_id === user.id cũ (nếu còn sót) cũng không hiển thị ở đây nữa.
         const userNotifs = (list || []).filter(
-          n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin")
+          n => !n.user_id || (n.user_id === "admin" && user.role === "admin")
         );
         setNotifs(userNotifs);
       })

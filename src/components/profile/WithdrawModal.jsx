@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
+import { notifyUser } from "@/lib/notifyUser";
 import { adjustUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import { getBankLogo } from "@/constants/banks";
@@ -195,13 +196,11 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       setLiveStatus("pending");
       setStep("tracking");
 
-      // Send real-time notification to User
-      await base44.entities.Notification.create({
+      // Gửi tin nhắn riêng cho người dùng (không dùng chuông thông báo chung)
+      await notifyUser(user?.id, {
         title: "Yêu cầu rút tiền đang chờ phê duyệt",
         content: `Lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) đang chờ Admin phê duyệt. Mã GD: ${code}`,
         type: "withdraw",
-        user_id: user?.id,
-        is_read: false,
       });
 
       // Send real-time notification to Admin flow

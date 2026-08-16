@@ -10,7 +10,8 @@ import {
   TrendingUp,
   Dices,
   LogOut,
-  Sparkles
+  Sparkles,
+  Newspaper
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
@@ -22,6 +23,7 @@ import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
 import StocksTab from "@/components/admin/StocksTab";
 import CasinoTab from "@/components/admin/CasinoTab";
+import NewsTab from "@/components/admin/NewsTab";
 
 const TABS = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
@@ -30,6 +32,7 @@ const TABS = [
   { id: "casino", label: "Quản lý Casino", icon: Dices },
   { id: "contracts", label: "Hợp đồng", icon: FileCheck },
   { id: "projects", label: "Dự án", icon: FolderOpen },
+  { id: "news", label: "Tin tức", icon: Newspaper },
   { id: "notifications", label: "Thông báo", icon: Bell },
 ];
 
@@ -161,6 +164,7 @@ export default function Admin() {
           {tab === "casino" && <CasinoTab />}
           {tab === "contracts" && <ContractsTab />}
           {tab === "projects" && <ProjectsTab />}
+          {tab === "news" && <NewsTab />}
           {tab === "notifications" && <NotificationsTab />}
         </AdminErrorBoundary>
       </div>
