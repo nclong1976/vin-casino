@@ -26,6 +26,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { getFreshUserBalance, updateUserBalance } from "@/lib/balanceSync";
+import { normalizeWalletTransaction } from "@/lib/transactionHistory";
 import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
 import { useAuth } from "@/lib/AuthContext";
@@ -619,40 +620,45 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {walletTxs.map((tx) => (
-                      <div key={tx.id} className="p-3 bg-white rounded-2xl border border-gray-200 shadow-2xs space-y-1 text-[11px]">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-[10px] text-gray-400">{tx.code || tx.id?.slice(-8)}</span>
-                          <span
-                            className={`px-2 py-0.2 rounded-full text-[8.5px] font-bold ${
-                              tx.status === "completed"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : tx.status === "rejected"
-                                ? "bg-red-100 text-red-800"
-                                : "bg-amber-100 text-amber-800"
-                            }`}
-                          >
-                            {tx.status === "completed" ? "Đã duyệt" : tx.status === "rejected" ? "Từ chối" : "Chờ duyệt"}
-                          </span>
+                    {walletTxs.map((tx) => {
+                      const n = normalizeWalletTransaction(tx);
+                      const isIncoming = n.kind === "deposit" || n.kind === "bonus";
+                      return (
+                        <div key={tx.id} className="p-3 bg-white rounded-2xl border border-gray-200 shadow-2xs space-y-1 text-[11px]">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono text-[10px] text-gray-400">{n.code?.slice?.(-8) || n.code}</span>
+                            <span
+                              className={`px-2 py-0.2 rounded-full text-[8.5px] font-bold ${
+                                n.status === "success"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : n.status === "failed"
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              {n.statusLabel}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-gray-800">{n.kindLabel}</span>
+                            <span
+                              className={`font-black text-[13px] ${
+                                n.status !== "success" ? "text-gray-400" : isIncoming ? "text-emerald-600" : "text-red-600"
+                              }`}
+                            >
+                              {n.status === "success" ? (isIncoming ? "+" : "-") : ""}
+                              {fmt(n.amount)} VNĐ
+                            </span>
+                          </div>
+                          {n.description && (
+                            <p className="text-[9.5px] text-gray-500 truncate">{n.description}</p>
+                          )}
+                          <p className="text-[9.5px] text-gray-400">
+                            {n.isoTime ? new Date(n.isoTime).toLocaleString("vi-VN") : "—"}
+                          </p>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-gray-800">
-                            {tx.type === "deposit" ? "Nạp tiền" : "Rút tiền"}
-                          </span>
-                          <span
-                            className={`font-black text-[13px] ${
-                              tx.type === "deposit" ? "text-emerald-600" : "text-red-600"
-                            }`}
-                          >
-                            {tx.type === "deposit" ? "+" : "-"}
-                            {fmt(tx.amount)} VNĐ
-                          </span>
-                        </div>
-                        <p className="text-[9.5px] text-gray-400">
-                          {tx.created_date ? new Date(tx.created_date).toLocaleString("vi-VN") : "—"}
-                        </p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
