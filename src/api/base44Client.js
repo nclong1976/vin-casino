@@ -580,6 +580,7 @@ class LocalEntityClient {
     // cộng/trừ qua adjustUserBalance, nhưng trạng thái giao dịch không được
     // ghi ở đâu cả. Vẫn đẩy đi một bản vá (partial patch) thay vì bỏ qua -
     // các hàm upsert/merge phía dưới đều an toàn với dữ liệu thiếu field.
+    const foundInCache = !!updated;
     if (!updated) {
       updated = { id, ...data };
     }
@@ -589,8 +590,23 @@ class LocalEntityClient {
     try {
       if (this.entityName === 'User') {
         updateSupabaseUser(id, updated).catch(() => null);
-        import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
-          pushUserToRTDB(updated);
+        import('@/lib/rtdbSync').then(({ pushUserToRTDB, safeWriteRTDB }) => {
+          if (foundInCache) {
+            // `updated` là bản ghi ĐẦY ĐỦ (đã merge với cache cục bộ) nên
+            // pushUserToRTDB() (luôn ghi "set" toàn bộ field, tự điền mặc
+            // định cho field thiếu) là an toàn.
+            pushUserToRTDB(updated);
+          } else {
+            // Bản ghi KHÔNG có trong cache cục bộ - `updated` chỉ là bản vá
+            // 1 PHẦN (id + đúng field vừa sửa). Gọi thẳng pushUserToRTDB()
+            // ở đây sẽ ghi "set" cả bản ghi RTDB với field thiếu bị tự điền
+            // mặc định "" / 0 - XOÁ SẠCH balance/full_name/email/phone...
+            // thật của user đó trên RTDB (đã gây sự cố dữ liệu thật: tài
+            // khoản bị reset về "Hội viên VinClub", balance 0). Phải ghi
+            // kiểu MERGE THẬT (chỉ đúng field trong `data`, không dựng lại
+            // nguyên bản ghi) để không đụng tới field không liên quan.
+            safeWriteRTDB(`users/${id}`, data, 'update');
+          }
         });
       } else if (this.entityName === 'WalletTransaction') {
         updateSupabaseWalletTransaction(id, updated).catch(() => null);
