@@ -4,7 +4,7 @@ import { Gift, RotateCcw, Sparkles, HelpCircle, Wallet } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -128,9 +128,7 @@ export default function LuckyWheel() {
         else if (prizeWon.label.includes("5M")) prizeAmt = 5000000;
 
         if (prizeAmt > 0 && user?.id) {
-          const currentBal = Number(user.balance || 0);
-          const newBal = currentBal + prizeAmt;
-          updateUserBalance(user.id, newBal, prizeAmt);
+          adjustUserBalance(user.id, prizeAmt, prizeAmt).catch(() => {});
 
           base44.entities.WalletTransaction.create({
             user_id: user.id,

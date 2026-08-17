@@ -19,9 +19,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers, deleteSupabaseUser } from "@/lib/supabaseDb";
+import { listSupabaseUsers, deleteSupabaseUser, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB } from "@/lib/rtdbSync";
-import { getFreshUserBalance } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
@@ -42,7 +41,6 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
   const isSuperAdmin = !!currentAdmin?.is_super_admin || currentAdmin?.role === "admin" || currentAdmin?.email === "nclong1976@gmail.com" || currentAdmin?.username === "nclong";
 
   const [users, setUsers] = useState([]);
-  const [balances, setBalances] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -58,125 +56,21 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
   const [togglingLockId, setTogglingLockId] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState({});
 
-  const rtdbUsersRef = useRef([]);
   const isFetchingRef = useRef(false);
-  const txBalanceMapRef = useRef({});
 
-  // Dùng CHUNG cho cả fetchUsers (Supabase/local) lẫn callback RTDB bên dưới,
-  // để 2 luồng không "chốt" số dư theo 2 công thức khác nhau. Trước đây
-  // callback RTDB tin thẳng ru.balance bất kể giá trị đó mới hay cũ - RTDB
-  // có thể tạm thời chưa nhận kịp bản ghi mới nhất (đặc biệt ngay sau khi
-  // Admin vừa điều chỉnh ví), khiến số dư đang hiển thị đúng bị thay bằng 0
-  // hoặc số cũ trong vài giây trước khi RTDB bắt kịp. Lấy max qua mọi nguồn
-  // đã biết (kể cả tổng từ lịch sử WalletTransaction) loại bỏ hẳn kiểu giật
-  // lùi này.
-  const resolveBalance = useCallback((u, currentBal = 0) => {
-    const map = txBalanceMapRef.current;
-    const candidates = [
-      Number(u?.balance),
-      Number(map[u?.id]),
-      Number(map[u?.email]),
-      Number(currentBal),
-    ].filter((n) => typeof n === "number" && !isNaN(n));
-    return Math.max(0, ...candidates);
-  }, []);
-
+  // Supabase Postgres là nguồn sự thật DUY NHẤT cho danh sách hội viên &
+  // số dư (xem whimsical-napping-floyd.md Bước 6) - không còn merge qua
+  // localStorage/RTDB/tổng lịch sử WalletTransaction bằng Math.max như
+  // trước (4 lớp khác nhau, dễ "kẹt" số dư sai ở mức cao nhất từng thấy dù
+  // giá trị đó đã lỗi thời). Đọc thẳng 1 nguồn, cập nhật realtime qua
+  // subscribeSupabaseUsersTable bên dưới.
   const fetchUsers = useCallback((isInitial = false) => {
     if (isFetchingRef.current && !isInitial) return;
     isFetchingRef.current = true;
     if (isInitial) setLoading(true);
 
-    Promise.all([
-      base44.entities.User.list().catch(() => []),
-      listSupabaseUsers().catch(() => []),
-      base44.entities.WalletTransaction.list("-created_date", 500).catch(() => []),
-    ]).then(([localUserList, supaUserList, walletTxList]) => {
-      // Ground truth: compute total balance from completed transactions for each user
-      const userTxBalanceMap = {};
-      const userTxDepositedMap = {};
-      (walletTxList || []).forEach((tx) => {
-        if (tx && tx.status === "completed") {
-          const amt = Number(tx.amount || 0);
-          const delta = tx.type === "deposit" ? amt : (tx.type === "withdraw" ? -amt : 0);
-          if (tx.user_id) {
-            userTxBalanceMap[tx.user_id] = (userTxBalanceMap[tx.user_id] || 0) + delta;
-            if (tx.type === "deposit") userTxDepositedMap[tx.user_id] = (userTxDepositedMap[tx.user_id] || 0) + amt;
-          }
-          if (tx.user_email) {
-            userTxBalanceMap[tx.user_email] = (userTxBalanceMap[tx.user_email] || 0) + delta;
-            if (tx.type === "deposit") userTxDepositedMap[tx.user_email] = (userTxDepositedMap[tx.user_email] || 0) + amt;
-          }
-        }
-      });
-
-      // Read registered users from local storage
-      let regUsers = [];
-      try {
-        const rawReg = localStorage.getItem("base44_registered_users");
-        if (rawReg) regUsers = JSON.parse(rawReg);
-      } catch (e) {}
-
-      // Cập nhật map dùng chung TRƯỚC khi resolveBalance() gọi bên dưới, và
-      // để callback RTDB (ngoài effect) cũng thấy được ground-truth mới nhất
-      // từ lịch sử WalletTransaction thay vì chỉ có sẵn lúc component mount.
-      txBalanceMapRef.current = userTxBalanceMap;
-
-      const mergedMap = {};
-
-      // 1. Registered users
-      (regUsers || []).forEach((u) => {
-        if (u && (u.id || u.email)) {
-          const k = u.id || u.email;
-          mergedMap[k] = {
-            ...u,
-            balance: resolveBalance(u, 0),
-            total_deposited: Number(u.total_deposited || userTxDepositedMap[u.id] || userTxDepositedMap[u.email] || 0),
-          };
-        }
-      });
-
-      // 2. Local entity users
-      (localUserList || []).forEach((u) => {
-        if (u && (u.id || u.email)) {
-          const k = u.id || u.email;
-          const existing = mergedMap[k] || {};
-          mergedMap[k] = {
-            ...existing,
-            ...u,
-            balance: resolveBalance(u, existing.balance || 0),
-            total_deposited: Math.max(Number(existing.total_deposited || 0), Number(u.total_deposited || 0)),
-          };
-        }
-      });
-
-      // 3. Supabase DB users
-      (supaUserList || []).forEach((su) => {
-        if (su && (su.id || su.email)) {
-          const k = su.id || su.email;
-          const existing = mergedMap[k] || {};
-          mergedMap[k] = {
-            ...existing,
-            ...su,
-            balance: resolveBalance(su, existing.balance || 0),
-            total_deposited: Math.max(Number(existing.total_deposited || 0), Number(su.total_deposited || 0)),
-          };
-        }
-      });
-
-      // 4. RTDB live users
-      (rtdbUsersRef.current || []).forEach((ru) => {
-        if (ru && (ru.id || ru.email)) {
-          const k = ru.id || ru.email;
-          const existing = mergedMap[k] || {};
-          mergedMap[k] = {
-            ...existing,
-            ...ru,
-            balance: resolveBalance(ru, existing.balance || 0),
-          };
-        }
-      });
-
-      setUsers(Object.values(mergedMap));
+    listSupabaseUsers().then((supaUserList) => {
+      setUsers(supaUserList || []);
     }).finally(() => {
       isFetchingRef.current = false;
       if (isInitial) setLoading(false);
@@ -186,58 +80,45 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
   useEffect(() => {
     fetchUsers(true);
 
-    // Subscribe to Firebase Realtime Database for instant user updates
+    // Cập nhật tức thời khi bất kỳ hàng nào trong bảng users đổi (không lọc
+    // theo id vì Admin cần thấy TẤT CẢ hội viên) - thay cho việc lắng nghe
+    // RTDB + poll định kỳ tính lại từ 500 giao dịch gần nhất.
+    const unsubSupabase = subscribeSupabaseUsersTable((payload) => {
+      const { eventType, new: newRow, old: oldRow } = payload || {};
+      setUsers((prev) => {
+        if (eventType === "DELETE") {
+          const deletedId = oldRow?.id;
+          return deletedId ? prev.filter((u) => u.id !== deletedId) : prev;
+        }
+        if (!newRow || !newRow.id) return prev;
+        const idx = prev.findIndex((u) => u.id === newRow.id);
+        if (idx === -1) return [newRow, ...prev];
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...newRow };
+        return next;
+      });
+    });
+
+    // Vẫn giữ RTDB CHỈ để hiển thị trạng thái Online (presence theo thời
+    // gian thực) - is_locked/balance/... không còn tin từ đây nữa.
     let unsubRTDB;
     import('@/lib/rtdbSync').then(({ subscribeAllUsersFromRTDB }) => {
-      unsubRTDB = subscribeAllUsersFromRTDB((rtdbUsers, onlineMap) => {
-        if (Array.isArray(rtdbUsers)) {
-          rtdbUsersRef.current = rtdbUsers;
-          setUsers((prev) => {
-            const mergedMap = {};
-            (prev || []).forEach((u) => {
-              if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u;
-            });
-            rtdbUsers.forEach((ru) => {
-              if (ru && (ru.id || ru.email)) {
-                const k = ru.id || ru.email;
-                const existing = mergedMap[k] || {};
-                mergedMap[k] = {
-                  ...existing,
-                  ...ru,
-                  // resolveBalance() thay vì tin thẳng ru.balance: RTDB có
-                  // thể tạm thời chưa nhận kịp bản ghi mới nhất (nhất là
-                  // ngay sau khi Admin vừa điều chỉnh ví), nên push RTDB
-                  // không được phép GHI ĐÈ một số dư đã biết là đúng bằng
-                  // một giá trị cũ/0 hơn.
-                  balance: resolveBalance(ru, existing.balance || 0),
-                };
-              }
-            });
-            return Object.values(mergedMap);
-          });
-        }
-        if (onlineMap) {
-          setOnlineUsers(onlineMap);
-        }
+      unsubRTDB = subscribeAllUsersFromRTDB((_rtdbUsers, onlineMap) => {
+        if (onlineMap) setOnlineUsers(onlineMap);
       });
     }).catch(() => null);
 
-    const handleBalUpdate = () => {
-      fetchUsers(false);
-    };
-    window.addEventListener("vinclub:balance_updated", handleBalUpdate);
-    window.addEventListener("storage", handleBalUpdate);
-
-    // Relaxed background check
+    // Refetch định kỳ nhẹ làm lưới an toàn phòng khi kênh realtime bị rớt
+    // (mất mạng, tab chuyển nền lâu) - không còn phải tính lại từ hàng trăm
+    // giao dịch mỗi lần như trước nên có thể giãn chu kỳ ra nhiều.
     const pollInterval = setInterval(() => {
       fetchUsers(false);
-    }, 10000);
+    }, 30000);
 
     return () => {
+      if (typeof unsubSupabase === "function") unsubSupabase();
       if (typeof unsubRTDB === "function") unsubRTDB();
       clearInterval(pollInterval);
-      window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
-      window.removeEventListener("storage", handleBalUpdate);
     };
   }, [fetchUsers]);
 
@@ -457,12 +338,7 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
       ) : (
         <div className="space-y-2.5">
           {filteredUsers.map((u) => {
-            const userBal = Math.max(
-              Number(u.balance || 0),
-              Number(getFreshUserBalance(u.id) || 0),
-              Number(getFreshUserBalance(u.email) || 0),
-              Number(balances[u.id] || 0)
-            );
+            const userBal = Number(u.balance || 0);
             const tier = u.membership_tier || "Member";
             const isAdmin = u.role === "admin";
             const isOnline = Boolean(onlineUsers[u.id] || (u.email && onlineEmailSet.has(u.email)));

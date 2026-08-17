@@ -1,5 +1,6 @@
 import { base44 } from "@/api/base44Client";
 import { getCardTierInfo } from "@/lib/membershipUtils";
+import { adjustUserBalance } from "@/lib/balanceSync";
 
 /**
  * Tự động kiểm tra và trả lãi cho hội viên VinClub:
@@ -63,6 +64,15 @@ export async function runDailyYieldAndMaturityCheck(user) {
             status: "approved"
           }).catch(() => null);
 
+          // Áp dụng thật vào số dư qua RPC nguyên tử - trước đây bước này
+          // KHÔNG tồn tại, chỉ tạo bản ghi giao dịch rồi trông chờ auto-heal
+          // ở Profile.jsx tự tính lại và ghi đè, khiến lãi chỉ thực sự "vào
+          // ví" khi user tình cờ mở trang Cá nhân, và mỗi lần auto-heal chạy
+          // lại cộng dồn total_deposited sai (xem Profile.jsx). Không cộng
+          // vào total_deposited ở đây vì đã được tính trong depositSum phía
+          // trên từ chính lịch sử ví - cộng thêm sẽ đếm trùng.
+          await adjustUserBalance(user.id, dailyProfit, 0).catch(() => null);
+
           // Gửi thông báo hệ thống
           await base44.entities.Message.create({
             sender: "admin",
@@ -122,6 +132,10 @@ export async function runDailyYieldAndMaturityCheck(user) {
           category: "Đáo Hạn Dự Án",
           status: "approved"
         }).catch(() => null);
+
+        // Áp dụng thật vào số dư qua RPC nguyên tử (xem giải thích tương tự
+        // ở nhánh lãi VIP hằng ngày phía trên)
+        await adjustUserBalance(user.id, payoutAmount, 0).catch(() => null);
 
         // 3. Thông báo cho người dùng
         await base44.entities.Message.create({

@@ -4,9 +4,9 @@ import { appParams } from '@/lib/app-params';
 import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 import { checkScheduledProjects } from '@/lib/projectScheduler';
-import { pushUserToRTDB, trackPresenceInRTDB, subscribeUserFromRTDB } from '@/lib/rtdbSync';
+import { pushUserToRTDB, trackPresenceInRTDB } from '@/lib/rtdbSync';
 import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
-import { getSupabaseUser } from '@/lib/supabaseDb';
+import { getSupabaseUser, subscribeSupabaseUserRow } from '@/lib/supabaseDb';
 import { startTwoWaySync } from '@/lib/twoWaySync';
 import { saveAccountToSwitcher, switchToAccount as switchToSavedAccount } from '@/lib/accountSwitcher';
 import { hydrateUserOnNewDevice } from '@/lib/syncEngine';
@@ -111,27 +111,64 @@ export const AuthProvider = ({ children }) => {
       pushUserToRTDB(user);
       const unsubPresence = trackPresenceInRTDB(user);
 
-      // Lắng nghe số dư real-time từ Firebase RTDB
-      const unsubRTDBUser = subscribeUserFromRTDB(user.id, (rtdbUser) => {
-        if (rtdbUser && typeof rtdbUser.balance === 'number') {
-          setUser((prev) => {
-            if (!prev) return prev;
-            if (prev.balance === rtdbUser.balance && prev.is_locked === rtdbUser.is_locked) return prev;
-            return { ...prev, balance: rtdbUser.balance, is_locked: rtdbUser.is_locked };
-          });
-        }
+      // Lắng nghe số dư real-time TRỰC TIẾP từ Supabase Postgres (nguồn sự
+      // thật duy nhất) thay vì Firebase RTDB - loại bỏ hẳn kiểu ghi "set" đè
+      // toàn bộ node và vòng lặp 2 chiều Supabase<->RTDB từng gây ra phần
+      // lớn sự cố số dư. Chỉ áp dụng balance/total_deposited nếu
+      // balance_version mới hơn phiên bản đang cache (KHÔNG dùng Math.max -
+      // số dư có thể giảm thật do rút tiền/thua cược/đầu tư).
+      const unsubSupabaseUser = subscribeSupabaseUserRow(user.id, (payload) => {
+        const row = payload?.new;
+        if (!row) return;
+        setUser((prev) => {
+          if (!prev) return prev;
+          const prevVersion = Number(prev.balance_version || 0);
+          const nextVersion = Number(row.balance_version || 0);
+          const patch = {};
+          if (nextVersion > prevVersion) {
+            patch.balance = Number(row.balance || 0);
+            patch.total_deposited = Number(row.total_deposited || 0);
+            patch.balance_version = nextVersion;
+          }
+          if (typeof row.is_locked === 'boolean' && row.is_locked !== prev.is_locked) {
+            patch.is_locked = row.is_locked;
+          }
+          if (Object.keys(patch).length === 0) return prev;
+
+          // Đồng bộ lại cache local để những nơi khác đọc trực tiếp
+          // localStorage (vd. getFreshUserBalance) không bị lệch so với
+          // state React vừa cập nhật từ Supabase Realtime.
+          try {
+            const localStr = localStorage.getItem('base44_local_user');
+            if (localStr) {
+              const local = JSON.parse(localStr);
+              if (local.id === prev.id || local.email === prev.email) {
+                localStorage.setItem('base44_local_user', JSON.stringify({ ...local, ...patch }));
+              }
+            }
+          } catch (e) {}
+
+          return { ...prev, ...patch };
+        });
       });
 
+      // Phản chiếu NGAY các ghi số dư mà chính thiết bị này vừa thực hiện
+      // (đặt cược, nạp/rút, ...) từ localStorage vào state React. Không cần
+      // so sánh balance_version ở đây vì đây luôn là bản ghi mới nhất do
+      // chính thiết bị này vừa tạo ra (đã có version mới nhất từ RPC) - việc
+      // so sánh version chỉ cần thiết cho cập nhật đến từ THIẾT BỊ KHÁC qua
+      // kênh Supabase Realtime ở trên.
       const refreshUserBalance = async () => {
         try {
           const localUserStr = localStorage.getItem('base44_local_user');
           if (!localUserStr) return;
           const localUser = JSON.parse(localUserStr);
           const currentBal = Number(localUser.balance || 0);
+          const currentVersion = Number(localUser.balance_version || 0);
           setUser((prev) => {
             if (!prev) return localUser;
             if (prev.balance === currentBal && prev.total_deposited === localUser.total_deposited) return prev;
-            return { ...prev, balance: currentBal, total_deposited: localUser.total_deposited };
+            return { ...prev, balance: currentBal, total_deposited: localUser.total_deposited, balance_version: currentVersion };
           });
         } catch (e) {
           console.error('[AuthContext] sync balance error:', e);
@@ -158,7 +195,7 @@ export const AuthProvider = ({ children }) => {
         clearInterval(yieldInterval);
         stopFirebaseSync();
         if (typeof unsubPresence === 'function') unsubPresence();
-        if (typeof unsubRTDBUser === 'function') unsubRTDBUser();
+        if (typeof unsubSupabaseUser === 'function') unsubSupabaseUser();
         if (typeof unsubWT === 'function') unsubWT();
         if (typeof unsubUser === 'function') unsubUser();
         window.removeEventListener('vinclub:balance_updated', handleBalanceEvent);
@@ -189,6 +226,7 @@ export const AuthProvider = ({ children }) => {
           ...supaUser,
           balance: Number(dbUser.balance || 0),
           total_deposited: Number(dbUser.total_deposited || 0),
+          balance_version: Number(dbUser.balance_version || 0),
           is_locked: !!dbUser.is_locked,
           membership_tier: dbUser.membership_tier || supaUser.membership_tier,
           vip_level: dbUser.vip_level || supaUser.vip_level,

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   role TEXT DEFAULT 'user',
   balance BIGINT DEFAULT 0,
   total_deposited BIGINT DEFAULT 0,
+  balance_version BIGINT DEFAULT 0,
   membership_tier TEXT DEFAULT 'VIP 1 - Gold',
   vip_level TEXT DEFAULT 'VIP 1',
   is_locked BOOLEAN DEFAULT FALSE,
@@ -36,6 +37,11 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 0;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS total_deposited BIGINT DEFAULT 0;
+-- Đếm số lần balance/total_deposited được ghi qua increment_user_balance() -
+-- dùng để client so sánh "phiên bản nào mới hơn" khi nhận cập nhật real-time
+-- (Supabase Realtime không đảm bảo thứ tự tới nơi), thay cho cách cũ dùng
+-- Math.max giữa nhiều nguồn (sai vì số dư có thể giảm thật).
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance_version BIGINT DEFAULT 0;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS membership_tier TEXT DEFAULT 'VIP 1 - Gold';
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS vip_level TEXT DEFAULT 'VIP 1';
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
@@ -398,15 +404,43 @@ CREATE OR REPLACE FUNCTION public.increment_user_balance(
   p_delta BIGINT,
   p_total_deposited_delta BIGINT DEFAULT 0
 )
-RETURNS TABLE (balance BIGINT, total_deposited BIGINT) AS $$
+RETURNS TABLE (balance BIGINT, total_deposited BIGINT, balance_version BIGINT) AS $$
 BEGIN
   RETURN QUERY
   UPDATE public.users
   SET
     balance = GREATEST(0, public.users.balance + p_delta),
     total_deposited = public.users.total_deposited + p_total_deposited_delta,
+    balance_version = public.users.balance_version + 1,
     last_active = NOW()
   WHERE id = p_user_id
-  RETURNING public.users.balance, public.users.total_deposited;
+  RETURNING public.users.balance, public.users.total_deposited, public.users.balance_version;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ====================================================================
+-- ĐẶT SỐ DƯ TUYỆT ĐỐI NGUYÊN TỬ — dùng cho admin sửa dữ liệu hoặc reset
+-- số dư demo (không phải cộng/trừ delta). Vẫn tăng balance_version như
+-- increment_user_balance() để phiên Realtime khác (AuthContext) nhận diện
+-- đây là thay đổi mới hơn - nếu chỉ upsert thường (không qua RPC này) thì
+-- balance_version đứng yên, khiến cập nhật thật bị bộ so sánh version ở
+-- client âm thầm bỏ qua.
+-- ====================================================================
+CREATE OR REPLACE FUNCTION public.set_user_balance_absolute(
+  p_user_id TEXT,
+  p_balance BIGINT,
+  p_total_deposited BIGINT
+)
+RETURNS TABLE (balance BIGINT, total_deposited BIGINT, balance_version BIGINT) AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE public.users
+  SET
+    balance = GREATEST(0, p_balance),
+    total_deposited = GREATEST(0, p_total_deposited),
+    balance_version = public.users.balance_version + 1,
+    last_active = NOW()
+  WHERE id = p_user_id
+  RETURNING public.users.balance, public.users.total_deposited, public.users.balance_version;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

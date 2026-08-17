@@ -11,7 +11,7 @@
  *   4. Tự động đồng bộ hai chiều thời gian thực giữa Supabase DB (PostgreSQL) và Firebase RTDB.
  */
 import { base44 } from "@/api/base44Client";
-import { getFreshUserBalance, updateUserBalance } from "@/lib/balanceSync";
+import { refreshLocalUserFromSupabase } from "@/lib/balanceSync";
 import { getSupabaseUser, listSupabaseUsers, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { pushUserToRTDB, trackPresenceInRTDB, fetchUserFromRTDB } from "@/lib/rtdbSync";
 import { computeWalletNet } from "@/lib/transactionHistory";
@@ -87,48 +87,46 @@ export async function hydrateUserOnNewDevice(authUser) {
       getSupabaseUser(uid).catch(() => null),
       listSupabaseUsers().catch(() => []),
       fetchUserFromRTDB(uid).catch(() => null),
-      base44.entities.WalletTransaction.filter({ user_id: uid }, "-created_date", 200).catch(() => []),
+      // Không giới hạn số lượng - nếu phải fallback tính từ lịch sử ví (tài
+      // khoản chưa từng đồng bộ lên Supabase) thì phải dùng TOÀN BỘ lịch sử,
+      // giới hạn cũ (200) có thể bỏ sót giao dịch cũ và tính sai số dư.
+      base44.entities.WalletTransaction.filter({ user_id: uid }, "-created_date").catch(() => []),
     ]);
 
-    // Tìm record khớp trong danh sách Supabase users (theo id hoặc email)
+    // Tìm record khớp trong danh sách Supabase users (theo id hoặc email) -
+    // dùng khi tài khoản được tạo dưới id khác trên thiết bị này (legacy)
     const matchedSupa = (supaUserList || []).find(
       (u) => (u.id && u.id === uid) || (u.email && uemail && u.email.toLowerCase() === uemail.toLowerCase())
     ) || {};
 
-    // Tính số dư từ lịch sử ví (Ground truth) - dùng chung computeWalletNet()
-    // với Profile.jsx/MembershipCard.jsx/Consultation.jsx thay vì tự lọc lại
-    // status/type ở đây. Bản cũ chỉ tính status "completed" và type
-    // deposit/withdraw, bỏ sót "approved" (casino/vòng quay/lãi VIP - luồng
-    // tự động, không bao giờ có status "completed") và "investment"/
-    // "withdrawal" (đầu tư/đặt cược - tiền RA) - khiến số dư suy ra ở đây
-    // bị tính THIẾU phần tiền đã chi, có thể lớn hơn số dư thật và (do nằm
-    // trong balanceCandidates lấy MAX bên dưới) vô tình "hoàn tiền" cho
-    // user mỗi lần đăng nhập thiết bị mới.
-    const { depSum: wtxDeposits, outSum: wtxWithdrawals, netCalculated: wtxBalance } = computeWalletNet(walletTxs);
+    // Supabase Postgres là nguồn sự thật DUY NHẤT cho balance/total_deposited
+    // (xem whimsical-napping-floyd.md Bước 4) - KHÔNG còn lấy Math.max qua
+    // nhiều nguồn (RTDB/localStorage/lịch sử ví/authUser) như trước, vì số dư
+    // có thể giảm THẬT (rút tiền, thua cược, đầu tư): một giá trị cao bất
+    // thường dù chỉ xuất hiện thoáng qua do lỗi đồng bộ sẽ bị "kẹt" vĩnh viễn
+    // làm mốc sàn nếu dùng Math.max. Chỉ khi tài khoản CHƯA TỪNG tồn tại trên
+    // Supabase mới fallback tính từ TOÀN BỘ lịch sử ví (dùng chung
+    // computeWalletNet() với Profile.jsx để nhất quán công thức).
+    const trustedSupa =
+      dbUser && dbUser.balance !== undefined && dbUser.balance !== null
+        ? dbUser
+        : matchedSupa && matchedSupa.balance !== undefined && matchedSupa.balance !== null
+        ? matchedSupa
+        : null;
 
-    const localFreshBal = getFreshUserBalance(uid) || getFreshUserBalance(uemail);
-
-    // Tính toán số dư tối thượng chính xác nhất
-    const balanceCandidates = [
-      Number(dbUser?.balance),
-      Number(matchedSupa?.balance),
-      Number(rtdbUser?.balance),
-      wtxBalance > 0 ? wtxBalance : undefined,
-      localFreshBal > 0 ? localFreshBal : undefined,
-      Number(authUser.balance),
-    ].filter((n) => typeof n === "number" && !isNaN(n));
-
-    const finalBalance = balanceCandidates.length > 0 ? Math.max(0, ...balanceCandidates) : 0;
-
-    const totalDepCandidates = [
-      Number(dbUser?.total_deposited),
-      Number(matchedSupa?.total_deposited),
-      Number(rtdbUser?.total_deposited),
-      wtxDeposits > 0 ? wtxDeposits : undefined,
-      Number(authUser.total_deposited),
-    ].filter((n) => typeof n === "number" && !isNaN(n));
-
-    const finalTotalDeposited = totalDepCandidates.length > 0 ? Math.max(0, ...totalDepCandidates) : 0;
+    let finalBalance;
+    let finalTotalDeposited;
+    let finalBalanceVersion;
+    if (trustedSupa) {
+      finalBalance = Math.max(0, Number(trustedSupa.balance) || 0);
+      finalTotalDeposited = Math.max(0, Number(trustedSupa.total_deposited) || 0);
+      finalBalanceVersion = Number(trustedSupa.balance_version || 0);
+    } else {
+      const { depSum: wtxDeposits, netCalculated: wtxBalance } = computeWalletNet(walletTxs);
+      finalBalance = Math.max(0, wtxBalance);
+      finalTotalDeposited = Math.max(0, wtxDeposits);
+      finalBalanceVersion = 0;
+    }
 
     // Hợp nhất dữ liệu Profile chuẩn
     const mergedUser = {
@@ -143,6 +141,7 @@ export async function hydrateUserOnNewDevice(authUser) {
       phone: dbUser?.phone || matchedSupa?.phone || rtdbUser?.phone || authUser.phone || "",
       balance: finalBalance,
       total_deposited: finalTotalDeposited,
+      balance_version: finalBalanceVersion,
       membership_tier: dbUser?.membership_tier || matchedSupa?.membership_tier || rtdbUser?.membership_tier || authUser.membership_tier || "Member",
       vip_level: dbUser?.vip_level || matchedSupa?.vip_level || rtdbUser?.vip_level || authUser.vip_level || "VIP 0",
       is_locked: !!(dbUser?.is_locked ?? matchedSupa?.is_locked ?? rtdbUser?.is_locked ?? authUser.is_locked),
@@ -278,7 +277,12 @@ function bindResumableSyncListener(userId, userEmail = "") {
     syncBackgroundData(userId, userEmail);
     getSupabaseUser(userId).then((dbUser) => {
       if (dbUser && typeof dbUser.balance === "number") {
-        updateUserBalance(userId, dbUser.balance);
+        // dbUser đến THẲNG từ Supabase (nguồn sự thật) nên chỉ cần nạp lại
+        // cache cục bộ (local + RTDB) cho khớp - KHÔNG ghi ngược lại Supabase
+        // (sẽ thừa vì vừa đọc từ chính nó ra) và không tăng balance_version
+        // (không có gì thực sự thay đổi, tránh làm phiên khác nhận nhầm tín
+        // hiệu "có cập nhật mới" mỗi lần thiết bị này online/focus lại).
+        refreshLocalUserFromSupabase(userId, dbUser);
       }
     }).catch(() => null);
   };

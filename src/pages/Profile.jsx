@@ -107,19 +107,30 @@ export default function Profile() {
     setBanks(finalBanks || []);
     setLoading(false);
 
-    // Auto-heal balance if ground-truth wallet history exceeds current cached
-    // balance. Must account for EVERY type that moves money, not just bank
-    // deposit/withdraw - otherwise this "heals" the balance right back up
-    // after a real deduction (casino bet, project/stock investment) that
-    // used type "investment"/"withdrawal" instead of "withdraw", handing the
-    // user free money. See computeWalletNet() below for the shared rule.
-    const { depSum, netCalculated } = computeWalletNet(wt);
-
-    if (netCalculated > Number(me.balance || 0)) {
-      import("@/lib/balanceSync").then(({ updateUserBalance }) => {
-        updateUserBalance(me.id, netCalculated, depSum);
-      });
-    }
+    // Supabase là nguồn sự thật duy nhất cho balance/total_deposited (xem
+    // whimsical-napping-floyd.md Bước 5) - KHÔNG tự ghi đè ở đây nữa. Trước
+    // đây khối này gọi updateUserBalance() (cộng dồn total_deposited) mỗi
+    // lần tải trang dựa trên tối đa 50 giao dịch gần nhất, đây chính là cơ
+    // chế gây lãi/tổng nạp phình to không kiểm soát khi bị kích hoạt lặp lại.
+    // Giờ chỉ cảnh báo console nếu phát hiện lệch, dùng TOÀN BỘ lịch sử ví
+    // (không giới hạn 50) để việc so sánh chính xác. Điều chỉnh dữ liệu lệch
+    // thật sự phải qua công cụ admin (setAbsoluteUserBalanceAndDeposit), có
+    // chủ đích, có thể theo dõi được.
+    base44.entities.WalletTransaction.filter(
+      { $or: [{ user_id: me.id }, { created_by_id: me.id }] },
+      "-created_date"
+    ).then((fullWt) => {
+      const { depSum, netCalculated } = computeWalletNet(fullWt);
+      const driftBalance = netCalculated - Number(me.balance || 0);
+      const driftDeposit = depSum - Number(me.total_deposited || 0);
+      if (Math.abs(driftBalance) > 1 || Math.abs(driftDeposit) > 1) {
+        console.warn(
+          `[Profile] Lệch số dư (chỉ cảnh báo, không tự ghi đè) - user=${me.id}: ` +
+          `balance Supabase=${me.balance} vs tính từ lịch sử ví=${netCalculated} (lệch ${driftBalance}); ` +
+          `total_deposited Supabase=${me.total_deposited} vs tính từ lịch sử ví=${depSum} (lệch ${driftDeposit})`
+        );
+      }
+    }).catch(() => {});
   };
 
   const location = useLocation();

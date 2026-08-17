@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
@@ -181,19 +181,27 @@ export default function TigerBaccarat() {
     };
   }, [user]);
 
-  const updateGlobalBalance = useCallback((newBal) => {
-    const safeBal = Math.max(0, Number(newBal) || 0);
-    setBalance(safeBal);
-    localStorage.setItem("vinclub_xito_balance", String(safeBal));
+  // Nhận DELTA (số tiền cộng/trừ) thay vì số dư tuyệt đối - cập nhật hiển
+  // thị ngay lập tức (optimistic) rồi ghi delta xuống qua adjustUserBalance
+  // (RPC nguyên tử trên Postgres) thay vì tính sẵn "số dư mới" ở client rồi
+  // ghi đè tuyệt đối, để tránh 2 thao tác gần như đồng thời (vd. 2 tab cùng
+  // tài khoản) ghi đè mất tiền của nhau.
+  const updateGlobalBalance = useCallback((delta) => {
+    const numDelta = Number(delta) || 0;
+    setBalance((prev) => {
+      const next = Math.max(0, Number(prev || 0) + numDelta);
+      localStorage.setItem("vinclub_xito_balance", String(next));
+      return next;
+    });
 
     if (user?.id) {
-      updateUserBalance(user.id, safeBal);
+      adjustUserBalance(user.id, numDelta, 0).catch(() => {});
     } else {
       try {
         const localUserStr = localStorage.getItem('base44_local_user');
         if (localUserStr) {
           const localUser = JSON.parse(localUserStr);
-          localUser.balance = safeBal;
+          localUser.balance = Math.max(0, Number(localUser.balance || 0) + numDelta);
           localStorage.setItem('base44_local_user', JSON.stringify(localUser));
         }
       } catch (e) {}
@@ -294,8 +302,7 @@ export default function TigerBaccarat() {
 
     playChipSound();
 
-    const nextBal = balance - totalNeeded;
-    updateGlobalBalance(nextBal);
+    updateGlobalBalance(-totalNeeded);
 
     setBets((prev) => {
       const updated = { ...prev };
@@ -318,8 +325,7 @@ export default function TigerBaccarat() {
     if (currentZoneBet <= 0) return;
 
     initAudio();
-    const nextBal = balance + currentZoneBet;
-    updateGlobalBalance(nextBal);
+    updateGlobalBalance(currentZoneBet);
 
     setBets((prev) => ({
       ...prev,
@@ -344,8 +350,7 @@ export default function TigerBaccarat() {
     initAudio();
     playChipSound();
 
-    const nextBal = balance - totalCurrentBets;
-    updateGlobalBalance(nextBal);
+    updateGlobalBalance(-totalCurrentBets);
 
     setBets((prev) => {
       const doubled = {};
@@ -364,8 +369,7 @@ export default function TigerBaccarat() {
     if (totalCurrentBets <= 0) return;
 
     // Hoàn trả toàn bộ số tiền cược đang đặt trên bàn về ví
-    const nextBal = balance + totalCurrentBets;
-    updateGlobalBalance(nextBal);
+    updateGlobalBalance(totalCurrentBets);
 
     setSelectedZones([]);
     setSelectedChipIndex(null);
@@ -660,7 +664,7 @@ export default function TigerBaccarat() {
           return local ? parseInt(local) : balance;
         })();
         setPrevBalance(currentBal);
-        updateGlobalBalance(currentBal + totalPayout);
+        updateGlobalBalance(totalPayout);
         setShowWinModal(true);
 
         if (user?.id) {

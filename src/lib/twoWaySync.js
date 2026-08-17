@@ -1,5 +1,5 @@
 import { upsertSupabaseUser, updateSupabaseUser, subscribeSupabaseUsersTable } from './supabaseDb';
-import { pushUserToRTDB, subscribeAllUsersFromRTDB } from './rtdbSync';
+import { pushUserToRTDB } from './rtdbSync';
 
 /**
  * twoWaySync — Bộ điều phối đồng bộ dữ liệu 2 chiều (Two-Way Sync):
@@ -91,29 +91,25 @@ let unsubs = [];
 export function startTwoWaySync() {
   if (isInitialized) return () => {};
   isInitialized = true;
-  console.log('[TwoWaySync] 🚀 Starting Two-Way Synchronization (Supabase <-> Firebase RTDB)');
+  console.log('[TwoWaySync] 🚀 Starting Sync (Supabase -> Firebase RTDB)');
 
-  // 1. Lắng nghe Supabase Realtime Postgres Changes -> Sync sang RTDB
+  // CHỈ còn 1 CHIỀU: Supabase Realtime Postgres Changes -> đẩy sang RTDB
+  // (để chat/presence/các nơi khác đọc RTDB vẫn thấy tên/avatar/is_locked...
+  // mới nhất). Trước đây còn có chiều ngược lại (RTDB -> Supabase, nghe MỌI
+  // thay đổi RTDB rồi ghi ngược vào Supabase) - đã bỏ vì không còn nơi nào
+  // ghi số dư/thông tin thật trực tiếp vào RTDB nữa (mọi ghi số dư thật đều
+  // qua RPC increment_user_balance/set_user_balance_absolute thẳng vào
+  // Supabase - RTDB giờ chỉ là bản sao được đẩy TỪ Supabase). Giữ chiều
+  // ngược lại sẽ chỉ tạo nguy cơ vòng lặp ping-pong 2 chiều mà không phục vụ
+  // mục đích thật nào (xem whimsical-napping-floyd.md Bước 6).
   const unsubSupabase = subscribeSupabaseUsersTable((payload) => {
-    const { eventType, new: newRecord, old: oldRecord } = payload;
+    const { eventType, new: newRecord } = payload;
     if (newRecord && (newRecord.id || newRecord.email)) {
       console.log(`[TwoWaySync] 📥 Supabase Realtime Event [${eventType}]:`, newRecord.id);
       syncUserToRTDB(newRecord);
     }
   });
   unsubs.push(unsubSupabase);
-
-  // 2. Lắng nghe Firebase RTDB changes -> Sync ngược lại Supabase Database
-  const unsubRTDB = subscribeAllUsersFromRTDB((rtdbUserList) => {
-    if (Array.isArray(rtdbUserList)) {
-      rtdbUserList.forEach((rtdbUser) => {
-        if (rtdbUser && (rtdbUser.id || rtdbUser.email)) {
-          syncUserToSupabase(rtdbUser, { debounceMs: 1000 });
-        }
-      });
-    }
-  });
-  unsubs.push(unsubRTDB);
 
   return () => {
     unsubs.forEach(u => typeof u === 'function' && u());

@@ -119,9 +119,44 @@ export async function incrementUserBalance(userId, delta, totalDepositedDelta = 
     return {
       balance: Number(row.balance || 0),
       total_deposited: Number(row.total_deposited || 0),
+      balance_version: Number(row.balance_version || 0),
     };
   } catch (e) {
     console.warn('[SupabaseDb] incrementUserBalance exception:', e);
+    return null;
+  }
+}
+
+/**
+ * Đặt balance/total_deposited về giá trị TUYỆT ĐỐI qua hàm Postgres
+ * set_user_balance_absolute - vẫn tăng balance_version như
+ * incrementUserBalance() (khác với upsertSupabaseUser() thông thường,
+ * không chạm tới balance_version) để phiên Realtime khác nhận diện đây là
+ * thay đổi mới hơn thay vì bị bộ so sánh version bỏ qua.
+ * @returns {Promise<{balance: number, total_deposited: number, balance_version: number} | null>}
+ */
+export async function setUserBalanceAbsolute(userId, balance, totalDeposited) {
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase.rpc('set_user_balance_absolute', {
+      p_user_id: userId,
+      p_balance: Math.trunc(Number(balance) || 0),
+      p_total_deposited: Math.trunc(Number(totalDeposited) || 0),
+    });
+
+    if (error) {
+      console.warn('[SupabaseDb] setUserBalanceAbsolute error:', error.message);
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return {
+      balance: Number(row.balance || 0),
+      total_deposited: Number(row.total_deposited || 0),
+      balance_version: Number(row.balance_version || 0),
+    };
+  } catch (e) {
+    console.warn('[SupabaseDb] setUserBalanceAbsolute exception:', e);
     return null;
   }
 }
@@ -316,10 +351,19 @@ export async function deleteSupabaseWalletTransaction(id) {
 // ==========================================
 // 3. REALTIME SUBSCRIPTION FOR SUPABASE
 // ==========================================
+// supabase-js định danh channel theo TÊN (topic) - gọi .channel() 2 lần với
+// cùng 1 tên sẽ trả về/khớp lại đúng channel đã subscribe() trước đó, và
+// .on() thêm vào một channel ĐÃ subscribe() sẽ ném lỗi "cannot add
+// postgres_changes callbacks... after subscribe()". Nhiều nơi độc lập cùng
+// gọi các hàm subscribe dưới đây (vd. twoWaySync.js chạy nền toàn app +
+// UsersTab.jsx của Admin) nên mỗi lần gọi phải tạo 1 tên channel RIÊNG,
+// không dùng chung 1 tên cố định.
+let channelSeq = 0;
+const nextChannelName = (prefix) => `${prefix}:${Date.now()}:${++channelSeq}`;
 
 export function subscribeSupabaseUsersTable(callback) {
   const channel = supabase
-    .channel('public:users')
+    .channel(nextChannelName('public:users'))
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'users' },
@@ -336,9 +380,32 @@ export function subscribeSupabaseUsersTable(callback) {
   };
 }
 
+// Kênh realtime lọc theo đúng 1 user_id - dùng cho AuthContext để nhận cập
+// nhật balance/total_deposited/balance_version của chính phiên đăng nhập,
+// thay cho subscribeUserFromRTDB (RTDB không còn là nguồn số dư đáng tin).
+export function subscribeSupabaseUserRow(userId, callback) {
+  if (!userId) return () => {};
+  const channel = supabase
+    .channel(nextChannelName(`public:users:id=eq.${userId}`))
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'users', filter: `id=eq.${userId}` },
+      (payload) => {
+        if (typeof callback === 'function') {
+          callback(payload);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 export function subscribeSupabaseWalletTransactionsTable(callback) {
   const channel = supabase
-    .channel('public:wallet_transactions')
+    .channel(nextChannelName('public:wallet_transactions'))
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'wallet_transactions' },

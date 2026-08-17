@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Wallet, AlertTriangle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -47,9 +47,8 @@ export default function TradeSheet({ stock, onClose }) {
 
     setLoading(true);
     try {
-      const newBal = Math.max(0, userBalance - totalNum);
       if (user?.id) {
-        updateUserBalance(user.id, newBal);
+        adjustUserBalance(user.id, -totalNum, 0).catch(() => {});
       }
 
       await base44.entities.Transaction.create({

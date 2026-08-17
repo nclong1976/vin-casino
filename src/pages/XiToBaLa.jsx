@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
 import { User, Minus, Plus, Ban, Coins, ArrowLeft } from "lucide-react";
@@ -166,20 +166,24 @@ export default function XiToBaLa() {
     };
   }, [user]);
 
-  // Update user balance globally
-  const updateGlobalBalance = useCallback((newBal) => {
-    const safeBal = Math.max(0, Number(newBal) || 0);
-    setBalance(safeBal);
-    localStorage.setItem("vinclub_xito_balance", String(safeBal));
+  // Nhận DELTA thay vì số dư tuyệt đối - ghi qua adjustUserBalance (RPC
+  // nguyên tử) để tránh 2 thao tác gần như đồng thời ghi đè mất tiền nhau.
+  const updateGlobalBalance = useCallback((delta) => {
+    const numDelta = Number(delta) || 0;
+    setBalance((prev) => {
+      const next = Math.max(0, Number(prev || 0) + numDelta);
+      localStorage.setItem("vinclub_xito_balance", String(next));
+      return next;
+    });
 
     if (user?.id) {
-      updateUserBalance(user.id, safeBal);
+      adjustUserBalance(user.id, numDelta, 0).catch(() => {});
     } else {
       try {
         const localUserStr = localStorage.getItem('base44_local_user');
         if (localUserStr) {
           const localUser = JSON.parse(localUserStr);
-          localUser.balance = safeBal;
+          localUser.balance = Math.max(0, Number(localUser.balance || 0) + numDelta);
           localStorage.setItem('base44_local_user', JSON.stringify(localUser));
         }
       } catch (e) {}
@@ -391,7 +395,7 @@ export default function XiToBaLa() {
     setPot(currentPot);
 
     // Deduct initial bet
-    updateGlobalBalance(balance - betAmount);
+    updateGlobalBalance(-betAmount);
   }, [betAmount, balance, updateGlobalBalance, user?.is_locked]);
 
   // Auto deal on first mount
@@ -422,7 +426,7 @@ export default function XiToBaLa() {
     }
     setBetAmount((prev) => prev + 50000);
     setPot((prev) => prev + 150000);
-    updateGlobalBalance(balance - 50000);
+    updateGlobalBalance(-50000);
     toast.success("Đã tăng cược thêm 50.000 VNĐ vào Pot!");
   };
 
@@ -449,7 +453,7 @@ export default function XiToBaLa() {
         setWinPayout(winValue);
         setWinHandLabel(pEval.rankName);
         setPrevBal(balance);
-        updateGlobalBalance(balance + winValue);
+        updateGlobalBalance(winValue);
         setShowWinOverlay(true);
         triggerFlyingChips();
 

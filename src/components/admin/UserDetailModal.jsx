@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { getFreshUserBalance, updateUserBalance } from "@/lib/balanceSync";
+import { getFreshUserBalance, setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
 import { normalizeWalletTransaction } from "@/lib/transactionHistory";
 import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
@@ -182,7 +182,10 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
       // 1. Update in Local Storage & Base44 entity
       await base44.entities.User.update(user.id, updatedPayload).catch(() => {});
-      updateUserBalance(user.id, Number(balance || 0), Number(totalDeposited || 0));
+      // Admin nhập "Tổng tiền đã nạp" là giá trị TUYỆT ĐỐI muốn đặt (không
+      // phải số cộng thêm) - trước đây gọi nhầm updateUserBalance() khiến
+      // giá trị nhập vào bị CỘNG DỒN thay vì được đặt đúng như đã gõ.
+      setAbsoluteUserBalanceAndDeposit(user.id, Number(balance || 0), Number(totalDeposited || 0));
 
       // 2. Update Supabase PostgreSQL DB
       await upsertSupabaseUser(updatedPayload).catch(() => {});

@@ -5,7 +5,7 @@ import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import PlayingCard from "@/components/casino/PlayingCard";
 import { useAuth } from "@/lib/AuthContext";
-import { updateUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance, setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
 
 const SUITS = ["♠", "♥", "♦", "♣"];
 const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -95,12 +95,40 @@ export default function BaiCao() {
     };
   }, [user]);
 
-  const persist = (v) => {
-    const safeBal = Math.max(0, Number(v) || 0);
+  // Nhận DELTA (cược/thắng/hòa) thay vì số dư tuyệt đối - ghi qua
+  // adjustUserBalance (RPC nguyên tử) để tránh ghi đè mất tiền khi 2 thao
+  // tác gần như đồng thời.
+  const applyDelta = (delta) => {
+    const numDelta = Number(delta) || 0;
+    setBalance((prev) => {
+      const next = Math.max(0, Number(prev || 0) + numDelta);
+      localStorage.setItem("baicao_balance", String(next));
+      return next;
+    });
+    if (user?.id) {
+      adjustUserBalance(user.id, numDelta, 0).catch(() => {});
+    } else {
+      try {
+        const localUserStr = localStorage.getItem("base44_local_user");
+        if (localUserStr) {
+          const localUser = JSON.parse(localUserStr);
+          localUser.balance = Math.max(0, Number(localUser.balance || 0) + numDelta);
+          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
+        }
+      } catch (e) {}
+      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+    }
+  };
+
+  // Nạp lại số dư demo về đúng 1 mốc cố định - đây LÀ đặt giá trị tuyệt đối
+  // có chủ đích (không phải tiền thật di chuyển), nên dùng hàm set tuyệt đối
+  // riêng thay vì applyDelta().
+  const resetToAmount = (amount) => {
+    const safeBal = Math.max(0, Number(amount) || 0);
     setBalance(safeBal);
     localStorage.setItem("baicao_balance", String(safeBal));
     if (user?.id) {
-      updateUserBalance(user.id, safeBal);
+      setAbsoluteUserBalanceAndDeposit(user.id, safeBal, Number(user.total_deposited || 0));
     } else {
       try {
         const localUserStr = localStorage.getItem("base44_local_user");
@@ -122,8 +150,7 @@ export default function BaiCao() {
     setBusy(true);
 
     // Trừ tiền cược vào ví ngay khi đặt cược thành công
-    const newBal = balance - bet;
-    persist(newBal);
+    applyDelta(-bet);
 
     if (user?.id) {
       base44.entities.WalletTransaction.create({
@@ -148,17 +175,11 @@ export default function BaiCao() {
   const reveal = useCallback(() => {
     const r = compare(player, dealer);
     let winPayout = 0;
-    
-    // Lấy số dư ví hiện tại sau khi đã trừ cược ở bước deal
-    const currentBal = (() => {
-      const local = localStorage.getItem("baicao_balance");
-      return local ? parseInt(local) : balance;
-    })();
 
     if (r === "win") {
       // Thắng: Trả lại vốn (1x) + Lợi nhuận (1x hoặc 2x nếu là sáp/cao)
       winPayout = isCao(player) ? bet * 3 : bet * 2;
-      persist(currentBal + winPayout);
+      applyDelta(winPayout);
 
       if (user?.id) {
         base44.entities.WalletTransaction.create({
@@ -173,7 +194,7 @@ export default function BaiCao() {
     } else if (r === "tie") {
       // Hòa: Hoàn trả lại tiền cược
       winPayout = bet;
-      persist(currentBal + winPayout);
+      applyDelta(winPayout);
     } else {
       // Thua: Tiền đã trừ lúc đặt cược, không cộng thêm
       winPayout = 0;
@@ -191,7 +212,7 @@ export default function BaiCao() {
   }, []);
 
   const resetBalance = () => {
-    persist(5000000);
+    resetToAmount(5000000);
     toast.success("Đã nạp lại số dư");
   };
 

@@ -1,6 +1,6 @@
 import { pushUserToRTDB } from '@/lib/rtdbSync';
 import { syncUserToSupabase } from '@/lib/twoWaySync';
-import { incrementUserBalance } from '@/lib/supabaseDb';
+import { incrementUserBalance, setUserBalanceAbsolute } from '@/lib/supabaseDb';
 
 /**
  * Ghi số dư/total_deposited (giá trị TUYỆT ĐỐI, đã tính sẵn) vào mọi nơi
@@ -9,15 +9,20 @@ import { incrementUserBalance } from '@/lib/supabaseDb';
  * cả 2 chỉ khác nhau ở CHỖ TÍNH ra numBalance/numDeposit, còn việc ghi thì
  * giống hệt nhau.
  */
-function applyBalanceToLocalStores(userId, numBalance, numDeposit) {
+function applyBalanceToLocalStores(userId, numBalance, numDeposit, numVersion) {
   let updatedUser = null;
+  // balance_version chỉ có khi gọi từ adjustUserBalance() (RPC trả về) -
+  // undefined thì bỏ qua field này, giữ nguyên version cũ đang có trong cache
+  // (không ghi đè bằng undefined, spread {...u, ...patch} sẽ set key thành
+  // undefined nếu ta luôn đưa key vào object patch).
+  const versionPatch = numVersion === undefined ? {} : { balance_version: numVersion };
 
   // 1. Update in registered users list
   const rawUsers = localStorage.getItem('base44_registered_users');
   let users = rawUsers ? JSON.parse(rawUsers) : [];
   users = users.map(u => {
     if (u.id === userId || u.email === userId) {
-      const updated = { ...u, balance: numBalance, total_deposited: numDeposit };
+      const updated = { ...u, balance: numBalance, total_deposited: numDeposit, ...versionPatch };
       updatedUser = updated;
       return updated;
     }
@@ -30,7 +35,7 @@ function applyBalanceToLocalStores(userId, numBalance, numDeposit) {
   if (currentLocalStr) {
     const currentLocal = JSON.parse(currentLocalStr);
     if (currentLocal.id === userId || currentLocal.email === userId) {
-      const newLocal = { ...currentLocal, balance: numBalance, total_deposited: numDeposit };
+      const newLocal = { ...currentLocal, balance: numBalance, total_deposited: numDeposit, ...versionPatch };
       localStorage.setItem('base44_local_user', JSON.stringify(newLocal));
       updatedUser = newLocal;
     }
@@ -43,7 +48,7 @@ function applyBalanceToLocalStores(userId, numBalance, numDeposit) {
       let entityUsers = JSON.parse(rawEntityUsers);
       entityUsers = entityUsers.map(u =>
         (u.id === userId || u.email === userId)
-          ? { ...u, balance: numBalance, total_deposited: numDeposit }
+          ? { ...u, balance: numBalance, total_deposited: numDeposit, ...versionPatch }
           : u
       );
       localStorage.setItem('base44_entity_User', JSON.stringify(entityUsers));
@@ -51,7 +56,7 @@ function applyBalanceToLocalStores(userId, numBalance, numDeposit) {
   }
 
   if (!updatedUser) {
-    updatedUser = { id: userId, balance: numBalance, total_deposited: numDeposit, last_active: new Date().toISOString() };
+    updatedUser = { id: userId, balance: numBalance, total_deposited: numDeposit, last_active: new Date().toISOString(), ...versionPatch };
   }
 
   // 4. Push updated balance directly to Firebase Realtime Database for instant multi-device sync
@@ -79,25 +84,50 @@ function applyBalanceToLocalStores(userId, numBalance, numDeposit) {
  * admin khi cần sửa lại cả 2 trường về đúng số thực tế (vd. khắc phục sự
  * cố dữ liệu bị lỗi cộng dồn sai).
  */
-export function setAbsoluteUserBalanceAndDeposit(userId, newBalance, newTotalDeposited) {
+export async function setAbsoluteUserBalanceAndDeposit(userId, newBalance, newTotalDeposited) {
   if (!userId) return null;
   const numBalance = Math.max(0, Number(newBalance) || 0);
   const numDeposit = Math.max(0, Number(newTotalDeposited) || 0);
 
   try {
-    const updatedUser = applyBalanceToLocalStores(userId, numBalance, numDeposit);
+    const rpcResult = await setUserBalanceAbsolute(userId, numBalance, numDeposit);
+    if (rpcResult) {
+      // Ghi qua RPC nguyên tử để balance_version cũng tăng - nếu chỉ upsert
+      // thường thì phiên Realtime khác (AuthContext) sẽ không nhận ra đây là
+      // thay đổi mới hơn và âm thầm bỏ qua (xem set_user_balance_absolute
+      // trong supabase_schema.sql).
+      return applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
+    }
 
+    // Fallback: RPC lỗi (vd. project chưa chạy migration mới nhất) - vẫn cho
+    // thao tác hoàn tất bằng upsert thường như trước đây (không tăng version)
+    console.warn("[balanceSync] set_user_balance_absolute RPC unavailable, falling back to upsert");
+    const updatedUser = applyBalanceToLocalStores(userId, numBalance, numDeposit);
     try {
       syncUserToSupabase(updatedUser, { debounceMs: 0 });
     } catch (e) {
       console.warn("syncUserToSupabase error in setAbsoluteUserBalanceAndDeposit:", e);
     }
-
     return updatedUser;
   } catch (e) {
     console.error("setAbsoluteUserBalanceAndDeposit error:", e);
     return null;
   }
+}
+
+/**
+ * Nạp lại cache cục bộ (localStorage + RTDB) từ 1 bản ghi Supabase ĐÃ ĐỌC
+ * SẴN (vd. sau khi mạng phục hồi, chỉ để đồng bộ thiết bị này theo kịp) -
+ * KHÔNG ghi ngược lại Supabase (vì giá trị vừa đọc ra từ chính Supabase,
+ * ghi lại là thừa) và giữ nguyên balance_version thật của bản ghi thay vì
+ * tăng thêm, tránh làm phiên khác hiểu nhầm là có thay đổi mới.
+ */
+export function refreshLocalUserFromSupabase(userId, dbUser) {
+  if (!userId || !dbUser) return null;
+  const numBalance = Math.max(0, Number(dbUser.balance) || 0);
+  const numDeposit = Math.max(0, Number(dbUser.total_deposited) || 0);
+  const numVersion = Number(dbUser.balance_version || 0);
+  return applyBalanceToLocalStores(userId, numBalance, numDeposit, numVersion);
 }
 
 export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
@@ -143,8 +173,9 @@ export async function adjustUserBalance(userId, delta, totalDepositedDelta = 0) 
   const rpcResult = await incrementUserBalance(userId, numDelta, numDepositDelta);
   if (rpcResult) {
     // Ghi đúng giá trị THẬT mà Postgres vừa tính ra (không phải giá trị
-    // đoán ở client) xuống mọi nơi cục bộ + RTDB
-    return applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited);
+    // đoán ở client) xuống mọi nơi cục bộ + RTDB, kèm balance_version mới
+    // để phiên đăng nhập khác nhận diện đây là bản cập nhật mới hơn
+    return applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
   }
 
   // Fallback: RPC lỗi (vd. project chưa chạy migration increment_user_balance
