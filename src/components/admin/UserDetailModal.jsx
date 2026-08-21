@@ -159,8 +159,23 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const handleSaveUser = async () => {
     setSaving(true);
     try {
-      const updatedPayload = {
-        ...user,
+      // BẢO MẬT ĐỒNG BỘ SỐ DƯ: trước đây có TỚI 3 đường ghi balance/
+      // total_deposited chạy gần như song song, không theo thứ tự cố định
+      // (User.update() ghi upsert thường, setAbsoluteUserBalanceAndDeposit()
+      // ghi qua RPC có version nhưng KHÔNG được await, rồi upsertSupabaseUser()
+      // ghi đè thêm 1 lần nữa) - 3 đường ghi cùng 1 cột theo thứ tự không xác
+      // định khiến giá trị cuối cùng trên Postgres có thể KHÔNG khớp với số
+      // admin vừa nhập, và không đẩy đúng balance_version để các thiết bị
+      // khác của người dùng nhận diện đây là bản cập nhật mới hơn - đúng lớp
+      // lỗi đã gây ra sự cố số dư không đồng bộ đúng vừa xử lý.
+      //
+      // Giờ CHỈ 1 đường ghi số dư DUY NHẤT: setAbsoluteUserBalanceAndDeposit()
+      // qua RPC nguyên tử (tăng đúng balance_version) - chạy XONG hẳn trước,
+      // rồi mới cập nhật các field hồ sơ KHÁC (không đụng lại balance/
+      // total_deposited) qua User.update() để tránh ghi đè chồng chéo.
+      await setAbsoluteUserBalanceAndDeposit(user.id, Number(balance || 0), Number(totalDeposited || 0));
+
+      const profilePayload = {
         full_name: fullName,
         name: fullName,
         phone: phone,
@@ -169,26 +184,12 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
         role: role,
         membership_tier: tier,
         vip_level: vipLevel,
-        balance: Number(balance || 0),
-        total_deposited: Number(totalDeposited || 0),
         is_locked: isLocked,
         bank_name: bankName,
         account_number: accountNumber,
         account_holder: accountHolder,
       };
-
-      // 1. Update in Local Storage & Base44 entity
-      await base44.entities.User.update(user.id, updatedPayload).catch(() => {});
-      // Admin nhập "Tổng tiền đã nạp" là giá trị TUYỆT ĐỐI muốn đặt (không
-      // phải số cộng thêm) - trước đây gọi nhầm updateUserBalance() khiến
-      // giá trị nhập vào bị CỘNG DỒN thay vì được đặt đúng như đã gõ.
-      setAbsoluteUserBalanceAndDeposit(user.id, Number(balance || 0), Number(totalDeposited || 0));
-
-      // 2. Update Supabase PostgreSQL DB
-      await upsertSupabaseUser(updatedPayload).catch(() => {});
-
-      // 3. Push to Firebase RTDB
-      await pushUserToRTDB(updatedPayload).catch(() => {});
+      await base44.entities.User.update(user.id, profilePayload).catch(() => {});
 
       // Create Audit Log
       await base44.entities.AuditLog.create({

@@ -33,8 +33,21 @@ const SUPABASE_BACKED_ENTITIES = new Set([
 // "thread_members" (lỗi đã được xác nhận sửa xong ở phía Supabase). Nếu lỗi
 // tái diễn, tạm loại 'Message' khỏi Set này để Support.jsx lùi về
 // localStorage an toàn cho tới khi RLS được sửa lại.
+//
+// "WalletTransaction" KHÔNG ở trong danh sách này - đây là lỗi TÀI CHÍNH
+// NGHIÊM TRỌNG vừa phát hiện: bảng "wallet_transactions" trên Postgres
+// KHÔNG có cột "category"/"note" (xem supabase_schema.sql), nên
+// createSupabaseWalletTransaction() âm thầm loại bỏ 2 field này khi ghi.
+// dailyYieldEngine.js dựa vào field "category" ('Lãi VIP Hằng Ngày') để
+// kiểm tra "đã cộng lãi hôm nay chưa" - nếu đọc WalletTransaction từ
+// Supabase, điều kiện này sẽ LUÔN LUÔN false, khiến lãi bị cộng lặp lại
+// mỗi 30 giây (rà soát tự động trong AuthContext.jsx) VĨNH VIỄN không
+// điểm dừng cho tới khi hết phiên đăng nhập. Giữ WalletTransaction đọc từ
+// localStorage (như trước khi chuyển kiến trúc) cho tới khi bảng Postgres
+// được thêm đủ cột category + note VÀ createSupabaseWalletTransaction()
+// được cập nhật ghi đủ 2 field đó - lúc đó mới an toàn thêm lại vào đây.
 const SUPABASE_READABLE_ENTITIES = new Set([
-  'User', 'WalletTransaction', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
+  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
 ]);
 
 /**
@@ -636,14 +649,25 @@ class LocalEntityClient {
     this.notifySubscribers();
 
     // Đẩy thay đổi lên Supabase Database, Firestore & Realtime Database
+    //
+    // QUAN TRỌNG (vá lỗi cộng lãi/số dư lặp không kiểm soát): với các entity
+    // đọc thẳng từ Supabase (SUPABASE_READABLE_ENTITIES), ghi Supabase PHẢI
+    // được await xong trước khi create() trả về. Trước đây ghi Supabase là
+    // "bắn rồi quên" (không await) - nếu 1 nơi gọi create() xong rồi NGAY
+    // LẬP TỨC gọi filter()/list() để kiểm tra "đã tồn tại chưa" (vd.
+    // dailyYieldEngine.js kiểm tra "đã cộng lãi hôm nay chưa" mỗi 30 giây),
+    // bản ghi vừa tạo có thể CHƯA kịp lên Postgres, khiến hệ thống tưởng
+    // "chưa cộng lãi" và cộng lại lần nữa - tái diễn đúng lỗi lãi cộng dồn
+    // không kiểm soát đã từng vá trước đây (xem ghi chú trong
+    // dailyYieldEngine.js).
     try {
       if (this.entityName === 'User') {
-        upsertSupabaseUser(newItem).catch(() => null);
+        await upsertSupabaseUser(newItem).catch(() => null);
         import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
           pushUserToRTDB(newItem);
         });
       } else if (this.entityName === 'WalletTransaction') {
-        createSupabaseWalletTransaction(newItem).catch(() => null);
+        await createSupabaseWalletTransaction(newItem).catch(() => null);
         import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
           pushWalletTransactionToRTDB(newItem);
         });
@@ -662,7 +686,7 @@ class LocalEntityClient {
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-        upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
+        await upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
       }
 
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
@@ -704,9 +728,14 @@ class LocalEntityClient {
     setLocalStore(this.entityName, items);
     this.notifySubscribers();
 
+    // Cùng lý do phải await ở create() phía trên: các nơi gọi update() rồi
+    // ngay sau đó dùng filter()/list() (đọc thẳng Supabase) để kiểm tra
+    // "đã xử lý xong chưa" (vd. dailyYieldEngine.js kiểm tra
+    // tx.payout_status === "paid" trước khi trả lãi đáo hạn dự án mỗi 30
+    // giây) cần bản ghi đã THỰC SỰ lên Postgres, không phải "bắn rồi quên".
     try {
       if (this.entityName === 'User') {
-        updateSupabaseUser(id, updated).catch(() => null);
+        await updateSupabaseUser(id, updated).catch(() => null);
         import('@/lib/rtdbSync').then(({ pushUserToRTDB, safeWriteRTDB }) => {
           if (foundInCache) {
             // `updated` là bản ghi ĐẦY ĐỦ (đã merge với cache cục bộ) nên
@@ -726,14 +755,14 @@ class LocalEntityClient {
           }
         });
       } else if (this.entityName === 'WalletTransaction') {
-        updateSupabaseWalletTransaction(id, updated).catch(() => null);
+        await updateSupabaseWalletTransaction(id, updated).catch(() => null);
         import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
           pushWalletTransactionToRTDB(updated);
         });
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-        upsertSupabaseEntity(this.entityName, updated).catch(() => null);
+        await upsertSupabaseEntity(this.entityName, updated).catch(() => null);
       }
 
       import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {

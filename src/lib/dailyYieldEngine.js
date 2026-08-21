@@ -9,6 +9,12 @@ import { adjustUserBalance } from "@/lib/balanceSync";
  */
 export async function runDailyYieldAndMaturityCheck(user) {
   if (!user || !user.id) return;
+  // Tài khoản đã bị Admin khóa - không tự động cộng lãi/đáo hạn cho tới khi
+  // được mở khóa lại và xác minh dữ liệu đầu tư là chính xác. Đây là lớp
+  // chặn đầu tiên, độc lập với các kiểm tra "đã xử lý chưa" bên dưới - hữu
+  // ích khi cần dừng khẩn cấp 1 tài khoản đang bị lặp cộng tiền sai mà chưa
+  // rõ nguyên nhân gốc.
+  if (user.is_locked) return;
 
   try {
     const todayStr = new Date().toISOString().split("T")[0];
@@ -99,8 +105,30 @@ export async function runDailyYieldAndMaturityCheck(user) {
       200
     ).catch(() => []);
 
+    // BẢO VỆ KÉP chống lặp trả đáo hạn (đã tái hiện thực tế: 1 tài khoản bị
+    // cộng lặp đúng 1 khoản cố định mỗi ~30 giây, cộng dồn tới hàng chục tỷ
+    // chỉ trong vài phút). Chỉ dựa vào tx.payout_status === "paid" là KHÔNG
+    // ĐỦ AN TOÀN: nếu Transaction.update() phía dưới ghi thất bại (mất mạng,
+    // lỗi tạm thời phía Supabase) hoặc phiên đang chạy mã cũ trước khi ghi
+    // Supabase được await đúng cách, trạng thái "đã trả" sẽ không bao giờ
+    // được ghi nhận và vòng lặp rà soát mỗi 30 giây sẽ trả tiếp mãi mãi. Vì
+    // vậy kiểm tra thêm 1 dấu vết ĐỘC LẬP: đã từng tạo WalletTransaction
+    // tham chiếu đúng tx.id này chưa (walletTxs đã tải sẵn ở mục 1 phía
+    // trên) - đây là lớp chặn thứ 2, không phụ thuộc việc update() có ghi
+    // Supabase thành công hay không.
+    const paidTxIds = new Set(
+      walletTxs
+        .filter((w) => w.category === "Đáo Hạn Dự Án" && typeof w.note === "string")
+        .map((w) => {
+          const m = w.note.match(/\[ref:([^\]]+)\]/);
+          return m ? m[1] : null;
+        })
+        .filter(Boolean)
+    );
+
     for (const tx of userTxs) {
       if (tx.payout_status === "paid" || tx.status === "completed_payout") continue;
+      if (paidTxIds.has(tx.id)) continue;
 
       const createdTime = new Date(tx.created_date || tx.created_at || now).getTime();
       const elapsedMs = now.getTime() - createdTime;
@@ -120,7 +148,12 @@ export async function runDailyYieldAndMaturityCheck(user) {
       if (elapsedMs >= durationMs) {
         const payoutAmount = Number(tx.total) || (Number(tx.amount) + Number(tx.profit));
 
-        // 1. Cập nhật trạng thái giao dịch đầu tư
+        // Đánh dấu "đã trả" (cả 2 lớp bảo vệ) TRƯỚC KHI thực sự cộng tiền -
+        // nếu cộng tiền trước rồi mới đánh dấu, một lỗi giữa chừng có thể
+        // khiến vòng lặp kế tiếp (30 giây sau) cộng lại lần nữa trước khi
+        // kịp thấy dấu "đã trả". [ref:tx.id] nhúng trong note để lớp bảo vệ
+        // thứ 2 ở trên nhận diện được, dù bảng WalletTransaction thật trên
+        // Postgres không có cột lưu category/note.
         await base44.entities.Transaction.update(tx.id, {
           status: "completed_payout",
           payout_status: "paid"
@@ -131,7 +164,7 @@ export async function runDailyYieldAndMaturityCheck(user) {
           user_id: user.id,
           type: "deposit",
           amount: payoutAmount,
-          note: `Đáo hạn dự án "${tx.project_title}" - Hoàn vốn & trả lãi`,
+          note: `Đáo hạn dự án "${tx.project_title}" - Hoàn vốn & trả lãi [ref:${tx.id}]`,
           category: "Đáo Hạn Dự Án",
           status: "approved"
         }).catch(() => null);

@@ -180,10 +180,33 @@ export async function adjustUserBalance(userId, delta, totalDepositedDelta = 0) 
 
   // Fallback: RPC lỗi (vd. project chưa chạy migration increment_user_balance
   // trong supabase_schema.sql) - vẫn cho thao tác hoàn tất bằng cách đọc số
-  // dư gần nhất rồi cộng tay, để không chặn người dùng giữa chừng
+  // dư gần nhất rồi cộng tay, để không chặn người dùng giữa chừng.
+  //
+  // BẢO MẬT DỮ LIỆU (vá lỗi số dư tăng vọt không kiểm soát thời gian thực):
+  // TRƯỚC ĐÂY nhánh này lấy "số dư hiện tại" từ cache localStorage cục bộ
+  // (getFreshUserBalance) - nếu cache của MỘT thiết bị/phiên nào đó đã lỡ
+  // hỏng (vd. giữ 1 số khổng lồ từ sự cố cũ) và RPC cứ lỗi liên tục ở đúng
+  // phiên đó (vd. do token hết hạn), mỗi chu kỳ 30 giây sẽ LẤY LẠI số khổng
+  // lồ đó + cộng delta rồi GHI ĐÈ THẲNG lên Postgres bằng upsert thường
+  // (không kiểm tra version) - tự "tái nhiễm" con số sai lên server mãi mãi,
+  // kể cả sau khi server đã được sửa đúng. Giờ đọc số dư THẬT trực tiếp từ
+  // Supabase (nguồn sự thật) làm gốc thay vì tin cache cục bộ - nếu Supabase
+  // cũng không đọc được thì mới bất đắc dĩ lùi về cache cục bộ.
   console.warn("[balanceSync] increment_user_balance RPC unavailable, falling back to read-then-write");
-  const currentBal = getFreshUserBalance(userId);
-  const currentDep = getFreshUserTotalDeposited(userId);
+  let currentBal;
+  let currentDep;
+  try {
+    const { getSupabaseUser } = await import('@/lib/supabaseDb');
+    const dbUser = await getSupabaseUser(userId);
+    if (dbUser && dbUser.balance !== undefined && dbUser.balance !== null) {
+      currentBal = Number(dbUser.balance) || 0;
+      currentDep = Number(dbUser.total_deposited) || 0;
+    }
+  } catch (e) {}
+  if (currentBal === undefined) {
+    currentBal = getFreshUserBalance(userId);
+    currentDep = getFreshUserTotalDeposited(userId);
+  }
   return updateUserBalance(userId, currentBal + numDelta, Math.max(0, numDepositDelta));
 }
 
