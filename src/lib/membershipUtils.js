@@ -15,7 +15,7 @@ const TIER_INFO = {
     dailyRate: 0.2,
     dailyRateLabel: "0,2%/ngày",
     benefits: [
-      "Lãi suất cộng dồn hằng ngày: 0,2%/ngày (lúc 9h sáng)",
+      "Tỷ suất lợi nhuận dự án đầu tư: 0,2%/ngày, nhận gốc & lãi khi đáo hạn",
       "Tích điểm thưởng VinClub cho mọi dịch vụ",
       "Ưu đãi 10% tại hệ sinh thái Vingroup",
       "Tham gia Vòng quay may mắn hằng ngày"
@@ -30,7 +30,7 @@ const TIER_INFO = {
     dailyRate: 0.4,
     dailyRateLabel: "0,4%/ngày",
     benefits: [
-      "Lãi suất cộng dồn hằng ngày: 0,4%/ngày (lúc 9h sáng)",
+      "Tỷ suất lợi nhuận dự án đầu tư: 0,4%/ngày, nhận gốc & lãi khi đáo hạn",
       "Ưu đãi 30% dịch vụ nghỉ dưỡng Vinpearl",
       "Tặng voucher buffet 2-for-1 hằng tháng",
       "Vé vào cửa tự do Casino Corona"
@@ -45,7 +45,7 @@ const TIER_INFO = {
     dailyRate: 0.8,
     dailyRateLabel: "0,8%/ngày",
     benefits: [
-      "Lãi suất cộng dồn hằng ngày: 0,8%/ngày (lúc 9h sáng)",
+      "Tỷ suất lợi nhuận dự án đầu tư: 0,8%/ngày, nhận gốc & lãi khi đáo hạn",
       "Ưu đãi 40% dịch vụ nghỉ dưỡng Vinpearl",
       "Phòng chờ VIP tại Casino Corona",
       "Hỗ trợ tư vấn dự án & BĐS cao cấp"
@@ -60,7 +60,7 @@ const TIER_INFO = {
     dailyRate: 1.2,
     dailyRateLabel: "1,2%/ngày",
     benefits: [
-      "Lãi suất cộng dồn hằng ngày: 1,2%/ngày (lúc 9h sáng)",
+      "Tỷ suất lợi nhuận dự án đầu tư: 1,2%/ngày, nhận gốc & lãi khi đáo hạn",
       "Đặc quyền Chăm sóc KH 24/7 riêng biệt",
       "Giảm 50% phí dịch vụ Vinpearl & Casino VIP",
       "Thẻ mời VIP dự sự kiện độc quyền VinGroup"
