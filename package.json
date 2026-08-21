@@ -10,7 +10,8 @@
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.41",
@@ -104,6 +105,8 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.18",
     "eslint-plugin-unused-imports": "^4.3.0",
-    "globals": "^15.14.0"
+    "globals": "^15.14.0",
+    "jsdom": "^30.0.1",
+    "vitest": "^4.1.11"
   }
 }

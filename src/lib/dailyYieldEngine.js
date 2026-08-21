@@ -1,15 +1,19 @@
 import { base44 } from "@/api/base44Client";
-import { getCardTierInfo } from "@/lib/membershipUtils";
 import { adjustUserBalance } from "@/lib/balanceSync";
 
 /**
  * Tự động kiểm tra và trả lãi cho hội viên VinClub:
- * 1. Tự động tính lãi & hoàn vốn dự án khi kết thúc kỳ hạn thời gian thực.
- * 2. Tự động rà soát vào 9:00 AM hằng ngày và cộng lợi nhuận tiền lãi theo từng cấp bậc thẻ VIP.
+ * - Tự động tính lãi & hoàn vốn dự án khi kết thúc kỳ hạn thời gian thực.
+ *
+ * ĐÃ GỠ BỎ HOÀN TOÀN: cơ chế "cộng lãi tích lũy hằng ngày lúc 9h sáng" theo
+ * % hạng VIP. Đây là nguồn gốc gây sự cố tài chính nghiêm trọng (lãi chồng
+ * lãi tăng theo cấp số nhân không kiểm soát khi bị kích hoạt lặp lại từ
+ * nhiều thiết bị/phiên) đã xảy ra thực tế nhiều lần. Chỉ còn lại cơ chế trả
+ * gốc + lãi khi MỘT khoản đầu tư cụ thể (Transaction) đáo hạn thật sự.
  */
 export async function runDailyYieldAndMaturityCheck(user) {
   if (!user || !user.id) return;
-  // Tài khoản đã bị Admin khóa - không tự động cộng lãi/đáo hạn cho tới khi
+  // Tài khoản đã bị Admin khóa - không tự động trả đáo hạn cho tới khi
   // được mở khóa lại và xác minh dữ liệu đầu tư là chính xác. Đây là lớp
   // chặn đầu tiên, độc lập với các kiểm tra "đã xử lý chưa" bên dưới - hữu
   // ích khi cần dừng khẩn cấp 1 tài khoản đang bị lặp cộng tiền sai mà chưa
@@ -17,87 +21,16 @@ export async function runDailyYieldAndMaturityCheck(user) {
   if (user.is_locked) return;
 
   try {
-    const todayStr = new Date().toISOString().split("T")[0];
     const now = new Date();
-    const currentHour = now.getHours();
 
-    // ==========================================
-    // 1. RÀ SOÁT LÃI TÍCH LŨY HẰNG NGÀY (9:00 AM)
-    // ==========================================
-    // Thực hiện cộng lãi 9h sáng nếu thời gian hiện tại >= 9h sáng và chưa nhận lãi ngày hôm nay.
-    //
-    // QUAN TRỌNG: "đã cộng lãi hôm nay chưa" PHẢI kiểm tra bằng chính lịch
-    // sử ví trên server (ground truth), KHÔNG được chỉ dựa vào localStorage
-    // như trước đây. localStorage bị xoá (người dùng xoá cache trình duyệt,
-    // đổi thiết bị, hoặc dùng chế độ ẩn danh) khiến app tưởng lầm "chưa cộng
-    // lãi hôm nay" và cộng lại lần nữa - lần cộng sau lại tính trên số dư ĐÃ
-    // BAO GỒM lãi của chính hôm đó, khiến lãi tăng theo cấp số nhân không
-    // kiểm soát mỗi lần bị kích hoạt lại (đã tái hiện thực tế: 1 tài khoản
-    // test bị cộng nhầm tới hàng chục nghìn tỷ VNĐ chỉ sau vài lần xoá cache
-    // trong lúc QA). Quét thẳng walletTxs vừa tải để xác định chính xác.
     const walletTxs = await base44.entities.WalletTransaction.filter(
       { $or: [{ user_id: user.id }, { created_by_id: user.id }] },
       "-created_date",
       1000
     ).catch(() => []);
 
-    const alreadyPaidToday = walletTxs.some(
-      (t) => t.category === "Lãi VIP Hằng Ngày" && String(t.created_date || "").slice(0, 10) === todayStr
-    );
-
-    if (currentHour >= 9 && !alreadyPaidToday) {
-      const depositSum = walletTxs
-        .filter((t) => t.type === "deposit")
-        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0) + (user.total_deposited || (user.role === "admin" ? (user.balance ?? 0) : 0));
-
-      // Hạng VIP không còn tự suy ra từ tổng nạp - lãi suất áp dụng theo đúng
-      // hạng Admin đã gán cho tài khoản (user.membership_tier), mặc định
-      // Member 0,2%/ngày nếu chưa được gán hạng nào.
-      const tierInfo = getCardTierInfo(user.membership_tier);
-      const dailyRate = tierInfo.dailyRate || 0.2; // 0.2%, 0.4%, 0.8%, 1.2%
-
-      // Lãi suất được tính dựa trên tổng nạp tích lũy (hoặc tối thiểu 100K nếu nạp tích lũy chưa có)
-      const baseForInterest = Math.max(depositSum, Number(user.balance) || 0);
-
-      if (baseForInterest > 0) {
-        const dailyProfit = Math.round(baseForInterest * (dailyRate / 100));
-
-        if (dailyProfit > 0) {
-          // Tạo giao dịch cộng lãi vào ví
-          await base44.entities.WalletTransaction.create({
-            user_id: user.id,
-            type: "deposit",
-            amount: dailyProfit,
-            note: `Lợi nhuận tích lũy 9h sáng (${tierInfo.name} - ${tierInfo.dailyRateLabel})`,
-            category: "Lãi VIP Hằng Ngày",
-            status: "approved"
-          }).catch(() => null);
-
-          // Áp dụng thật vào số dư qua RPC nguyên tử - trước đây bước này
-          // KHÔNG tồn tại, chỉ tạo bản ghi giao dịch rồi trông chờ auto-heal
-          // ở Profile.jsx tự tính lại và ghi đè, khiến lãi chỉ thực sự "vào
-          // ví" khi user tình cờ mở trang Cá nhân, và mỗi lần auto-heal chạy
-          // lại cộng dồn total_deposited sai (xem Profile.jsx). Không cộng
-          // vào total_deposited ở đây vì đã được tính trong depositSum phía
-          // trên từ chính lịch sử ví - cộng thêm sẽ đếm trùng.
-          await adjustUserBalance(user.id, dailyProfit, 0).catch(() => null);
-
-          // Gửi thông báo hệ thống
-          await base44.entities.Message.create({
-            sender: "admin",
-            conversation_id: user.id,
-            content: `[Cộng Lãi Hằng Ngày 9h Sáng]\n\nHệ thống đã tự động rà soát tài khoản và cộng +${dailyProfit.toLocaleString("vi-VN")} VNĐ lãi suất tích lũy theo cấp hạng ${tierInfo.name} (${tierInfo.dailyRateLabel}) vào ví của bạn.\n\nCảm ơn bạn đã đồng hành cùng VinClub!`,
-            attachments: []
-          }).catch(() => null);
-
-          // Bắn sự kiện cập nhật số dư thời gian thực
-          window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
-        }
-      }
-    }
-
     // ==========================================
-    // 2. RÀ SOÁT KẾT THÚC DỰ ÁN ĐẦU TƯ THỜI GIAN THỰC
+    // RÀ SOÁT KẾT THÚC DỰ ÁN ĐẦU TƯ THỜI GIAN THỰC
     // ==========================================
     const userTxs = await base44.entities.Transaction.filter(
       { user_id: user.id },
@@ -113,9 +46,8 @@ export async function runDailyYieldAndMaturityCheck(user) {
     // Supabase được await đúng cách, trạng thái "đã trả" sẽ không bao giờ
     // được ghi nhận và vòng lặp rà soát mỗi 30 giây sẽ trả tiếp mãi mãi. Vì
     // vậy kiểm tra thêm 1 dấu vết ĐỘC LẬP: đã từng tạo WalletTransaction
-    // tham chiếu đúng tx.id này chưa (walletTxs đã tải sẵn ở mục 1 phía
-    // trên) - đây là lớp chặn thứ 2, không phụ thuộc việc update() có ghi
-    // Supabase thành công hay không.
+    // tham chiếu đúng tx.id này chưa - đây là lớp chặn thứ 2, không phụ
+    // thuộc việc update() có ghi Supabase thành công hay không.
     const paidTxIds = new Set(
       walletTxs
         .filter((w) => w.category === "Đáo Hạn Dự Án" && typeof w.note === "string")
@@ -159,7 +91,7 @@ export async function runDailyYieldAndMaturityCheck(user) {
           payout_status: "paid"
         }).catch(() => null);
 
-        // 2. Cộng vốn + lãi vào ví người dùng
+        // Cộng vốn + lãi vào ví người dùng
         await base44.entities.WalletTransaction.create({
           user_id: user.id,
           type: "deposit",
@@ -169,11 +101,10 @@ export async function runDailyYieldAndMaturityCheck(user) {
           status: "approved"
         }).catch(() => null);
 
-        // Áp dụng thật vào số dư qua RPC nguyên tử (xem giải thích tương tự
-        // ở nhánh lãi VIP hằng ngày phía trên)
+        // Áp dụng thật vào số dư qua RPC nguyên tử
         await adjustUserBalance(user.id, payoutAmount, 0).catch(() => null);
 
-        // 3. Thông báo cho người dùng
+        // Thông báo cho người dùng
         await base44.entities.Message.create({
           sender: "admin",
           conversation_id: user.id,

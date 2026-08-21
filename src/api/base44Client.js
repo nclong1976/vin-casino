@@ -688,15 +688,13 @@ class LocalEntityClient {
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
         await upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
       }
-
-      import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
-        pushEntityToFirestore(this.entityName, newItem.id, newItem, 'upsert');
-      });
-      import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
-        pushGenericEntityToRTDB(this.entityName, newItem.id, newItem);
-      });
+      // Firestore (pushEntityToFirestore) & RTDB tổng quát (pushGenericEntityToRTDB)
+      // đã GỠ BỎ khỏi đây - Firestore không còn listener nào lắng nghe (đã gỡ
+      // startFirebaseSync() khỏi AuthContext.jsx), và pushGenericEntityToRTDB
+      // chưa từng có nơi nào đọc lại. Supabase Realtime (ensureSupabaseRealtime
+      // trong _sourceItems()) đã thay thế hoàn toàn 2 đường ghi này.
     } catch (e) {
-      console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (create):", e);
+      console.error("Lỗi đồng bộ Supabase (create):", e);
     }
 
     return newItem;
@@ -764,19 +762,9 @@ class LocalEntityClient {
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
         await upsertSupabaseEntity(this.entityName, updated).catch(() => null);
       }
-
-      import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
-        pushEntityToFirestore(this.entityName, id, updated, 'upsert');
-      });
-      import('@/lib/rtdbSync').then(({ pushGenericEntityToRTDB }) => {
-        // "update" (merge), không phải "set": khi bản ghi không có trong
-        // cache cục bộ, `updated` chỉ có id + field vừa sửa - "set" sẽ xoá
-        // mọi field khác đang có trên RTDB. "update" an toàn trong cả 2
-        // trường hợp (đủ field hay chỉ vá thiếu).
-        pushGenericEntityToRTDB(this.entityName, id, updated, 'update');
-      });
+      // Firestore & RTDB tổng quát: xem ghi chú tương tự trong create() ở trên.
     } catch (e) {
-      console.error("Lỗi đồng bộ Supabase/Firestore/RTDB (update):", e);
+      console.error("Lỗi đồng bộ Supabase (update):", e);
     }
 
     return updated;
@@ -802,11 +790,8 @@ class LocalEntityClient {
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
         deleteSupabaseEntity(this.entityName, id).catch(() => null);
       }
-      import('@/lib/firebaseSync').then(({ pushEntityToFirestore }) => {
-        pushEntityToFirestore(this.entityName, id, {}, 'delete');
-      });
     } catch (e) {
-      console.error("Lỗi đồng bộ Firestore (delete):", e);
+      console.error("Lỗi đồng bộ Supabase (delete):", e);
     }
 
     return true;

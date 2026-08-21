@@ -1,7 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
-import { startFirebaseSync, stopFirebaseSync } from '@/lib/firebaseSync';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 import { checkScheduledProjects } from '@/lib/projectScheduler';
 import { pushUserToRTDB, trackPresenceInRTDB } from '@/lib/rtdbSync';
@@ -103,11 +102,15 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ──────────────────────────────────────────────────────────────────
-  // Firebase RTDB Sync — giữ nguyên để real-time balance hoạt động
+  // Firebase RTDB — CHỈ còn giữ cho tính năng "đang online" (trackPresenceInRTDB,
+  // dùng onDisconnect() của Firebase, Supabase Realtime chưa có tương đương).
+  // startFirebaseSync() (Firestore) đã GỠ BỎ - nó lắng nghe real-time cho đúng
+  // các entity (User, Message, WalletTransaction, Transaction...) mà
+  // Supabase Realtime đã đảm nhiệm từ Phase 1 chuyển kiến trúc, hoàn toàn dư
+  // thừa và tốn thêm 1 nguồn dữ liệu cần đồng bộ không cần thiết.
   // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isAuthenticated && user) {
-      startFirebaseSync();
       pushUserToRTDB(user);
       const unsubPresence = trackPresenceInRTDB(user);
 
@@ -193,7 +196,6 @@ export const AuthProvider = ({ children }) => {
 
       return () => {
         clearInterval(yieldInterval);
-        stopFirebaseSync();
         if (typeof unsubPresence === 'function') unsubPresence();
         if (typeof unsubSupabaseUser === 'function') unsubSupabaseUser();
         if (typeof unsubWT === 'function') unsubWT();
@@ -201,8 +203,6 @@ export const AuthProvider = ({ children }) => {
         window.removeEventListener('vinclub:balance_updated', handleBalanceEvent);
         window.removeEventListener('storage', handleBalanceEvent);
       };
-    } else {
-      stopFirebaseSync();
     }
   }, [isAuthenticated, user?.id]);
 
