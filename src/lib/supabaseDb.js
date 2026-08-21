@@ -65,6 +65,7 @@ export async function upsertSupabaseUser(user) {
     membership_tier: user.membership_tier || 'Member',
     vip_level: user.vip_level || 'VIP 0',
     is_locked: !!user.is_locked,
+    daily_interest_enabled: !!user.daily_interest_enabled,
     avatar_url: user.avatar_url || user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde',
     bank_name: user.bank_name || '',
     account_number: user.account_number || '',

@@ -15,7 +15,8 @@ import {
   AlertTriangle,
   X,
   MessageSquare,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Percent
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
@@ -378,6 +379,11 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
                       {u.is_locked && (
                         <span className="text-[8px] bg-red-100 text-red-800 font-bold px-1.5 py-0.2 rounded-md border border-red-200">
                           ĐÃ KHÓA
+                        </span>
+                      )}
+                      {u.daily_interest_enabled && (
+                        <span className="text-[8px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-md border border-emerald-300 flex items-center gap-0.5">
+                          <Percent className="w-2.5 h-2.5" /> LÃI NGÀY
                         </span>
                       )}
                     </div>

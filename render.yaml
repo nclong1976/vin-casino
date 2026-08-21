@@ -17,6 +17,14 @@ services:
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false
+      # Bắt buộc CHỈ CHO tính năng cộng lãi hàng ngày theo cấp VIP
+      # (server.ts gọi RPC credit_daily_interest_batch). KHÔNG dùng tiền tố
+      # VITE_ - key này không bao giờ được lộ ra trình duyệt. Lấy trong
+      # Supabase Dashboard > Project Settings > API > "service_role" secret.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
       # Tùy chọn - đã có giá trị mặc định hardcode trong src/lib/firebase.js,
       # chỉ cần khai báo nếu muốn dùng project Firebase khác.
       - key: VITE_FIREBASE_API_KEY

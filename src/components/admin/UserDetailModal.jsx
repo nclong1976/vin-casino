@@ -21,7 +21,8 @@ import {
   Tag,
   Smartphone,
   CreditCard,
-  Edit3
+  Edit3,
+  Percent
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
@@ -31,6 +32,7 @@ import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
+import { getCardTierInfo } from "@/lib/membershipUtils";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -63,6 +65,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const [balance, setBalance] = useState(0);
   const [totalDeposited, setTotalDeposited] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
+  const [dailyInterestEnabled, setDailyInterestEnabled] = useState(false);
 
   // Editable Bank Info
   const [bankName, setBankName] = useState("");
@@ -83,6 +86,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       setBalance(Number(user.balance || 0));
       setTotalDeposited(Number(user.total_deposited || 0));
       setIsLocked(!!user.is_locked);
+      setDailyInterestEnabled(!!user.daily_interest_enabled);
       setBankName(user.bank_name || "");
       setAccountNumber(user.account_number || "");
       setAccountHolder(user.account_holder || user.full_name || user.name || "");
@@ -233,6 +237,35 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       if (onRefresh) onRefresh();
     } catch (e) {
       toast.error("Không thể thay đổi trạng thái khóa tài khoản.");
+    }
+  };
+
+  const toggleDailyInterest = async () => {
+    const next = !dailyInterestEnabled;
+    setDailyInterestEnabled(next);
+    try {
+      const updated = { ...user, daily_interest_enabled: next };
+      await Promise.allSettled([
+        base44.entities.User.update(user.id, { daily_interest_enabled: next }),
+        upsertSupabaseUser(updated),
+        pushUserToRTDB(updated),
+      ]);
+
+      await base44.entities.AuditLog.create({
+        action: next ? "ENABLE_DAILY_INTEREST" : "DISABLE_DAILY_INTEREST",
+        user_id: user.id,
+        user_name: user.full_name || user.email,
+        notes: next
+          ? `Bật cộng lãi hàng ngày theo cấp VIP (${tier} - ${getCardTierInfo(tier).dailyRateLabel})`
+          : "Tắt cộng lãi hàng ngày theo cấp VIP",
+        created_date: new Date().toISOString(),
+      });
+
+      toast.success(next ? "Đã bật cộng lãi hàng ngày theo cấp VIP!" : "Đã tắt cộng lãi hàng ngày!");
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      setDailyInterestEnabled(!next);
+      toast.error("Không thể thay đổi trạng thái cộng lãi hàng ngày.");
     }
   };
 
@@ -395,6 +428,37 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   >
                     {isLocked ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                     {isLocked ? "Mở khóa" : "Tạm khóa"}
+                  </button>
+                </div>
+
+                {/* Daily Interest by VIP Tier Toggle - admin tự tay bật/tắt từng tài khoản */}
+                <div
+                  className={`p-3 rounded-2xl border flex items-center justify-between ${
+                    dailyInterestEnabled ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Percent className={`w-5 h-5 shrink-0 ${dailyInterestEnabled ? "text-emerald-600" : "text-gray-400"}`} />
+                    <div>
+                      <p className="text-[11px] font-bold">
+                        Cộng lãi hàng ngày theo cấp VIP: {dailyInterestEnabled ? "ĐANG BẬT" : "ĐANG TẮT"}
+                      </p>
+                      <p className="text-[9.5px] text-gray-500">
+                        Tỷ lệ theo hạng {tier}: {getCardTierInfo(tier).dailyRateLabel}
+                        {user.last_interest_credited_date && (
+                          <> · Lần cộng gần nhất: {new Date(user.last_interest_credited_date).toLocaleDateString("vi-VN")}</>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={toggleDailyInterest}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold shadow-2xs flex items-center gap-1 cursor-pointer shrink-0 ${
+                      dailyInterestEnabled ? "bg-gray-600 hover:bg-gray-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    }`}
+                  >
+                    {dailyInterestEnabled ? "Tắt" : "Bật"}
                   </button>
                 </div>
 

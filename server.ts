@@ -4,9 +4,51 @@ import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cộng lãi hàng ngày theo cấp VIP - CHỈ chạy ở đây (server), KHÔNG có đường
+// nào để trình duyệt người dùng tự kích hoạt. Toàn bộ tính toán + ghi tiền
+// nằm trong hàm Postgres credit_daily_interest_batch() (xem
+// supabase_daily_interest_migration.sql) - hàm đó tự đảm bảo mỗi user chỉ
+// được cộng đúng 1 lần/ngày ngay trong 1 câu SQL, nên việc gọi lại nhiều lần
+// ở đây (server restart, nhiều lần setInterval...) luôn an toàn.
+//
+// Dùng service_role key (KHÔNG phải anon key của trình duyệt) vì RPC này đã
+// bị REVOKE khỏi anon/authenticated - chỉ service_role gọi được. Nếu chưa
+// cấu hình biến môi trường, job tự tắt (không throw, không chặn server).
+const supabaseServiceUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin =
+  supabaseServiceUrl && supabaseServiceRoleKey
+    ? createClient(supabaseServiceUrl, supabaseServiceRoleKey, { auth: { persistSession: false } })
+    : null;
+
+if (!supabaseAdmin) {
+  console.warn(
+    "[DailyInterest] SUPABASE_SERVICE_ROLE_KEY chưa được cấu hình - tính năng cộng lãi hàng ngày theo cấp VIP đang TẮT."
+  );
+}
+
+async function runDailyInterestBatch() {
+  if (!supabaseAdmin) return;
+  try {
+    const { data, error } = await supabaseAdmin.rpc("credit_daily_interest_batch");
+    if (error) {
+      console.error("[DailyInterest] Lỗi gọi credit_daily_interest_batch:", error.message);
+      return;
+    }
+    const rows = data || [];
+    if (rows.length > 0) {
+      console.log(`[DailyInterest] Đã cộng lãi cho ${rows.length} tài khoản.`);
+    }
+  } catch (err: any) {
+    console.error("[DailyInterest] Lỗi không mong đợi:", err?.message || err);
+  }
+}
 
 // Create HTTP server
 const httpServer = http.createServer(app);
@@ -307,6 +349,8 @@ async function startServer() {
   // Start background periodic update intervals
   setInterval(tickStocks, 5000);
   setInterval(triggerCommunityActivity, 12000);
+  setInterval(runDailyInterestBatch, 15 * 60 * 1000);
+  runDailyInterestBatch(); // chạy ngay lúc khởi động, không đợi 15 phút đầu tiên
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
