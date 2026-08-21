@@ -11,7 +11,7 @@ export default function ProjectCard({ project, index, onDeposit }) {
       
       {/* Project Image */}
       <div className="w-full h-[140px] overflow-hidden">
-        <img src={project.image} alt={project.title} className="w-full h-full object-cover" />
+        <img src={project.image} alt={project.title} loading="lazy" className="w-full h-full object-cover" />
         
       </div>
 

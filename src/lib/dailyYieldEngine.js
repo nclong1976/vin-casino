@@ -44,7 +44,10 @@ export async function runDailyYieldAndMaturityCheck(user) {
         .filter((t) => t.type === "deposit")
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0) + (user.total_deposited || (user.role === "admin" ? (user.balance ?? 0) : 0));
 
-      const tierInfo = getCardTierInfo(depositSum);
+      // Hạng VIP không còn tự suy ra từ tổng nạp - lãi suất áp dụng theo đúng
+      // hạng Admin đã gán cho tài khoản (user.membership_tier), mặc định
+      // Member 0,2%/ngày nếu chưa được gán hạng nào.
+      const tierInfo = getCardTierInfo(user.membership_tier);
       const dailyRate = tierInfo.dailyRate || 0.2; // 0.2%, 0.4%, 0.8%, 1.2%
 
       // Lãi suất được tính dựa trên tổng nạp tích lũy (hoặc tối thiểu 100K nếu nạp tích lũy chưa có)

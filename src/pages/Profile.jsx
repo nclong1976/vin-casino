@@ -4,11 +4,11 @@ import { motion } from "framer-motion";
 import { Wallet, Landmark, PenTool, ArrowRight, LogOut, Shield, Bell, HelpCircle, LayoutDashboard, CreditCard, Sparkles, FileText, Users } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
+import isAdminUser from "@/lib/isAdminUser";
 import { getCardTierInfo } from "@/lib/membershipUtils";
 import { toast } from "sonner";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import BottomNav from "@/components/BottomNav";
-import WalletCard from "@/components/profile/WalletCard";
 import QuickStats from "@/components/profile/QuickStats";
 import BankAccountList from "@/components/profile/BankAccountList";
 import BankAccountModal from "@/components/profile/BankAccountModal";
@@ -143,6 +143,9 @@ export default function Profile() {
     if (params.get("deposit") === "true" || params.get("action") === "deposit") {
       setShowDeposit(true);
     }
+    if (params.get("action") === "withdraw") {
+      setShowWithdraw(true);
+    }
 
     const handleDataUpdate = () => {
       fetchData();
@@ -166,7 +169,7 @@ export default function Profile() {
   const currentBalance = Math.max(Number(user?.balance || 0), netCalculatedBalance);
 
   const totalDepositSum = Math.max(Number(user?.total_deposited || 0), depositSumFromTxs);
-  const userTier = getCardTierInfo(totalDepositSum);
+  const userTier = getCardTierInfo(user?.membership_tier);
 
   const totalInvested = txs.reduce((s, t) => s + (t.amount || 0), 0);
   const totalProfit = txs.reduce((s, t) => s + (t.profit || 0), 0);
@@ -174,17 +177,7 @@ export default function Profile() {
   const displayName = user?.full_name || user?.name || user?.username || user?.email || "KHÁCH HÀNG";
   const avatarLetter = (displayName.trim().charAt(0) || "N").toUpperCase();
   const phoneOrEmail = user?.phone || user?.email || "Chưa cập nhật SĐT";
-  const emailLower = (user?.email || "").toLowerCase();
-  const isUserAdmin = Boolean(
-    user?.role === "admin" ||
-    user?.role === "ADMIN" ||
-    user?.is_super_admin ||
-    emailLower.includes("admin") ||
-    emailLower === "nclong1976@gmail.com" ||
-    emailLower === "leo1102@vinclub.com" ||
-    user?.username?.toLowerCase() === "nclong" ||
-    user?.username?.toLowerCase() === "admin"
-  );
+  const isUserAdmin = isAdminUser(user);
 
   const settingsItems = [
     ...(isUserAdmin
@@ -240,15 +233,6 @@ export default function Profile() {
             </button>
           </div>
         </motion.div>
-
-        {/* Luxury Wallet Card with Deposit & Withdraw Buttons */}
-        <WalletCard
-          balance={currentBalance}
-          onDeposit={() => setShowDeposit(true)}
-          onWithdraw={() => setShowWithdraw(true)}
-        />
-
-
 
         {/* Investment Overview / Quick Stats */}
         <QuickStats invested={totalInvested} profit={totalProfit} count={txs.length} />

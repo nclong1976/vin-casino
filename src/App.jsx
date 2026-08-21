@@ -7,6 +7,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { ConfigProvider } from '@/lib/ConfigContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import AppErrorBoundary from '@/components/AppErrorBoundary';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
@@ -26,6 +27,7 @@ import Profile from './pages/Profile';
 import Contract from './pages/Contract';
 import Admin from './pages/Admin';
 import AdminRoute from '@/components/AdminRoute';
+import isAdminUser from '@/lib/isAdminUser';
 import Consultation from './pages/Consultation';
 import Benefits from './pages/Benefits';
 import Goals from './pages/Goals';
@@ -99,7 +101,19 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // 2. Luồng Người dùng ĐÃ đăng nhập: Toàn quyền truy cập ứng dụng
+  // 2a. Luồng Quản trị viên (admin): tách biệt hoàn toàn khỏi luồng người dùng.
+  // Admin chỉ ở trong Bảng quản trị để quản lý khách hàng, dự án, casino...
+  // mọi đường dẫn khác (trang chủ, casino, đầu tư...) đều điều hướng về /admin.
+  if (isAdminUser(user)) {
+    return (
+      <Routes>
+        <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+        <Route path="*" element={<Navigate to="/admin" replace />} />
+      </Routes>
+    );
+  }
+
+  // 2b. Luồng Người dùng ĐÃ đăng nhập: Toàn quyền truy cập ứng dụng (không có /admin)
   return (
     <>
       <PushNotificationBanner />
@@ -142,16 +156,18 @@ const AuthenticatedApp = () => {
 
 function App() {
   return (
-    <ConfigProvider>
-      <AuthProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
-        </QueryClientProvider>
-      </AuthProvider>
-    </ConfigProvider>
+    <AppErrorBoundary>
+      <ConfigProvider>
+        <AuthProvider>
+          <QueryClientProvider client={queryClientInstance}>
+            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <AuthenticatedApp />
+            </Router>
+            <Toaster />
+          </QueryClientProvider>
+        </AuthProvider>
+      </ConfigProvider>
+    </AppErrorBoundary>
   )
 }
 

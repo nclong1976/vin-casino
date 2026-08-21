@@ -145,7 +145,13 @@ export default function Projects() {
 
       const existing = map[keyId] || map[keyTitle];
       if (existing) {
-        map[existing.id] = { ...existing, ...p };
+        // Giữ nguyên id "chuẩn" của quỹ mặc định (existing.id) - nếu bản ghi
+        // Supabase khớp qua TÊN (không phải qua id, vd. dữ liệu cũ mang id
+        // khác nhưng đã được sửa trùng tên 1 quỹ mặc định), việc spread ...p
+        // sau cùng sẽ ghi đè nhầm id, khiến map bị lệch key/value.id và cùng
+        // 1 quỹ hiện ra 2 lần (1 lần "sạch" từ default, 1 lần "lệch id" từ
+        // bản ghi cũ) khi build orderedList bên dưới.
+        map[existing.id] = { ...existing, ...p, id: existing.id };
       } else {
         // Additional custom project added by Admin
         const cat = (p.category || "").toLowerCase();

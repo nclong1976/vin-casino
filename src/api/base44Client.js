@@ -9,6 +9,13 @@ import {
   deleteSupabaseWalletTransaction,
   upsertSupabaseEntity,
   deleteSupabaseEntity,
+  getSupabaseUser,
+  listSupabaseUsers,
+  listSupabaseWalletTransactions,
+  listSupabaseEntity,
+  subscribeSupabaseUsersTable,
+  subscribeSupabaseWalletTransactionsTable,
+  subscribeSupabaseEntityTable,
 } from '@/lib/supabaseDb';
 
 // Các entity được ghi write-through xuống Postgres (Supabase) như một lớp
@@ -16,6 +23,61 @@ import {
 const SUPABASE_BACKED_ENTITIES = new Set([
   'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
 ]);
+
+// Các entity đọc thẳng từ Supabase thay vì chỉ đọc localStorage riêng của
+// thiết bị/tab này - nguồn sự thật cho việc ĐỌC dữ liệu kể từ Phase 1 của
+// việc chuyển kiến trúc đồng bộ.
+//
+// "Message" đã được thêm lại vào đây - trước đó tạm loại bỏ vì bảng
+// "messages" trên project Supabase bị lỗi RLS policy đệ quy tham chiếu tới
+// "thread_members" (lỗi đã được xác nhận sửa xong ở phía Supabase). Nếu lỗi
+// tái diễn, tạm loại 'Message' khỏi Set này để Support.jsx lùi về
+// localStorage an toàn cho tới khi RLS được sửa lại.
+const SUPABASE_READABLE_ENTITIES = new Set([
+  'User', 'WalletTransaction', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
+]);
+
+/**
+ * Loại bỏ bản ghi trùng "id" - localStorage trước đây tự khử trùng khi đọc
+ * (đặc biệt với Project, xem getLocalStore) nên vấn đề này bị che giấu; đọc
+ * thẳng từ Postgres giờ có thể lộ ra các dòng trùng id đã tồn tại sẵn trong
+ * bảng (do nhiều lần seed/ghi trước đây không có ràng buộc UNIQUE chặt).
+ * Giữ bản ghi xuất hiện ĐẦU TIÊN (danh sách đã sắp theo -created_date, nên
+ * đó là bản mới nhất) - vừa tránh lỗi React key trùng, vừa tránh 2 lần hiện
+ * cùng 1 dự án/tin nhắn/giao dịch trên UI.
+ */
+function dedupeById(items) {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const id = item?.id;
+    if (id !== undefined && id !== null) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    result.push(item);
+  }
+  return result;
+}
+
+/**
+ * Đọc danh sách bản ghi mới nhất của 1 entity thẳng từ Supabase (không qua
+ * cache local). Với 7 entity đi qua listSupabaseEntity() - hàm này NÉM LỖI
+ * khi truy vấn Postgres thất bại (vd. RLS policy lỗi đệ quy trên project) -
+ * nên bắt lỗi ở đây và lùi về cache localStorage gần nhất thay vì để 1 truy
+ * vấn lỗi trông giống hệt "bảng đã bị xóa sạch", xóa nhầm dữ liệu đang hiện.
+ */
+async function fetchFromSupabase(entityName) {
+  if (entityName === 'User') return dedupeById(await listSupabaseUsers());
+  if (entityName === 'WalletTransaction') return dedupeById(await listSupabaseWalletTransactions({}, '-created_date', 2000));
+  try {
+    return dedupeById(await listSupabaseEntity(entityName, {}, '-created_date', 2000));
+  } catch (e) {
+    console.warn(`[base44Client] Supabase read lỗi cho ${entityName}, dùng cache cục bộ:`, e?.message || e);
+    return getLocalStore(entityName);
+  }
+}
 
 // LocalStorage fallback implementation
 const entityNames = [
@@ -486,13 +548,59 @@ function setLocalStore(name, items) {
 
 const subscribers = {};
 
+// Mỗi entity chỉ mở 1 kênh Realtime Supabase duy nhất, dùng chung cho MỌI
+// lượt gọi subscribe() (dù nhiều component ở nhiều trang cùng subscribe 1
+// entity) - tránh mở hàng chục kênh trùng lặp. Khi có sự kiện thay đổi từ
+// Postgres (bất kể do tab/thiết bị nào ghi), tải lại danh sách mới nhất và
+// phát cho TẤT CẢ subscriber cục bộ hiện tại của entity đó, giống hệt cách
+// notifySubscribers() đã làm cho ghi cục bộ - nhờ vậy admin xóa 1 tin nhắn
+// sẽ khiến màn hình người dùng cập nhật ngay lập tức, không cần đợi poll.
+const supabaseChannelsStarted = {};
+
+function ensureSupabaseRealtime(entityName) {
+  if (supabaseChannelsStarted[entityName]) return;
+  if (!SUPABASE_READABLE_ENTITIES.has(entityName)) return;
+  supabaseChannelsStarted[entityName] = true;
+
+  const onRealtimeEvent = async () => {
+    const items = await fetchFromSupabase(entityName);
+    setLocalStore(entityName, items);
+    (subscribers[entityName] || []).forEach((cb) => {
+      try { cb(items); } catch (e) {}
+    });
+  };
+
+  if (entityName === 'User') {
+    subscribeSupabaseUsersTable(onRealtimeEvent);
+  } else if (entityName === 'WalletTransaction') {
+    subscribeSupabaseWalletTransactionsTable(onRealtimeEvent);
+  } else {
+    subscribeSupabaseEntityTable(entityName, onRealtimeEvent);
+  }
+}
+
 class LocalEntityClient {
   constructor(entityName) {
     this.entityName = entityName;
   }
 
+  // Nguồn dữ liệu "sự thật" cho việc đọc: Supabase Postgres cho 9/10 entity
+  // (News vẫn dùng localStorage vì là nội dung tĩnh, không có bảng Postgres).
+  // Đọc từ đây thay vì localStorage riêng của từng thiết bị/tab để mọi nơi
+  // (admin lẫn người dùng, mọi thiết bị) luôn thấy cùng 1 dữ liệu thật -
+  // localStorage vẫn được ghi lại làm cache cho các chỗ đọc thẳng key
+  // "base44_entity_*" (Profile.jsx, MessagesTab.jsx, balanceSync.js...).
+  async _sourceItems() {
+    if (!SUPABASE_READABLE_ENTITIES.has(this.entityName)) {
+      return getLocalStore(this.entityName);
+    }
+    const items = await fetchFromSupabase(this.entityName);
+    setLocalStore(this.entityName, items);
+    return items;
+  }
+
   async list(sort, limit) {
-    let items = getLocalStore(this.entityName);
+    let items = await this._sourceItems();
     if (sort && sort.startsWith('-')) {
       const field = sort.slice(1);
       items = [...items].sort((a, b) => new Date(b[field] || b.created_date || 0) - new Date(a[field] || a.created_date || 0));
@@ -506,7 +614,13 @@ class LocalEntityClient {
   }
 
   async get(id) {
-    const items = getLocalStore(this.entityName);
+    if (this.entityName === 'User' && SUPABASE_READABLE_ENTITIES.has('User')) {
+      const row = await getSupabaseUser(id);
+      if (row) {
+        return row;
+      }
+    }
+    const items = await this._sourceItems();
     return items.find(i => i.id === id) || null;
   }
 
@@ -670,7 +784,7 @@ class LocalEntityClient {
   }
 
   async filter(query, sort, limit) {
-    let items = getLocalStore(this.entityName);
+    let items = await this._sourceItems();
     if (query) {
       items = items.filter(item => {
         if (query.$or && Array.isArray(query.$or)) {
@@ -729,6 +843,7 @@ class LocalEntityClient {
       subscribers[this.entityName] = [];
     }
     subscribers[this.entityName].push(callback);
+    ensureSupabaseRealtime(this.entityName);
     return () => {
       subscribers[this.entityName] = subscribers[this.entityName].filter(cb => cb !== callback);
     };

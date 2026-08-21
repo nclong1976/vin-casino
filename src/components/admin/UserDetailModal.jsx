@@ -30,6 +30,7 @@ import { normalizeWalletTransaction } from "@/lib/transactionHistory";
 import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
 import { useAuth } from "@/lib/AuthContext";
+import { isSuperAdminUser } from "@/lib/isAdminUser";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -43,11 +44,7 @@ const TIER_COLORS = {
 
 export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const { user: currentAdmin } = useAuth();
-  const isSuperAdmin =
-    !!currentAdmin?.is_super_admin ||
-    currentAdmin?.role === "admin" ||
-    currentAdmin?.email === "nclong1976@gmail.com" ||
-    currentAdmin?.username === "nclong";
+  const isSuperAdmin = isSuperAdminUser(currentAdmin);
 
   const [activeTab, setActiveTab] = useState("overview"); // "overview" | "registration" | "banks" | "wallet" | "contracts"
   const [bankAccounts, setBankAccounts] = useState([]);

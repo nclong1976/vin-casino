@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
+import isAdminUser from "@/lib/isAdminUser";
 import { ShieldAlert, ArrowLeft, LogIn } from "lucide-react";
 
 export default function AdminRoute({ children }) {
@@ -19,31 +20,7 @@ export default function AdminRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  let localRole = null;
-  try {
-    const rawLocal = localStorage.getItem("base44_local_user");
-    if (rawLocal) {
-      const parsed = JSON.parse(rawLocal);
-      localRole = parsed.role;
-    }
-  } catch (e) {}
-
-  const emailLower = (user?.email || "").toLowerCase();
-  const usernameLower = (user?.username || "").toLowerCase();
-
-  const isAdmin = Boolean(
-    user?.role === "admin" ||
-    user?.role === "ADMIN" ||
-    localRole === "admin" ||
-    user?.is_super_admin ||
-    emailLower.includes("admin") ||
-    emailLower === "nclong1976@gmail.com" ||
-    emailLower === "leo1102@vinclub.com" ||
-    usernameLower === "nclong" ||
-    usernameLower === "admin"
-  );
-
-  if (!isAdmin) {
+  if (!isAdminUser(user)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 font-heading">
         <div className="max-w-md w-full bg-white rounded-3xl p-6 shadow-xl border border-gray-100 text-center space-y-4">

@@ -135,6 +135,14 @@ export async function hydrateUserOnNewDevice(authUser) {
       ...(dbUser || {}),
       ...(rtdbUser || {}),
       id: uid,
+      // BẢO MẬT: role/is_super_admin CHỈ được tin từ Postgres (dbUser, tra
+      // đúng theo uid hiện tại) hoặc claim JWT tươi (authUser) - KHÔNG được
+      // lấy từ matchedSupa (dò theo danh sách, có thể khớp nhầm bản ghi) hay
+      // rtdbUser (bản sao RTDB, có thể còn dữ liệu cũ của tài khoản khác đã
+      // dùng chung thiết bị này). Nếu không chốt cứng 2 field này, một tài
+      // khoản thường có thể bị "thừa hưởng" nhầm quyền admin của phiên trước.
+      role: dbUser?.role || authUser.role || "user",
+      is_super_admin: !!(dbUser?.is_super_admin ?? authUser.is_super_admin ?? false),
       email: uemail || dbUser?.email || matchedSupa?.email || rtdbUser?.email || authUser.email,
       name: dbUser?.name || dbUser?.full_name || matchedSupa?.name || matchedSupa?.full_name || rtdbUser?.name || authUser.name || authUser.full_name || "Hội viên VinClub",
       full_name: dbUser?.full_name || dbUser?.name || matchedSupa?.full_name || matchedSupa?.name || rtdbUser?.full_name || authUser.full_name || authUser.name || "Hội viên VinClub",

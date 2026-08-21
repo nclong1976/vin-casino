@@ -58,7 +58,7 @@ export default function MembershipCard() {
     .filter((t) => t.status === "completed")
     .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-  const currentTier = getCardTierInfo(depositSum);
+  const currentTier = getCardTierInfo(user?.membership_tier);
 
   useEffect(() => {
     if (!loading) {
@@ -67,15 +67,7 @@ export default function MembershipCard() {
     }
   }, [loading, currentTier.tier]);
 
-  const displayedTier = getCardTierInfo(
-    ALL_CARD_TIERS[selectedTierIndex]?.tier === "DIAMOND"
-      ? 10000000000
-      : ALL_CARD_TIERS[selectedTierIndex]?.tier === "PLATINUM"
-      ? 3000000000
-      : ALL_CARD_TIERS[selectedTierIndex]?.tier === "GOLD"
-      ? 1000000000
-      : 0
-  );
+  const displayedTier = getCardTierInfo(ALL_CARD_TIERS[selectedTierIndex]?.tier);
 
   const memberId = user?.id ? user.id.slice(-8).toUpperCase() : "VINCLUB";
   const displayName = user?.full_name || user?.name || user?.username || "Thành viên VinClub";
@@ -84,13 +76,6 @@ export default function MembershipCard() {
     navigator.clipboard?.writeText(memberId);
     toast.success("Đã sao chép mã thành viên");
   };
-
-  // Progress to next tier
-  const nextMin = currentTier.nextTierMin;
-  const progressPercent = nextMin
-    ? Math.min(100, Math.max(0, (depositSum / nextMin) * 100))
-    : 100;
-  const neededForNext = nextMin ? Math.max(0, nextMin - depositSum) : 0;
 
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
@@ -179,13 +164,13 @@ export default function MembershipCard() {
                     </p>
                   </div>
                   <p className="text-[8px] font-semibold text-amber-200/90 bg-black/40 px-2 py-0.5 rounded">
-                    {displayedTier.minLabel}
+                    Lãi suất {displayedTier.dailyRateLabel}
                   </p>
                 </div>
               </div>
             </motion.div>
 
-            {/* Current Level Progress Card */}
+            {/* Current Level Card */}
             <div className="bg-white rounded-2xl p-3.5 shadow-sm space-y-2 border border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -201,30 +186,14 @@ export default function MembershipCard() {
                 </div>
               </div>
 
-              {/* Progress Bar */}
-              {currentTier.nextTierName ? (
-                <div className="pt-1 space-y-1">
-                  <div className="flex justify-between text-[9px] font-medium text-gray-500">
-                    <span>Tiến trình lên {currentTier.nextTierName}</span>
-                    <span className="font-bold text-[#948154]">{progressPercent.toFixed(1)}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden p-0.5">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progressPercent}%` }}
-                      transition={{ duration: 1 }}
-                      className="h-full bg-gradient-to-r from-[#948154] to-amber-500 rounded-full"
-                    />
-                  </div>
-                  <p className="text-[8px] text-gray-400 text-right">
-                    Cần nạp thêm <span className="font-bold text-black">{fmt(neededForNext)} ₫</span> để đạt {currentTier.nextTierName}
-                  </p>
-                </div>
-              ) : (
-                <div className="text-[9px] font-bold text-green-600 bg-green-50 p-2 rounded-xl text-center flex items-center justify-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Chúc mừng! Bạn đã đạt hạng thẻ Kim Cương cao nhất
-                </div>
-              )}
+              {/* Tier assignment note - hạng do VinClub xét & cấp, không tự động theo tiền nạp */}
+              <div className="pt-1 flex items-start gap-1.5 text-[9px] text-gray-500 leading-relaxed">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#948154] shrink-0 mt-0.5" />
+                <span>
+                  Hạng thẻ được VinClub xét duyệt và nâng hạng riêng cho từng hội viên. Liên hệ{" "}
+                  <span className="font-bold text-[#948154]">Chuyên viên chăm sóc khách hàng</span> để được tư vấn nâng hạng.
+                </span>
+              </div>
             </div>
 
             {/* Wallet & Deposit Stats */}
@@ -261,7 +230,7 @@ export default function MembershipCard() {
               <p className="text-[10px] text-gray-500 mt-2 font-mono font-medium">{user?.email || user?.phone || "Mã KH: " + memberId}</p>
             </div>
 
-            {/* Tier Criteria & Benefits */}
+            {/* Tier Benefits */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-3">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                 <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
@@ -269,7 +238,7 @@ export default function MembershipCard() {
                   Đặc quyền {displayedTier.name}
                 </h3>
                 <span className="text-[9px] font-bold text-[#948154] bg-[#948154]/10 px-2 py-0.5 rounded-full">
-                  {displayedTier.minLabel}
+                  {displayedTier.dailyRateLabel}
                 </span>
               </div>
 

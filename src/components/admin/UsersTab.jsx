@@ -22,6 +22,7 @@ import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers, deleteSupabaseUser, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB } from "@/lib/rtdbSync";
 import { useAuth } from "@/lib/AuthContext";
+import { isSuperAdminUser } from "@/lib/isAdminUser";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
 import BalanceAmount from "@/components/admin/BalanceAmount";
@@ -38,7 +39,7 @@ const TIER_BADGES = {
 
 export default function UsersTab({ onNavigateToChat = null, onNavigateToTransactions = null }) {
   const { user: currentAdmin } = useAuth();
-  const isSuperAdmin = !!currentAdmin?.is_super_admin || currentAdmin?.role === "admin" || currentAdmin?.email === "nclong1976@gmail.com" || currentAdmin?.username === "nclong";
+  const isSuperAdmin = isSuperAdminUser(currentAdmin);
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);

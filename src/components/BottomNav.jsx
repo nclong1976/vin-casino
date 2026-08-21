@@ -12,16 +12,11 @@ export default function BottomNav() {
   const isSupport = path === "/support" || path === "/consultation";
 
   return (
-    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] h-16 z-50 pointer-events-auto select-none">
-      {/* Background Graphic */}
-      <img
-        className="absolute inset-0 w-full h-full object-cover object-center z-0 pointer-events-none drop-shadow-[0_-4px_16px_rgba(0,0,0,0.15)]"
-        src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/33acec9c8_a81768da3_7e4b2cc377b3f8d5ca2105ceb3f60b5b6e96a100.png"
-        alt=""
-        aria-hidden="true"
-      />
+    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] h-16 z-50 pointer-events-none select-none">
+      {/* Soft fade so the floating nav blends into any page background instead of a hard box */}
+      <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/25 via-black/5 to-transparent pointer-events-none" />
 
-      <div className="relative z-10 flex items-center justify-between h-full px-1.5 pb-1">
+      <div className="relative z-10 flex items-center justify-between h-full px-1.5 pb-1 pointer-events-auto">
         {/* Main Nav Pill */}
         <div className="flex-1 min-h-[51px] bg-secondary rounded-[23px] shadow-[inset_0_0_0_3px_#16100b] flex items-center justify-between px-6">
           {/* Home */}

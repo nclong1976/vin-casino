@@ -5,7 +5,7 @@ import { signIn as supaSignIn, signUp as supaSignUp, mapSupabaseUser } from "@/l
 import { upsertSupabaseUser } from "@/lib/supabaseDb";
 import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier";
 import { pushUserToRTDB } from "@/lib/rtdbSync";
-import { Loader2, Eye, EyeOff, CheckCircle2, Sparkles } from "lucide-react";
+import { Loader2, Eye, EyeOff, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import GoogleIcon from "@/components/GoogleIcon";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
@@ -24,7 +24,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showPushNotification, setShowPushNotification] = useState(false);
-  const [notificationFilled, setNotificationFilled] = useState(false);
 
   const triggerSound = (type) => {
     if (playFx) {
@@ -48,16 +47,23 @@ export default function Login() {
     return () => clearInterval(timer);
   }, [step, countdown]);
 
-  // Trigger push notification after entering OTP step
+  // Trigger push notification after entering OTP step - chỉ mang tính thông
+  // báo (giống tin nhắn SMS thật), người dùng phải tự đọc và gõ mã vào ô
+  // OTP bên dưới, không có nút bấm tự động điền nữa.
   useEffect(() => {
     if (step === "otp") {
-      setNotificationFilled(false);
       const delayMs = config?.pushNotificationDelay || 2500;
       const notifTimer = setTimeout(() => {
         setShowPushNotification(true);
         triggerSound("notification");
       }, delayMs);
-      return () => clearTimeout(notifTimer);
+      const autoHideTimer = setTimeout(() => {
+        setShowPushNotification(false);
+      }, delayMs + 8000);
+      return () => {
+        clearTimeout(notifTimer);
+        clearTimeout(autoHideTimer);
+      };
     } else {
       setShowPushNotification(false);
     }
@@ -133,22 +139,6 @@ export default function Login() {
     }
   };
 
-  const handleFillOtp = () => {
-    if (!generatedOtp) return;
-    setOtpCode(generatedOtp);
-    setNotificationFilled(true);
-    setError("");
-    triggerSound("click");
-    toast({
-      title: "Đã điền mã OTP",
-      description: `Mã ${generatedOtp} đã được tự động áp dụng.`,
-    });
-    // Fade out notification after clicking
-    setTimeout(() => {
-      setShowPushNotification(false);
-    }, 1200);
-  };
-
   const handleOtpSubmit = async (e) => {
     if (e) e.preventDefault();
     if (otpCode.length < 6) return;
@@ -212,7 +202,6 @@ export default function Login() {
       setOtpCode("");
       setCountdown(30);
       setShowPushNotification(true);
-      setNotificationFilled(false);
       triggerSound("notification");
       toast({
         title: "Đã gửi lại OTP",
@@ -250,7 +239,7 @@ export default function Login() {
               exit={{ y: -100, opacity: 0, scale: 0.96 }}
               transition={{ type: "spring", stiffness: 400, damping: 30 }}
               className="fixed top-3 left-3 right-3 sm:left-auto sm:right-auto sm:w-[380px] mx-auto z-50 cursor-pointer group"
-              onClick={handleFillOtp}
+              onClick={() => setShowPushNotification(false)}
             >
               <div className="bg-[#e4ece9]/95 backdrop-blur-2xl border border-white/50 text-[#1c1c1e] rounded-[22px] p-3.5 sm:p-4 shadow-[0_12px_32px_rgba(0,0,0,0.3)] flex flex-col gap-2 relative overflow-hidden transition-all hover:bg-[#dce6e2] active:scale-[0.98]">
                 {/* Header Row: Icon + App Name + Time */}
@@ -282,18 +271,12 @@ export default function Login() {
                   </p>
                 </div>
 
-                {/* Interactive hint/status footer */}
+                {/* Footer hint - chỉ mang tính thông báo, không tự điền */}
                 <div className="mt-1 flex items-center justify-between text-[12px] pt-1.5 border-t border-black/5 text-[#2b6045] font-semibold">
-                  {notificationFilled ? (
-                    <span className="flex items-center gap-1 text-[#28844b]">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Đã tự động điền mã {generatedOtp}
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 hover:underline">
-                      <Sparkles className="w-3.5 h-3.5 text-[#28844b]" /> Chạm để tự động điền {generatedOtp}
-                    </span>
-                  )}
-                  <span className="text-[11px] text-[#8e8e93]">Chạm để điền</span>
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-[#28844b]" /> Vui lòng nhập mã này để xác thực
+                  </span>
+                  <span className="text-[11px] text-[#8e8e93]">Chạm để đóng</span>
                 </div>
               </div>
             </motion.div>
@@ -341,17 +324,6 @@ export default function Login() {
               </InputOTPGroup>
             </InputOTP>
           </div>
-
-          {/* Quick Auto-fill button */}
-          {!showPushNotification && generatedOtp && (
-            <button
-              type="button"
-              onClick={handleFillOtp}
-              className="text-xs text-[#d0bfae] hover:underline font-medium mb-4 flex items-center gap-1 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5" /> Điền nhanh mã OTP ({generatedOtp})
-            </button>
-          )}
 
           {/* Resend Timer Text */}
           <div className="text-center mb-7 text-sm text-gray-300">

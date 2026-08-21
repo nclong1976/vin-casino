@@ -25,6 +25,7 @@ import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
+import { isSuperAdminUser } from "@/lib/isAdminUser";
 
 const fileType = (url) => {
   if (!url) return "file";
@@ -143,7 +144,7 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
 // ─── Main Component ───────────────────────────────────────────────
 export default function MessagesTab({ initialSelectedUserId = null }) {
   const { user } = useAuth();
-  const isSuperAdmin = !!user?.is_super_admin;
+  const isSuperAdmin = isSuperAdminUser(user);
 
   const [messages, setMessages] = useState([]);
   const [usersMap, setUsersMap] = useState({});

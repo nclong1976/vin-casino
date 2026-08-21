@@ -14,9 +14,19 @@ export default function Support() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef(null);
   const greetingCreatedRef = useRef(false);
+  const prevLastMsgIdRef = useRef(null);
 
   const loadMessages = async (userId, currentUser) => {
     if (!userId) return;
+    // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
+    // loadMessages() được gọi từ nhiều nơi gần như đồng thời lúc mount (gọi
+    // trực tiếp, fallback RTDB rỗng, Message.subscribe()...) - nếu chỉ đặt
+    // cờ SAU khi await base44.entities.Message.filter() xong (như code cũ),
+    // nhiều lời gọi có thể cùng thấy "chưa có ai tạo tin chào" tại thời điểm
+    // check và tạo trùng nhiều tin chào. Đặt cờ đồng bộ (synchronous) ở đây
+    // đảm bảo chỉ lời gọi ĐẦU TIÊN được quyền xét tạo tin chào.
+    const isGreetingCheckOwner = !greetingCreatedRef.current;
+    if (isGreetingCheckOwner) greetingCreatedRef.current = true;
     try {
       const list = await base44.entities.Message.filter(
         { conversation_id: userId },
@@ -28,8 +38,7 @@ export default function Support() {
       const userFullName = u?.full_name || u?.name || u?.display_name || (u?.email ? u.email.split("@")[0] : "Quý khách");
 
       // Check if welcome greeting message exists; if not, create it
-      if ((!list || list.length === 0) && !greetingCreatedRef.current) {
-        greetingCreatedRef.current = true;
+      if ((!list || list.length === 0) && isGreetingCheckOwner) {
         const greetingContent = `Kính chào Quý khách ${userFullName}! CSKH VinClub hân hạnh được đồng hành và hỗ trợ Quý khách 24/7. Quý khách cần hỗ trợ dịch vụ nào hôm nay ạ?`;
         
         try {
@@ -56,15 +65,29 @@ export default function Support() {
         }
       }
 
-      // Hợp nhất với state hiện tại thay vì ghi đè toàn bộ: loadMessages()
+      // Hợp nhất với state hiện tại thay vì ghi đè toàn bộ mù quáng: loadMessages()
       // đọc từ cache cục bộ (có thể tạm thời chưa cập nhật kịp), nên ghi đè
       // thẳng có thể xoá mất một tin nhắn mà kênh RTDB real-time vừa phát
       // tới state trước đó (race condition giữa 2 nguồn cập nhật state).
+      // NHƯNG vẫn phải tôn trọng việc XÓA: nếu Super Admin xóa 1 tin nhắn ở
+      // phía quản trị, tin đó biến mất khỏi "incoming" - chỉ giữ lại tin cũ
+      // không còn trong incoming khi nó vừa được tạo trong vài giây gần đây
+      // (khả năng cache REST chưa kịp đồng bộ), còn lại coi là đã bị xóa
+      // thật và loại bỏ khỏi màn hình để khớp đúng với phía Admin.
+      // Không còn "return prev" sớm khi incoming rỗng nữa: nếu Admin xóa
+      // TOÀN BỘ hội thoại, incoming sẽ luôn rỗng - phải để logic grace-period
+      // bên dưới xử lý (tin cũ hơn 5s sẽ bị loại bỏ đúng như xóa từng tin).
+      const GRACE_MS = 5000;
       setMessages((prev) => {
         const incoming = list || [];
-        if (incoming.length === 0) return prev.length > 0 ? prev : incoming;
-        const merged = new Map(prev.map((m) => [m.id, m]));
-        incoming.forEach((m) => merged.set(m.id, { ...(merged.get(m.id) || {}), ...m }));
+        const incomingIds = new Set(incoming.map((m) => m.id));
+        const now = Date.now();
+        const merged = new Map(incoming.map((m) => [m.id, m]));
+        prev.forEach((m) => {
+          if (!incomingIds.has(m.id) && now - new Date(m.created_date || 0).getTime() < GRACE_MS) {
+            merged.set(m.id, m);
+          }
+        });
         return Array.from(merged.values()).sort(
           (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
         );
@@ -102,10 +125,12 @@ export default function Support() {
       loadMessages(user.id, user);
     });
 
-    // 3. Polling fallback (Every 2s) for non-RTDB environments
+    // 3. Polling fallback for non-RTDB environments - chỉ là lưới an toàn dự
+    // phòng (RTDB + Message.subscribe() đã xử lý real-time chính), nên giãn
+    // ra 8s thay vì 2s để tránh ép re-render/cuộn liên tục gây giật khi vuốt.
     const pollInterval = setInterval(() => {
       loadMessages(user.id, user);
-    }, 2000);
+    }, 8000);
 
     // 4. Cross-tab LocalStorage Sync
     const handleStorageChange = (e) => {
@@ -123,8 +148,14 @@ export default function Support() {
     };
   }, [user]);
 
+  // Chỉ tự cuộn xuống đáy khi thật sự có tin nhắn mới (so sánh id tin nhắn
+  // cuối cùng) - trước đây cuộn lại mỗi khi "messages" đổi tham chiếu (kể cả
+  // do poll 2 giây không có gì thay đổi thật), khiến màn hình bị giật/kéo
+  // ngược xuống liên tục mỗi khi người dùng đang vuốt lên xem lịch sử.
   useEffect(() => {
-    if (scrollRef.current) {
+    const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
+    if (lastId && lastId !== prevLastMsgIdRef.current && scrollRef.current) {
+      prevLastMsgIdRef.current = lastId;
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,
         behavior: "smooth",
@@ -196,7 +227,8 @@ export default function Support() {
       {/* Main Messages View - Full Height Scroll Area */}
       <main
         ref={scrollRef}
-        className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto px-3.5 py-4 space-y-3"
+        className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto scroll-smooth px-3.5 py-4 space-y-3"
+        style={{ overscrollBehavior: "contain" }}
       >
         {/* Welcome VIP Greeting Card */}
         <div className="w-full bg-gradient-to-br from-white via-amber-50/40 to-white rounded-2xl p-4 border border-[#948154]/20 shadow-xs text-center space-y-1.5 mb-2">

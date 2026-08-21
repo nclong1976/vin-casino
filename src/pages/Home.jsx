@@ -1,6 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import NewsSection from "@/components/home/NewsSection";
 import NotificationBell from "@/components/home/NotificationBell";
 import BottomNav from "@/components/BottomNav";
@@ -10,6 +11,7 @@ import casinoIcon from "@/assets/images/regenerated_image_1786492435642.png";
 
 export default function Home() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const displayName = user?.full_name || user?.name || user?.username || user?.email || "KHÁCH HÀNG";
   const avatarLetter = (displayName.trim().charAt(0) || "N").toUpperCase();
@@ -108,21 +110,24 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Quick Actions */}
-              <div className="flex items-center justify-between px-2">
-                <Link to="/profile" className="flex items-center gap-2.5 group">
-                  <img className="w-3.5 h-3.5 object-contain transition-transform group-hover:scale-110" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/542af9d57_f5e95a14d_6b662189c1987faec6d37db863ee2304850a4027.png" alt="" />
-                  <span className="text-figma-10 font-normal leading-figma-12 text-figma-text-5">
-                    Lịch sử giao dịch
-                  </span>
-                </Link>
-                <img className="w-0.5 h-[25px] object-contain opacity-50" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/e1de98f6e_d23cc45cc_a4a970e5c3f43d11f4624a3a2be5fe26a8792918.png" alt="" aria-hidden="true" />
-                <Link to="/card" className="flex items-center gap-2.5 group">
-                  <img className="w-3 h-[11px] object-contain transition-transform group-hover:scale-110" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/3be389e50_739d21432_9b34fab910d5d0b865a5cd85932140d72265ff58.png" alt="" />
-                  <span className="text-figma-10 font-normal leading-figma-12 text-[#6c665c]">
-                    Tài khoản & Thẻ
-                  </span>
-                </Link>
+              {/* Quick Actions: Gửi Tiền & Rút Tiền */}
+              <div className="flex items-center justify-between px-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigate("/profile?action=deposit")}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-[#eddab3]/50 text-[#eddab3] text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                >
+                  <ArrowDownToLine className="w-3.5 h-3.5" />
+                  Gửi Tiền
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/profile?action=withdraw")}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-[#eddab3]/50 text-[#eddab3] text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                >
+                  <ArrowUpFromLine className="w-3.5 h-3.5" />
+                  Rút Tiền
+                </button>
               </div>
 
               {/* Support Link */}

@@ -507,29 +507,32 @@ async function genericDeleteEntity(entityName, id) {
   }
 }
 
+// LƯU Ý: hàm này NÉM LỖI (throw) thay vì nuốt lỗi + trả về [] như phần lớn
+// hàm khác trong file - đây là hàm ĐỌC duy nhất được base44Client.js dùng
+// làm nguồn sự thật (xem fetchFromSupabase), cần phân biệt được "bảng rỗng
+// thật" với "truy vấn lỗi" (vd. RLS policy trên project lỗi đệ quy), nếu
+// không phân biệt được, 1 bảng đang lỗi truy vấn sẽ trông giống hệt "đã bị
+// xóa hết", xóa sạch luôn dữ liệu cache cục bộ đang có. listSupabaseEntity()
+// hiện không có nơi gọi nào khác ngoài base44Client.js nên đổi hành vi ở đây
+// an toàn, không ảnh hưởng chỗ khác.
 async function genericListEntity(entityName, filter = {}, sort = '-created_date', limit = 500) {
   const table = ENTITY_TABLE_MAP[entityName];
   if (!table) return [];
-  try {
-    let query = supabase.from(table).select('*');
-    Object.entries(filter || {}).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) query = query.eq(key, value);
-    });
-    const isDesc = sort.startsWith('-');
-    const sortField = isDesc ? sort.slice(1) : sort;
-    query = query.order(sortField || 'created_date', { ascending: !isDesc });
-    if (limit) query = query.limit(limit);
+  let query = supabase.from(table).select('*');
+  Object.entries(filter || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) query = query.eq(key, value);
+  });
+  const isDesc = sort.startsWith('-');
+  const sortField = isDesc ? sort.slice(1) : sort;
+  query = query.order(sortField || 'created_date', { ascending: !isDesc });
+  if (limit) query = query.limit(limit);
 
-    const { data, error } = await query;
-    if (error) {
-      console.warn(`[SupabaseDb] list ${entityName} error:`, error.message);
-      return [];
-    }
-    return data || [];
-  } catch (e) {
-    console.warn(`[SupabaseDb] list ${entityName} exception:`, e);
-    return [];
+  const { data, error } = await query;
+  if (error) {
+    console.warn(`[SupabaseDb] list ${entityName} error:`, error.message);
+    throw new Error(error.message);
   }
+  return data || [];
 }
 
 /** Ghi (tạo mới hoặc cập nhật) một bản ghi của entityName xuống Postgres. */
@@ -545,4 +548,31 @@ export function deleteSupabaseEntity(entityName, id) {
 /** Đọc danh sách bản ghi của entityName từ Postgres (dùng cho hydrate/khôi phục). */
 export function listSupabaseEntity(entityName, filter, sort, limit) {
   return genericListEntity(entityName, filter, sort, limit);
+}
+
+/**
+ * Kênh Realtime tổng quát cho 1 trong 7 entity dùng ENTITY_TABLE_MAP (Message,
+ * Notification, Project, BankAccount, Signature, Transaction, AuditLog).
+ * Dùng chung mẫu với subscribeSupabaseUsersTable/subscribeSupabaseWalletTransactionsTable
+ * ở trên - callback nhận payload sự kiện thô, bên gọi tự quyết định tải lại gì.
+ */
+export function subscribeSupabaseEntityTable(entityName, callback) {
+  const table = ENTITY_TABLE_MAP[entityName];
+  if (!table) return () => {};
+  const channel = supabase
+    .channel(nextChannelName(`public:${table}`))
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table },
+      (payload) => {
+        if (typeof callback === 'function') {
+          callback(payload);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

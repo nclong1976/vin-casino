@@ -290,13 +290,13 @@ export default function Consultation() {
           .reduce((acc, t) => acc + (Number(t.amount) || 0), 0) + (me?.total_deposited || (me?.role === "admin" ? (me?.balance ?? 0) : 0));
 
         setDepositSum(sum);
-        const userTierInfo = getCardTierInfo(sum);
+        const userTierInfo = getCardTierInfo(me?.membership_tier);
         setSelectedTierKey(userTierInfo.tier);
       }
     })();
   }, [user]);
 
-  const currentTierInfo = getCardTierInfo(depositSum);
+  const currentTierInfo = getCardTierInfo(user?.membership_tier);
   const selectedPrivilegeData = TIER_PRIVILEGES[selectedTierKey] || TIER_PRIVILEGES.MEMBER;
 
   const filteredConsultants = CONSULTANTS.filter(
