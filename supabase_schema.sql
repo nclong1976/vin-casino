@@ -1,9 +1,11 @@
 -- ====================================================================
--- SUPABASE DATABASE SCHEMA CHO VINCLUB CASINO & BẤT ĐỘNG SẢN (BẢN AN TOÀN)
--- Tự động thêm cột nếu bảng đã tồn tại từ trước để không bị lỗi column does not exist
+-- VINCLUB SCHEMA (CLEAN + IDEMPOTENT)
 -- ====================================================================
 
--- 1. BẢNG USERS
+-- --------------------------------------------------------------------
+-- 1) TABLES
+-- --------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS public.users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE,
@@ -28,36 +30,10 @@ CREATE TABLE IF NOT EXISTS public.users (
   metadata JSONB DEFAULT '{}'::jsonb
 );
 
--- Đảm bảo tất cả cột trong bảng users luôn tồn tại
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS email TEXT;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS identifier TEXT;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT 'Hội viên VinClub';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT 'Hội viên VinClub';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 0;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS total_deposited BIGINT DEFAULT 0;
--- Đếm số lần balance/total_deposited được ghi qua increment_user_balance() -
--- dùng để client so sánh "phiên bản nào mới hơn" khi nhận cập nhật real-time
--- (Supabase Realtime không đảm bảo thứ tự tới nơi), thay cho cách cũ dùng
--- Math.max giữa nhiều nguồn (sai vì số dư có thể giảm thật).
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance_version BIGINT DEFAULT 0;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS membership_tier TEXT DEFAULT 'VIP 1 - Gold';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS vip_level TEXT DEFAULT 'VIP 1';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS bank_name TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS account_number TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS referral_code TEXT DEFAULT '';
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
-
--- 2. BẢNG WALLET_TRANSACTIONS
 CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   id TEXT PRIMARY KEY,
   user_id TEXT,
-  type TEXT DEFAULT 'deposit',
+  type TEXT NOT NULL DEFAULT 'deposit',
   amount BIGINT NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'completed',
   code TEXT,
@@ -73,24 +49,6 @@ CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   created_date TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Đảm bảo tất cả cột trong wallet_transactions tồn tại
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'deposit';
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS amount BIGINT DEFAULT 0;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS code TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS bank_name TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS account_number TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS account_holder TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS approved_by TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejected_by TEXT;
-ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
-
--- 3. BẢNG NOTIFICATIONS
 CREATE TABLE IF NOT EXISTS public.notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -98,17 +56,10 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   content TEXT,
   type TEXT DEFAULT 'system',
   is_read BOOLEAN DEFAULT FALSE,
-  created_date TIMESTAMPTZ DEFAULT NOW()
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  extra JSONB DEFAULT '{}'::jsonb
 );
 
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS title TEXT;
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS content TEXT;
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'system';
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
-
--- 4. BẢNG MESSAGES
 CREATE TABLE IF NOT EXISTS public.messages (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -116,29 +67,13 @@ CREATE TABLE IF NOT EXISTS public.messages (
   text TEXT NOT NULL DEFAULT '',
   images JSONB DEFAULT '[]'::jsonb,
   is_read BOOLEAN DEFAULT FALSE,
-  created_date TIMESTAMPTZ DEFAULT NOW()
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  content TEXT DEFAULT '',
+  attachments JSONB DEFAULT '[]'::jsonb,
+  conversation_id TEXT,
+  extra JSONB DEFAULT '{}'::jsonb
 );
 
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender TEXT DEFAULT 'user';
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS text TEXT DEFAULT '';
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
--- Ứng dụng thực tế dùng content/attachments/conversation_id (không phải
--- text/images) cho tin nhắn CSKH - bổ sung để khớp đúng field app đang ghi.
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS conversation_id TEXT;
-CREATE INDEX IF NOT EXISTS idx_messages_conversation ON public.messages(conversation_id);
--- Cột "extra" hứng mọi field phụ mà app gửi lên nhưng chưa có cột riêng,
--- để việc ghi xuống Postgres không bao giờ lỗi "column does not exist"
--- khi code phía client thêm field mới trong tương lai.
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
-
--- 5. BẢNG INVESTMENT_PROJECTS
 CREATE TABLE IF NOT EXISTS public.investment_projects (
   id TEXT PRIMARY KEY,
   title TEXT,
@@ -157,28 +92,10 @@ CREATE TABLE IF NOT EXISTS public.investment_projects (
   scale TEXT DEFAULT '',
   is_active BOOLEAN DEFAULT TRUE,
   description TEXT DEFAULT '',
-  created_date TIMESTAMPTZ DEFAULT NOW()
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  extra JSONB DEFAULT '{}'::jsonb
 );
 
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS title TEXT;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS name TEXT;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'VinHomes';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS image TEXT;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS price_per_m2 NUMERIC DEFAULT 0;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS price_str TEXT DEFAULT '';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS rate TEXT DEFAULT '0.5%/ngày';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS annual_yield NUMERIC DEFAULT 0.5;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS area TEXT DEFAULT '';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS progress NUMERIC DEFAULT 80;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS min_amount NUMERIC DEFAULT 1000000;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS duration TEXT DEFAULT '30 ngày';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS scale TEXT DEFAULT '';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
-ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
-
--- 6. BẢNG BANK_ACCOUNTS (tài khoản ngân hàng đã liên kết của hội viên)
 CREATE TABLE IF NOT EXISTS public.bank_accounts (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -187,35 +104,20 @@ CREATE TABLE IF NOT EXISTS public.bank_accounts (
   account_number TEXT DEFAULT '',
   account_holder TEXT DEFAULT '',
   is_default BOOLEAN DEFAULT FALSE,
-  created_date TIMESTAMPTZ DEFAULT NOW()
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  extra JSONB DEFAULT '{}'::jsonb
 );
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS bank_name TEXT DEFAULT '';
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS bank_code TEXT DEFAULT '';
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS account_number TEXT DEFAULT '';
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT '';
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
 
--- 7. BẢNG SIGNATURES (chữ ký điện tử dùng để ký hợp đồng đầu tư)
 CREATE TABLE IF NOT EXISTS public.signatures (
   id TEXT PRIMARY KEY,
   user_id TEXT,
   type TEXT DEFAULT 'draw',
   content TEXT DEFAULT '',
   label TEXT DEFAULT '',
-  created_date TIMESTAMPTZ DEFAULT NOW()
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  extra JSONB DEFAULT '{}'::jsonb
 );
-ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'draw';
-ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
-ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS label TEXT DEFAULT '';
-ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
 
--- 8. BẢNG TRANSACTIONS (hợp đồng đầu tư - dự án, chứng khoán, đất nền...
--- khác với wallet_transactions vốn chỉ dùng cho lệnh nạp/rút ví)
 CREATE TABLE IF NOT EXISTS public.transactions (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -238,8 +140,126 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   signature_type TEXT,
   signature_content TEXT,
   note TEXT DEFAULT '',
-  created_date TIMESTAMPTZ DEFAULT NOW()
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  extra JSONB DEFAULT '{}'::jsonb
 );
+
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id TEXT PRIMARY KEY,
+  action TEXT DEFAULT '',
+  tx_code TEXT,
+  amount NUMERIC,
+  user_id TEXT,
+  user_name TEXT DEFAULT '',
+  admin_email TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_date TIMESTAMPTZ DEFAULT NOW(),
+  extra JSONB DEFAULT '{}'::jsonb
+);
+
+-- --------------------------------------------------------------------
+-- 2) ADD ANY MISSING COLUMNS (idempotent for pre-existing tables)
+-- --------------------------------------------------------------------
+
+-- users
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS identifier TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS name TEXT DEFAULT 'Hội viên VinClub';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS full_name TEXT DEFAULT 'Hội viên VinClub';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS total_deposited BIGINT DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS balance_version BIGINT DEFAULT 0;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS membership_tier TEXT DEFAULT 'VIP 1 - Gold';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS vip_level TEXT DEFAULT 'VIP 1';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS bank_name TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS account_number TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS referral_code TEXT DEFAULT '';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_active TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+
+-- wallet_transactions
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'deposit';
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS amount BIGINT DEFAULT 0;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS bank_name TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS account_holder TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS approved_by TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS rejected_by TEXT;
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+
+-- notifications
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'system';
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- messages
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender TEXT DEFAULT 'user';
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS text TEXT DEFAULT '';
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS conversation_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- investment_projects (fixed ordering issue)
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'VinHomes';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS image TEXT;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS price_per_m2 NUMERIC DEFAULT 0;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS price_str TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS rate TEXT DEFAULT '0.5%/ngày';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS annual_yield NUMERIC DEFAULT 0.5;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS area TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS progress NUMERIC DEFAULT 80;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS min_amount NUMERIC DEFAULT 1000000;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS duration TEXT DEFAULT '30 ngày';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS scale TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.investment_projects ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- bank_accounts
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS bank_name TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS bank_code TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS account_number TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT '';
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- signatures
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'draw';
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS label TEXT DEFAULT '';
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.signatures ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
+
+-- transactions
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_id TEXT;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT '';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT '';
@@ -263,20 +283,7 @@ ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS note TEXT DEFAULT '';
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
 
--- 9. BẢNG AUDIT_LOGS (nhật ký thao tác Admin - phê duyệt/từ chối nạp rút,
--- khóa/mở/xóa tài khoản...). Trước đây chỉ lưu localStorage nên biến mất
--- hoàn toàn khi Admin xóa cache hoặc đổi thiết bị - mất dấu vết trách nhiệm.
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-  id TEXT PRIMARY KEY,
-  action TEXT DEFAULT '',
-  tx_code TEXT,
-  amount NUMERIC,
-  user_id TEXT,
-  user_name TEXT DEFAULT '',
-  admin_email TEXT DEFAULT '',
-  notes TEXT DEFAULT '',
-  created_date TIMESTAMPTZ DEFAULT NOW()
-);
+-- audit_logs
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS action TEXT DEFAULT '';
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS tx_code TEXT;
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS amount NUMERIC;
@@ -287,27 +294,34 @@ ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS created_date TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE public.audit_logs ADD COLUMN IF NOT EXISTS extra JSONB DEFAULT '{}'::jsonb;
 
--- ====================================================================
--- CHỈ MỤC (INDEXES)
--- ====================================================================
+-- --------------------------------------------------------------------
+-- 3) INDEXES
+-- --------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON public.users(role);
+
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_user_id ON public.wallet_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_type ON public.wallet_transactions(type);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_status ON public.wallet_transactions(status);
 CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON public.wallet_transactions(created_date DESC);
+
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id);
+
 CREATE INDEX IF NOT EXISTS idx_messages_user ON public.messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON public.messages(conversation_id);
+
 CREATE INDEX IF NOT EXISTS idx_bank_accounts_user ON public.bank_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_signatures_user ON public.signatures(user_id);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON public.transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_created ON public.transactions(created_date DESC);
+
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON public.audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON public.audit_logs(created_date DESC);
 
--- ====================================================================
--- ROW LEVEL SECURITY (RLS) & POLICIES
--- ====================================================================
+-- --------------------------------------------------------------------
+-- 4) RLS + POLICIES
+-- --------------------------------------------------------------------
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
@@ -345,11 +359,14 @@ CREATE POLICY "Public access transactions" ON public.transactions FOR ALL USING 
 DROP POLICY IF EXISTS "Public access audit_logs" ON public.audit_logs;
 CREATE POLICY "Public access audit_logs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
 
--- ====================================================================
--- TRIGGER AUTH KHI CÓ USER MỚI ĐĂNG KÝ
--- ====================================================================
+-- --------------------------------------------------------------------
+-- 5) TRIGGER: create/update public.users when auth.users is inserted
+-- --------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 BEGIN
   INSERT INTO public.users (
     id,
@@ -365,7 +382,7 @@ BEGIN
     created_at,
     last_active
   ) VALUES (
-    NEW.id,
+    NEW.id::text,
     NEW.email,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
@@ -378,33 +395,32 @@ BEGIN
     NOW(),
     NOW()
   )
-  ON CONFLICT (id) DO UPDATE SET
-    last_active = NOW(),
-    email = EXCLUDED.email;
+  ON CONFLICT (id) DO UPDATE
+    SET last_active = NOW(),
+        email = EXCLUDED.email;
+
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+AFTER INSERT ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_new_user();
 
--- ====================================================================
--- CỘNG/TRỪ SỐ DƯ NGUYÊN TỬ (ATOMIC) — tránh mất dữ liệu khi 2 thao tác
--- cộng/trừ tiền xảy ra gần như đồng thời (2 thiết bị khác nhau, hoặc
--- admin + user cùng lúc). Thay vì đọc số dư -> tính số dư mới -> ghi đè
--- (2 bước tách rời, có thể xen kẽ và ghi đè lẫn nhau), hàm này để chính
--- Postgres cộng trực tiếp "balance = balance + delta" trong 1 câu lệnh
--- UPDATE duy nhất - Postgres tự khóa dòng đó trong lúc cập nhật nên 2
--- lệnh gọi đồng thời luôn cộng dồn đúng, không lệnh nào bị mất.
--- ====================================================================
+-- --------------------------------------------------------------------
+-- 6) BALANCE RPCs
+-- --------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.increment_user_balance(
   p_user_id TEXT,
   p_delta BIGINT,
   p_total_deposited_delta BIGINT DEFAULT 0
 )
-RETURNS TABLE (balance BIGINT, total_deposited BIGINT, balance_version BIGINT) AS $$
+RETURNS TABLE (balance BIGINT, total_deposited BIGINT, balance_version BIGINT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 BEGIN
   RETURN QUERY
   UPDATE public.users
@@ -416,22 +432,17 @@ BEGIN
   WHERE id = p_user_id
   RETURNING public.users.balance, public.users.total_deposited, public.users.balance_version;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
--- ====================================================================
--- ĐẶT SỐ DƯ TUYỆT ĐỐI NGUYÊN TỬ — dùng cho admin sửa dữ liệu hoặc reset
--- số dư demo (không phải cộng/trừ delta). Vẫn tăng balance_version như
--- increment_user_balance() để phiên Realtime khác (AuthContext) nhận diện
--- đây là thay đổi mới hơn - nếu chỉ upsert thường (không qua RPC này) thì
--- balance_version đứng yên, khiến cập nhật thật bị bộ so sánh version ở
--- client âm thầm bỏ qua.
--- ====================================================================
 CREATE OR REPLACE FUNCTION public.set_user_balance_absolute(
   p_user_id TEXT,
   p_balance BIGINT,
   p_total_deposited BIGINT
 )
-RETURNS TABLE (balance BIGINT, total_deposited BIGINT, balance_version BIGINT) AS $$
+RETURNS TABLE (balance BIGINT, total_deposited BIGINT, balance_version BIGINT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 BEGIN
   RETURN QUERY
   UPDATE public.users
@@ -443,4 +454,4 @@ BEGIN
   WHERE id = p_user_id
   RETURNING public.users.balance, public.users.total_deposited, public.users.balance_version;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
