@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance, adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
 import { User, Minus, Plus, Ban, Coins, ArrowLeft } from "lucide-react";
@@ -116,6 +116,8 @@ export default function XiToBaLa() {
   const [betAmount, setBetAmount] = useState(50000);
   const [pot, setPot] = useState(1450000);
   const [phase, setPhase] = useState("betting"); // 'betting' | 'dealt' | 'revealed'
+  // Chặn đặt cược/tăng cược liên tiếp trong lúc đang đợi xác nhận trừ tiền từ Postgres
+  const [isDealing, setIsDealing] = useState(false);
   
   // Hands
   const [playerCards, setPlayerCards] = useState([]);
@@ -189,6 +191,32 @@ export default function XiToBaLa() {
       } catch (e) {}
       window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
     }
+  }, [user]);
+
+  // Trừ tiền cược qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
+  // xác nhận thật từ Postgres) - dùng cho các hành động trừ tiền thật (đặt
+  // cược, tăng cược) cần biết CHẮC CHẮN đã ghi thành công trước khi cho
+  // phép chia bài/tăng pot tiếp. Trả về true khi chắc chắn đã trừ, false
+  // khi thất bại - bên gọi phải tự hoàn tác optimistic UI khi false.
+  const deductBalanceStrict = useCallback(async (amount) => {
+    if (user?.id) {
+      const result = await adjustUserBalanceStrict(user.id, -amount, 0);
+      if (!result) return false;
+      localStorage.setItem("vinclub_xito_balance", String(result.balance));
+      return true;
+    }
+    // Khách chưa đăng nhập: không có gì trên Postgres để xác nhận, chỉ cập
+    // nhật cache cục bộ như hành vi cũ (updateGlobalBalance ở trên).
+    try {
+      const localUserStr = localStorage.getItem('base44_local_user');
+      if (localUserStr) {
+        const localUser = JSON.parse(localUserStr);
+        localUser.balance = Math.max(0, Number(localUser.balance || 0) - amount);
+        localStorage.setItem('base44_local_user', JSON.stringify(localUser));
+      }
+    } catch (e) {}
+    window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+    return true;
   }, [user]);
 
   // Web Audio Ching sound effect
@@ -371,13 +399,30 @@ export default function XiToBaLa() {
   }, [showWinOverlay]);
 
   // Initial Deal
-  const dealNewRound = useCallback(() => {
+  //
+  // Trừ tiền cược TRƯỚC và ĐỢI xác nhận thật từ Postgres, chỉ chia bài khi
+  // chắc chắn đã trừ thành công - trước đây gọi updateGlobalBalance() kiểu
+  // "bắn rồi quên" song song với việc chia bài ngay, nếu ghi thất bại người
+  // chơi vẫn được chia bài như đã trừ tiền dù Postgres chưa hề trừ.
+  const dealNewRound = useCallback(async () => {
     if (user?.is_locked) {
       toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
       return;
     }
+    if (isDealing) return;
     if (betAmount > balance) {
       toast.error("Số dư ví không đủ để đặt cược!");
+      return;
+    }
+
+    setIsDealing(true);
+    setBalance((prev) => Math.max(0, prev - betAmount));
+
+    const ok = await deductBalanceStrict(betAmount);
+    if (!ok) {
+      setBalance((prev) => prev + betAmount);
+      setIsDealing(false);
+      toast.error("Không thể trừ tiền cược, vui lòng thử lại!");
       return;
     }
 
@@ -393,10 +438,8 @@ export default function XiToBaLa() {
 
     const currentPot = betAmount * 4 + 250000;
     setPot(currentPot);
-
-    // Deduct initial bet
-    updateGlobalBalance(-betAmount);
-  }, [betAmount, balance, updateGlobalBalance, user?.is_locked]);
+    setIsDealing(false);
+  }, [betAmount, balance, isDealing, deductBalanceStrict, user?.is_locked]);
 
   // Auto deal on first mount
   useEffect(() => {
@@ -419,14 +462,27 @@ export default function XiToBaLa() {
   };
 
   // Action: Bet / Tăng Cược
-  const handleAddBet = () => {
+  const handleAddBet = async () => {
+    if (isDealing) return;
     if (balance < 50000) {
       toast.error("Số dư không đủ để tăng cược!");
       return;
     }
+
+    setIsDealing(true);
+    setBalance((prev) => Math.max(0, prev - 50000));
+
+    const ok = await deductBalanceStrict(50000);
+    if (!ok) {
+      setBalance((prev) => prev + 50000);
+      setIsDealing(false);
+      toast.error("Không thể trừ tiền, vui lòng thử lại!");
+      return;
+    }
+
     setBetAmount((prev) => prev + 50000);
     setPot((prev) => prev + 150000);
-    updateGlobalBalance(-50000);
+    setIsDealing(false);
     toast.success("Đã tăng cược thêm 50.000 VNĐ vào Pot!");
   };
 
@@ -828,7 +884,8 @@ export default function XiToBaLa() {
             {/* FOLD Button */}
             <button
               onClick={handleFold}
-              className="flex flex-col items-center justify-center bg-[#2a2a2a] hover:bg-[#353534] rounded-xl text-[#ffb4ab] active:scale-95 transition-all shadow-md cursor-pointer"
+              disabled={isDealing}
+              className="flex flex-col items-center justify-center bg-[#2a2a2a] hover:bg-[#353534] rounded-xl text-[#ffb4ab] active:scale-95 transition-all shadow-md cursor-pointer disabled:opacity-40"
             >
               <Ban className="w-4 h-4" />
               <span className="text-[9px] font-mono font-bold mt-0.5">BỎ BÀI</span>
@@ -837,7 +894,8 @@ export default function XiToBaLa() {
             {/* REVEAL / RESET Button */}
             <button
               onClick={handleReveal}
-              className="relative flex items-center justify-center bg-gradient-to-b from-[#f2ca50] to-[#d4af37] rounded-xl text-[#554300] shadow-[0_4px_0_0_#574500] active:shadow-none active:translate-y-1 transition-all overflow-hidden cursor-pointer"
+              disabled={isDealing}
+              className="relative flex items-center justify-center bg-gradient-to-b from-[#f2ca50] to-[#d4af37] rounded-xl text-[#554300] shadow-[0_4px_0_0_#574500] active:shadow-none active:translate-y-1 transition-all overflow-hidden cursor-pointer disabled:opacity-40"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-white/20 via-transparent to-transparent -skew-x-12 translate-x-[-100%] animate-[shimmer_2s_infinite]" />
               <span className="text-[12px] font-extrabold uppercase tracking-wider">
@@ -848,7 +906,8 @@ export default function XiToBaLa() {
             {/* BET / CƯỢC TĂNG Button */}
             <button
               onClick={handleAddBet}
-              className="flex flex-col items-center justify-center bg-[#2a2a2a] hover:bg-[#353534] rounded-xl text-[#f2ca50] active:scale-95 transition-all shadow-md cursor-pointer"
+              disabled={isDealing}
+              className="flex flex-col items-center justify-center bg-[#2a2a2a] hover:bg-[#353534] rounded-xl text-[#f2ca50] active:scale-95 transition-all shadow-md cursor-pointer disabled:opacity-40"
             >
               <Coins className="w-4 h-4" />
               <span className="text-[9px] font-mono font-bold mt-0.5">TĂNG CƯỢC</span>

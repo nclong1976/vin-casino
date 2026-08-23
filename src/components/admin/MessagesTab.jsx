@@ -20,6 +20,7 @@ import {
   Loader2,
   RefreshCw,
   Clock,
+  Pencil,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers } from "@/lib/supabaseDb";
@@ -66,19 +67,30 @@ const Avatar = React.memo(({ name, size = "md" }) => {
 });
 
 // ─── Message Bubble ───────────────────────────────────────────────
-const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy, onDelete, copiedId, onPreview }) => (
+const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy, onDelete, copiedId, onPreview, isEditing, editText, onEditChange, onStartEdit, onSaveEdit, onCancelEdit }) => (
   <div className={`flex ${isAdmin ? "justify-end" : "justify-start"} group`}>
     <div className={`max-w-[78%] flex flex-col ${isAdmin ? "items-end" : "items-start"}`}>
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-[8.5px] font-bold text-gray-400">{isAdmin ? "Admin CSKH" : senderName}</span>
-        <button
-          onClick={() => onCopy(m)}
-          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-black transition-opacity"
-          title="Sao chép"
-        >
-          {copiedId === m.id ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-        </button>
-        {isSuperAdmin && (
+        {!isEditing && (
+          <button
+            onClick={() => onCopy(m)}
+            className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-black transition-opacity"
+            title="Sao chép"
+          >
+            {copiedId === m.id ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+          </button>
+        )}
+        {isSuperAdmin && !isEditing && m.content && (
+          <button
+            onClick={() => onStartEdit(m)}
+            className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-[#948154] transition-opacity"
+            title="Sửa tin nhắn"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+        )}
+        {isSuperAdmin && !isEditing && (
           <button
             onClick={() => onDelete(m)}
             className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-600 transition-opacity"
@@ -89,6 +101,39 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
         )}
       </div>
 
+      {isEditing ? (
+        <div className="w-full min-w-[220px] space-y-1.5">
+          <textarea
+            autoFocus
+            value={editText}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSaveEdit(m);
+              } else if (e.key === "Escape") {
+                onCancelEdit();
+              }
+            }}
+            rows={2}
+            className="w-full py-2 px-3 rounded-xl border border-[#948154] text-[11.5px] focus:outline-none resize-none leading-relaxed"
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              onClick={onCancelEdit}
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-[10px] font-bold cursor-pointer transition-colors"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={() => onSaveEdit(m)}
+              className="px-2.5 py-1 rounded-lg bg-[#948154] hover:bg-[#7a6c44] text-white text-[10px] font-bold cursor-pointer transition-colors"
+            >
+              Lưu
+            </button>
+          </div>
+        </div>
+      ) : (
       <div
         className={`rounded-2xl px-3 py-2 text-[11.5px] leading-relaxed shadow-xs ${
           isAdmin
@@ -135,6 +180,7 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
           </div>
         )}
       </div>
+      )}
 
       <span className="text-[8px] text-gray-400 mt-0.5">{fmtTime(m.created_date)}</span>
     </div>
@@ -163,6 +209,8 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const [previewImage, setPreviewImage] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // {type: 'msg'|'conv', target}
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
 
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -344,6 +392,10 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         setMessages((prev) =>
           prev.map((m) => (unreadMsgs.some((u) => u.id === m.id) ? { ...m, is_read: true } : m))
         );
+        // Báo cho MemberHubTab (badge tổng "chưa đọc" ở tab cha) biết ngay
+        // trong CÙNG tab - bulkUpdate() không tự đẩy RTDB cho Message nên
+        // không có tín hiệu nào khác đến được đó khi đánh dấu đã đọc.
+        window.dispatchEvent(new CustomEvent("vinclub:msg_update"));
       } catch {}
     },
     [conversations]
@@ -387,6 +439,44 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       } catch { toast.error("Không thể xóa hết tin nhắn"); }
     }
   }, [deleteConfirm]);
+
+  const startEditMessage = useCallback((m) => {
+    if (!isSuperAdmin) return;
+    setEditingId(m.id);
+    setEditText(m.content || "");
+  }, [isSuperAdmin]);
+
+  const cancelEditMessage = useCallback(() => {
+    setEditingId(null);
+    setEditText("");
+  }, []);
+
+  const saveEditMessage = useCallback(async (m) => {
+    const newContent = editText.trim();
+    if (!newContent || newContent === m.content) {
+      setEditingId(null);
+      setEditText("");
+      return;
+    }
+    setEditingId(null);
+    setEditText("");
+    setMessages((prev) => prev.map((msg) => (msg.id === m.id ? { ...msg, content: newContent } : msg)));
+    try {
+      const updated = await base44.entities.Message.update(m.id, { content: newContent });
+      // Đẩy thêm qua RTDB để phía user nhận thay đổi tức thời, giống hệt
+      // handleReply() ở dưới - update() trong base44Client.js chỉ ghi
+      // Supabase, không tự đẩy RTDB cho entity Message.
+      try {
+        const { pushMessageToRTDB } = await import("@/lib/rtdbSync");
+        await pushMessageToRTDB({ ...m, ...updated, content: newContent });
+      } catch (pushErr) {
+        console.warn("[MessagesTab] RTDB push warning (edit):", pushErr);
+      }
+    } catch {
+      setMessages((prev) => prev.map((msg) => (msg.id === m.id ? { ...msg, content: m.content } : msg)));
+      toast.error("Không thể sửa tin nhắn");
+    }
+  }, [editText]);
 
   const handlePaste = useCallback((e) => {
     const items = Array.from(e.clipboardData?.items || []);
@@ -472,6 +562,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       // chat CSKH real-time), tạo thêm Notification riêng theo user_id chỉ
       // gây trùng lặp và đi ngược quy tắc "chuông chỉ hiện tin chung".
       localStorage.setItem("vinclub_msg_update", Date.now().toString());
+      window.dispatchEvent(new CustomEvent("vinclub:msg_update"));
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
       toast.error("Không thể gửi phản hồi");
@@ -577,6 +668,12 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               onCopy={handleCopy}
               onDelete={confirmDeleteMessage}
               onPreview={setPreviewImage}
+              isEditing={editingId === m.id}
+              editText={editText}
+              onEditChange={setEditText}
+              onStartEdit={startEditMessage}
+              onSaveEdit={saveEditMessage}
+              onCancelEdit={cancelEditMessage}
             />
           ))}
           {sending && (

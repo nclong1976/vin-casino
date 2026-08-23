@@ -44,14 +44,24 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
 
     const handleMsgUpdate = () => fetchHubStats();
     const handleBalUpdate = () => fetchHubStats();
-    window.addEventListener("vinclub_msg_update", handleMsgUpdate);
+    // "vinclub_msg_update" KHÔNG PHẢI custom event - đó là tên key trong
+    // localStorage (xem MessagesTab.jsx/Support.jsx), chỉ phát hiện được
+    // qua sự kiện "storage" gốc (đã đăng ký bên dưới), và sự kiện "storage"
+    // chỉ bắn ở TAB KHÁC chứ không bao giờ bắn trong chính tab vừa ghi -
+    // nghĩa là listener này chưa từng nhận được sự kiện nào khi admin tự
+    // đánh dấu tin đã đọc trong cùng tab, khiến badge tổng ở đây lệch so
+    // với số "chưa đọc" thật hiển thị trong MessagesTab (đúng lỗi quan sát
+    // được: badge hiện 6 trong khi tổng số chưa đọc thực tế là 7). Lắng
+    // nghe đúng custom event "vinclub:msg_update" mà MessagesTab.jsx giờ
+    // dispatch thêm mỗi khi tin nhắn được tạo/đánh dấu đã đọc.
+    window.addEventListener("vinclub:msg_update", handleMsgUpdate);
     window.addEventListener("vinclub:balance_updated", handleBalUpdate);
     window.addEventListener("storage", handleMsgUpdate);
 
     return () => {
       if (typeof unsubRTDBMsg === "function") unsubRTDBMsg();
       if (typeof unsubRTDBTx === "function") unsubRTDBTx();
-      window.removeEventListener("vinclub_msg_update", handleMsgUpdate);
+      window.removeEventListener("vinclub:msg_update", handleMsgUpdate);
       window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
       window.removeEventListener("storage", handleMsgUpdate);
     };
@@ -76,85 +86,120 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
           {/* SubTab 1: Hội viên */}
           <button
             onClick={() => { setSubTab("users"); }}
-            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 rounded-xl text-[12px] font-bold transition-all cursor-pointer ${
-              subTab === "users"
-                ? "bg-[#948154] text-white shadow-xs"
-                : "text-gray-600 hover:bg-gray-100 hover:text-black"
+            className={`relative flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 rounded-xl text-[12px] font-bold transition-all cursor-pointer ${
+              subTab === "users" ? "text-white" : "text-gray-600 hover:bg-gray-100 hover:text-black"
             }`}
           >
-            <Users className="w-4 h-4 shrink-0" />
-            <span className="truncate">Hội viên</span>
-            {totalUsersCount > 0 && (
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[8.5px] font-black shrink-0 ${
-                  subTab === "users" ? "bg-white/20 text-white" : "bg-gray-100 text-gray-700"
-                }`}
-              >
-                {totalUsersCount}
-              </span>
+            {subTab === "users" && (
+              <motion.span
+                layoutId="member-hub-subtab-active-bg"
+                className="absolute inset-0 bg-[#948154] rounded-xl shadow-xs"
+                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              />
             )}
+            {/* Bọc riêng nội dung trong span "relative z-10" thay vì ép pill
+                z-index âm - pill với transform animation (layoutId) + z-index
+                âm từng khiến chữ/icon bị che khuất phía sau pill lúc chuyển
+                tab (xem ghi chú tương tự ở Admin.jsx). */}
+            <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2">
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="truncate">Hội viên</span>
+              {totalUsersCount > 0 && (
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[8.5px] font-black shrink-0 ${
+                    subTab === "users" ? "bg-white/20 text-white" : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {totalUsersCount}
+                </span>
+              )}
+            </span>
           </button>
 
           {/* SubTab 2: Tin nhắn CSKH */}
           <button
             onClick={() => { setSubTab("messages"); }}
             className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 rounded-xl text-[12px] font-bold transition-all cursor-pointer relative ${
-              subTab === "messages"
-                ? "bg-[#948154] text-white shadow-xs"
-                : "text-gray-600 hover:bg-gray-100 hover:text-black"
+              subTab === "messages" ? "text-white" : "text-gray-600 hover:bg-gray-100 hover:text-black"
             }`}
           >
-            <MessageSquare className="w-4 h-4 shrink-0" />
-            <span className="truncate">Tin nhắn CSKH</span>
-            {unreadMsgCount > 0 && (
-              <span className="min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[8px] font-black flex items-center justify-center shrink-0 animate-pulse">
-                {unreadMsgCount > 9 ? "9+" : unreadMsgCount}
-              </span>
+            {subTab === "messages" && (
+              <motion.span
+                layoutId="member-hub-subtab-active-bg"
+                className="absolute inset-0 bg-[#948154] rounded-xl shadow-xs"
+                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              />
             )}
+            <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2">
+              <MessageSquare className="w-4 h-4 shrink-0" />
+              <span className="truncate">Tin nhắn CSKH</span>
+              {unreadMsgCount > 0 && (
+                <span className="min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[8px] font-black flex items-center justify-center shrink-0 animate-pulse">
+                  {unreadMsgCount > 9 ? "9+" : unreadMsgCount}
+                </span>
+              )}
+            </span>
           </button>
 
           {/* SubTab 3: Phê duyệt Giao dịch */}
           <button
             onClick={() => { setSubTab("transactions"); }}
             className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 rounded-xl text-[12px] font-bold transition-all cursor-pointer relative ${
-              subTab === "transactions"
-                ? "bg-[#948154] text-white shadow-xs"
-                : "text-gray-600 hover:bg-gray-100 hover:text-black"
+              subTab === "transactions" ? "text-white" : "text-gray-600 hover:bg-gray-100 hover:text-black"
             }`}
           >
-            <ArrowRightLeft className="w-4 h-4 shrink-0" />
-            <span className="truncate">Phê duyệt Giao dịch</span>
-            {pendingTxCount > 0 && (
-              <span className="min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center shrink-0">
-                {pendingTxCount}
-              </span>
+            {subTab === "transactions" && (
+              <motion.span
+                layoutId="member-hub-subtab-active-bg"
+                className="absolute inset-0 bg-[#948154] rounded-xl shadow-xs"
+                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              />
             )}
+            <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2">
+              <ArrowRightLeft className="w-4 h-4 shrink-0" />
+              <span className="truncate">Phê duyệt Giao dịch</span>
+              {pendingTxCount > 0 && (
+                <span className="min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center shrink-0">
+                  {pendingTxCount}
+                </span>
+              )}
+            </span>
           </button>
         </div>
       </div>
 
       {/* ── SubTab Content Rendering ── */}
-      <div>
+      <div className="overflow-hidden">
         <AdminErrorBoundary resetKey={subTab}>
-          {subTab === "users" && (
-            <UsersTab
-              onNavigateToChat={handleNavigateToChat}
-              onNavigateToTransactions={handleNavigateToTransactions}
-            />
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={subTab}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+            >
+              {subTab === "users" && (
+                <UsersTab
+                  onNavigateToChat={handleNavigateToChat}
+                  onNavigateToTransactions={handleNavigateToTransactions}
+                />
+              )}
 
-          {subTab === "messages" && (
-            <MessagesTab
-              initialSelectedUserId={chatTargetUserId}
-            />
-          )}
+              {subTab === "messages" && (
+                <MessagesTab
+                  initialSelectedUserId={chatTargetUserId}
+                />
+              )}
 
-          {subTab === "transactions" && (
-            <TransactionsTab
-              initialSearchQuery={txSearchQuery}
-              onNavigateToChat={handleNavigateToChat}
-            />
-          )}
+              {subTab === "transactions" && (
+                <TransactionsTab
+                  initialSearchQuery={txSearchQuery}
+                  onNavigateToChat={handleNavigateToChat}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </AdminErrorBoundary>
       </div>
     </div>

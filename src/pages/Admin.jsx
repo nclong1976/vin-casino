@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   Users,
@@ -133,39 +134,67 @@ export default function Admin() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                tab === t.id
-                  ? "bg-[#948154] text-white shadow-xs font-bold"
-                  : "text-gray-500 hover:bg-gray-100 hover:text-black"
+              className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                tab === t.id ? "text-white font-bold" : "text-gray-500 hover:bg-gray-100 hover:text-black"
               }`}
             >
-              <t.icon className="w-4 h-4" />
-              {t.label}
-              {t.id === "member_hub" && stats.totalPendingHub > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
-                  {stats.totalPendingHub}
-                </span>
+              {/* Pill nền trượt mượt sang tab đang chọn thay vì đổi màu tức
+                  thời - layoutId dùng chung giữa các nút khiến framer-motion
+                  tự animate vị trí/kích thước khi phần tử có layoutId này
+                  chuyển sang nút khác. */}
+              {tab === t.id && (
+                <motion.span
+                  layoutId="admin-tab-active-bg"
+                  className="absolute inset-0 bg-[#948154] rounded-lg shadow-xs"
+                  transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                />
               )}
-              {t.id === "contracts" && stats.pendingContracts > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
-                  {stats.pendingContracts}
-                </span>
-              )}
+              {/* Bọc nội dung trong span "relative z-10" thay vì ép pill
+                  z-index âm - pill có transform animation (layoutId) kết hợp
+                  z-index âm từng khiến chữ/icon bị che khuất phía sau pill
+                  ngay khi tab đó đang active. */}
+              <span className="relative z-10 flex items-center gap-1.5">
+                <t.icon className="w-4 h-4" />
+                {t.label}
+                {t.id === "member_hub" && stats.totalPendingHub > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                    {stats.totalPendingHub}
+                  </span>
+                )}
+                {t.id === "contracts" && stats.pendingContracts > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
+                    {stats.pendingContracts}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-4">
+      <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
         <AdminErrorBoundary resetKey={tab}>
-          {tab === "overview" && <OverviewTab stats={stats} />}
-          {tab === "member_hub" && <MemberHubTab />}
-          {tab === "stocks" && <StocksTab />}
-          {tab === "casino" && <CasinoTab />}
-          {tab === "contracts" && <ContractsTab />}
-          {tab === "projects" && <ProjectsTab />}
-          {tab === "news" && <NewsTab />}
-          {tab === "notifications" && <NotificationsTab />}
+          {/* mode="wait" đợi tab cũ fade-out xong mới fade-in tab mới, tránh
+              2 tab chồng lên nhau lúc chuyển tiếp. key={tab} là thứ báo cho
+              AnimatePresence biết "đây là nội dung mới" để chạy exit/enter. */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tab}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+            >
+              {tab === "overview" && <OverviewTab stats={stats} />}
+              {tab === "member_hub" && <MemberHubTab />}
+              {tab === "stocks" && <StocksTab />}
+              {tab === "casino" && <CasinoTab />}
+              {tab === "contracts" && <ContractsTab />}
+              {tab === "projects" && <ProjectsTab />}
+              {tab === "news" && <NewsTab />}
+              {tab === "notifications" && <NotificationsTab />}
+            </motion.div>
+          </AnimatePresence>
         </AdminErrorBoundary>
       </div>
     </div>

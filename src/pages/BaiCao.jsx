@@ -5,7 +5,8 @@ import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import PlayingCard from "@/components/casino/PlayingCard";
 import { useAuth } from "@/lib/AuthContext";
-import { adjustUserBalance, setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
+import { base44 } from "@/api/base44Client";
+import { adjustUserBalance, adjustUserBalanceStrict, setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
 
 const SUITS = ["♠", "♥", "♦", "♣"];
 const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -142,15 +143,42 @@ export default function BaiCao() {
     }
   };
 
-  const deal = useCallback(() => {
-    if (bet > balance) {
-      toast.error("Số dư không đủ để đặt cược!");
+  // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có xác
+  // nhận thật từ Postgres) và ĐỢI kết quả trước khi chia bài - trước đây
+  // applyDelta() bắn đi rồi quên (không await), nếu ghi thất bại người chơi
+  // vẫn được chia bài như đã trừ tiền dù Postgres chưa hề trừ.
+  const deal = useCallback(async () => {
+    if (bet > balance || busy) {
+      if (bet > balance) toast.error("Số dư không đủ để đặt cược!");
       return;
     }
     setBusy(true);
 
-    // Trừ tiền cược vào ví ngay khi đặt cược thành công
-    applyDelta(-bet);
+    setBalance((prev) => Math.max(0, prev - bet));
+
+    if (user?.id) {
+      const result = await adjustUserBalanceStrict(user.id, -bet, 0);
+      if (!result) {
+        setBalance((prev) => prev + bet);
+        setBusy(false);
+        toast.error("Không thể trừ tiền cược, vui lòng thử lại!");
+        return;
+      }
+      localStorage.setItem("baicao_balance", String(result.balance));
+    } else {
+      // Khách chưa đăng nhập: không có gì trên Postgres để xác nhận, chỉ
+      // cập nhật cache cục bộ như hành vi cũ.
+      try {
+        const localUserStr = localStorage.getItem("base44_local_user");
+        if (localUserStr) {
+          const localUser = JSON.parse(localUserStr);
+          localUser.balance = Math.max(0, Number(localUser.balance || 0) - bet);
+          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
+        }
+      } catch (e) {}
+      localStorage.setItem("baicao_balance", String(Math.max(0, balance - bet)));
+      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+    }
 
     if (user?.id) {
       base44.entities.WalletTransaction.create({
@@ -170,7 +198,7 @@ export default function BaiCao() {
     setPhase("dealt");
     setBusy(false);
     toast.success(`Đã đặt cược ${fmt(bet)} VNĐ thành công!`);
-  }, [bet, balance, user]);
+  }, [bet, balance, busy, user]);
 
   const reveal = useCallback(() => {
     const r = compare(player, dealer);

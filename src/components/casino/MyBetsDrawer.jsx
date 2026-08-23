@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Receipt, Clock, CheckCircle2, XCircle, Hourglass, Landmark, ShieldCheck, RefreshCw, Layers } from "lucide-react";
+import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 
 const fmt = (num) => new Intl.NumberFormat("vi-VN").format(Math.max(0, Math.floor(num || 0))) + " ₫";
+
+// Một vòng cược hiển thị "LIVE 4:59" (~5 phút). Quá mốc này mà vé vẫn
+// "pending" nghĩa là trình duyệt đã đóng/tải lại/điều hướng đi trước khi
+// triggerDealAndReveal() kịp chạy - xem reconcileStalePendingBets() bên dưới.
+const ROUND_STALE_MS = 7 * 60 * 1000; // 7 phút (5 phút vòng cược + đệm an toàn)
 
 export default function MyBetsDrawer({ open, onClose, currentTimerSeconds = 299, gameFilter = "" }) {
   const [filter, setFilter] = useState("all"); // 'all', 'pending', 'resolved'
@@ -25,8 +31,13 @@ export default function MyBetsDrawer({ open, onClose, currentTimerSeconds = 299,
     }
   };
 
+  // Chỉ tải & lắng nghe cập nhật khi drawer thực sự đang mở - trước đây
+  // effect này chạy vô điều kiện (component vẫn mounted khi đóng, chỉ
+  // return null), khiến drawer ĐÃ ĐÓNG vẫn setState mỗi khi có bet mới ở
+  // bất kỳ đâu trong app, gây re-render thừa không ai nhìn thấy.
   useEffect(() => {
-    if (open) loadBets();
+    if (!open) return;
+    loadBets();
     const handleUpdate = () => loadBets();
     window.addEventListener("vinclub:my_bets_updated", handleUpdate);
     return () => window.removeEventListener("vinclub:my_bets_updated", handleUpdate);
@@ -42,10 +53,16 @@ export default function MyBetsDrawer({ open, onClose, currentTimerSeconds = 299,
   const totalPayoutWon = bets.reduce((acc, curr) => acc + (curr.payout || 0), 0);
   const pendingCount = bets.filter((b) => b.status === "pending").length;
 
-  if (!open) return null;
-
+  // "if (!open) return null" TRƯỚC AnimatePresence sẽ gỡ luôn cả cây
+  // AnimatePresence khỏi DOM trong CÙNG 1 lượt render khi đóng - AnimatePresence
+  // chỉ phát hiện được unmount và chạy animation "exit" khi con của nó biến
+  // mất từ BÊN TRONG (qua điều kiện render), không phải khi chính nó bị gỡ
+  // từ bên ngoài. Kết quả: exit={{ y: "100%" }} không bao giờ chạy, drawer
+  // biến mất đột ngột thay vì trượt xuống. Giữ AnimatePresence luôn mounted,
+  // đưa điều kiện open vào bên trong.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -238,8 +255,21 @@ export default function MyBetsDrawer({ open, onClose, currentTimerSeconds = 299,
           </div>
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
+}
+
+// Sinh id chứng từ không trùng lặp - Math.random() thuần (6 chữ số, ~900k tổ
+// hợp) có xác suất đụng độ thật khi ledger được quảng cáo là "banking ledger
+// engine". crypto.randomUUID() (hỗ trợ trên mọi trình duyệt hiện đại phục vụ
+// HTTPS/localhost) loại bỏ hoàn toàn rủi ro đó; giữ Math.random() làm phương
+// án dự phòng cho môi trường cũ không có API này.
+function generateBetId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `LENG-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  }
+  return `LENG-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1000)}`;
 }
 
 // Helper to add a bet to local ledger
@@ -249,13 +279,18 @@ export function recordCasinoBet(gameSlug, gameName, betsObj, totalBet) {
     const existing = raw ? JSON.parse(raw) : [];
 
     const newBet = {
-      id: `LENG-${Math.floor(100000 + Math.random() * 900000)}`,
+      id: generateBetId(),
       gameSlug,
       gameName,
       bets: { ...betsObj },
       totalBet,
       payout: 0,
       status: "pending",
+      // createdAtMs: mốc thời gian THẬT (epoch ms) dùng để tính tuổi vé cho
+      // reconcileStalePendingBets() bên dưới - timestamp/dateStr chỉ là
+      // chuỗi đã format theo giờ Việt Nam, không parse ngược lại tin cậy
+      // được nên không thể dùng để so tuổi.
+      createdAtMs: Date.now(),
       timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
       dateStr: new Date().toLocaleDateString("vi-VN"),
     };
@@ -270,22 +305,87 @@ export function recordCasinoBet(gameSlug, gameName, betsObj, totalBet) {
   }
 }
 
-// Helper to resolve the latest pending bet
-export function resolveLatestCasinoBet(gameSlug, totalPayout, outcomeResultText) {
+// Đánh dấu MỘT vé cụ thể (theo betId trả về từ recordCasinoBet) là đã quyết
+// toán. Trước đây hàm này tìm "vé pending ĐẦU TIÊN khớp gameSlug" bằng
+// findIndex() - vì recordCasinoBet() luôn unshift vé mới lên đầu mảng, đây
+// luôn là VÉ MỚI NHẤT, không nhất thiết là vé của ván VỪA kết thúc. Hễ người
+// chơi có từ 2 vé "pending" cùng lúc (vd. đặt cược liên tiếp nhiều vòng mà
+// vòng trước chưa kịp mở bài, hoặc vé cũ bị kẹt do tải lại trang giữa
+// chừng), mọi lần quyết toán đều ghi NHẦM vào vé mới nhất, để lại toàn bộ
+// vé cũ hơn kẹt "pending" vĩnh viễn - đúng nguyên nhân user thấy nhiều vé
+// "Chờ Khớp" không bao giờ tất toán. Truyền betId để khớp CHÍNH XÁC 1 vé;
+// vẫn giữ hành vi cũ (khớp theo gameSlug) làm phương án lùi khi không có
+// betId, để không phá code cũ chưa kịp cập nhật lời gọi.
+export function resolveLatestCasinoBet(gameSlug, totalPayout, outcomeResultText, betId = null) {
   try {
     const raw = localStorage.getItem("vinclub_my_bets_v1");
     if (!raw) return;
     let existing = JSON.parse(raw);
 
-    const pendingIdx = existing.findIndex((b) => b.status === "pending" && (!gameSlug || b.gameSlug === gameSlug));
-    if (pendingIdx !== -1) {
-      existing[pendingIdx].status = "resolved";
-      existing[pendingIdx].payout = totalPayout;
-      existing[pendingIdx].resultText = outcomeResultText;
+    const idx = betId
+      ? existing.findIndex((b) => b.id === betId)
+      : existing.findIndex((b) => b.status === "pending" && (!gameSlug || b.gameSlug === gameSlug));
+
+    if (idx !== -1) {
+      existing[idx].status = "resolved";
+      existing[idx].payout = totalPayout;
+      existing[idx].resultText = outcomeResultText;
       localStorage.setItem("vinclub_my_bets_v1", JSON.stringify(existing));
       window.dispatchEvent(new CustomEvent("vinclub:my_bets_updated"));
     }
   } catch (e) {
     console.error("Failed to resolve bet", e);
+  }
+}
+
+// Tự động "quyết toán" các vé pending đã quá hạn (vòng cược ~5 phút đã trôi
+// qua từ lâu mà vẫn chưa được resolveLatestCasinoBet() xử lý) - xảy ra khi
+// người chơi đóng tab/tải lại trang/điều hướng đi TRƯỚC khi
+// triggerDealAndReveal() kịp chạy, vì toàn bộ logic mở bài + tính thưởng chỉ
+// tồn tại trong bộ nhớ JS phía trình duyệt (setTimeout), không có tiến trình
+// phía server nào theo dõi các vòng cược đã khoá. Không có cách nào biết lại
+// kết quả ván bài THẬT đã bị bỏ lỡ đó, nên xử lý công bằng nhất là HOÀN TRẢ
+// nguyên số tiền cược (không tính thắng/thua) qua đúng RPC nguyên tử đã xác
+// minh hoạt động đúng (adjustUserBalanceStrict), thay vì để tiền "biến mất"
+// (bị trừ lúc đặt cược nhưng không bao giờ được xử lý) hoặc kẹt "pending"
+// vĩnh viễn trên sổ lệnh. Gọi hàm này 1 lần khi trang game mount.
+export async function reconcileStalePendingBets(gameSlug, userId) {
+  if (!userId) return;
+  try {
+    const raw = localStorage.getItem("vinclub_my_bets_v1");
+    if (!raw) return;
+    const existing = JSON.parse(raw);
+    const now = Date.now();
+
+    const staleBets = existing.filter(
+      (b) =>
+        b.status === "pending" &&
+        (!gameSlug || b.gameSlug === gameSlug) &&
+        // Vé cũ ghi từ trước khi thêm createdAtMs (undefined) không rõ tuổi
+        // thật - coi là quá hạn luôn thay vì để kẹt vĩnh viễn không bao giờ
+        // được xử lý.
+        (b.createdAtMs === undefined || now - b.createdAtMs > ROUND_STALE_MS)
+    );
+    if (staleBets.length === 0) return;
+
+    for (const bet of staleBets) {
+      const result = await adjustUserBalanceStrict(userId, bet.totalBet, 0);
+      if (!result) {
+        // Không xác nhận được đã hoàn tiền thành công (RPC lỗi) - KHÔNG
+        // đánh dấu resolved, để lần mount kế tiếp thử hoàn lại, tránh mất
+        // dấu vé mà không hề được hoàn tiền.
+        continue;
+      }
+      const idx = existing.findIndex((b) => b.id === bet.id);
+      if (idx !== -1) {
+        existing[idx].status = "resolved";
+        existing[idx].payout = bet.totalBet;
+        existing[idx].resultText = "Hoàn cược tự động - phiên chơi đã hết hạn không xác định được kết quả";
+      }
+    }
+    localStorage.setItem("vinclub_my_bets_v1", JSON.stringify(existing));
+    window.dispatchEvent(new CustomEvent("vinclub:my_bets_updated"));
+  } catch (e) {
+    console.error("Failed to reconcile stale pending bets", e);
   }
 }

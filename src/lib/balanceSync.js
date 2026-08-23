@@ -154,12 +154,47 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
 }
 
 /**
+ * Biến thể NGHIÊM NGẶT của adjustUserBalance() - CHỈ tin vào kết quả RPC
+ * increment_user_balance (giao dịch nguyên tử, có RETURNING xác nhận thật
+ * từ Postgres), KHÔNG lùi về đường "đọc-rồi-ghi" dự phòng khi RPC lỗi.
+ *
+ * Lý do cần bản riêng: adjustUserBalance() bên dưới coi việc lùi về
+ * upsertSupabaseUser() khi RPC lỗi là chấp nhận được cho mục đích ĐỒNG BỘ
+ * HIỂN THỊ (vd. hiệu ứng UI), nhưng upsertSupabaseUser() vẫn trả về y như
+ * thành công ngay cả khi Postgres từ chối ghi (xem supabaseDb.js) - dùng
+ * đường đó cho hành động TRỪ TIỀN THẬT (đặt cược casino) đã gây sự cố thật:
+ * RPC lỗi 1 lần, ván cược vẫn bị khoá và phiếu ghi sổ vẫn được tạo như thể
+ * đã trừ tiền, nhưng Postgres chưa hề trừ - người chơi cược "chùa" mà không
+ * ai biết cho tới khi đối chiếu sổ sách.
+ *
+ * Dùng hàm này cho MỌI thao tác trừ tiền thật cần chặn hành động tiếp theo
+ * (đặt cược, mua vé...) nếu không xác nhận được đã ghi thành công. Trả về
+ * null khi thất bại - bên gọi BẮT BUỘC tự hoàn tác UI optimistic (nếu có)
+ * và báo lỗi cho người dùng, tuyệt đối không được coi null là "cứ cho qua".
+ */
+export async function adjustUserBalanceStrict(userId, delta, totalDepositedDelta = 0) {
+  if (!userId) return null;
+  const numDelta = Math.trunc(Number(delta) || 0);
+  const numDepositDelta = Math.trunc(Number(totalDepositedDelta) || 0);
+
+  const rpcResult = await incrementUserBalance(userId, numDelta, numDepositDelta);
+  if (!rpcResult) return null;
+  return applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
+}
+
+/**
  * Cộng/trừ số dư kiểu NGUYÊN TỬ (atomic) qua hàm Postgres
  * increment_user_balance thay vì tự đọc-tính-ghi ở phía client. Đây là
  * đường được khuyến nghị cho mọi thao tác cộng/trừ tiền thật (rút tiền,
  * hoàn tiền, admin điều chỉnh ví, đầu tư) vì loại bỏ hoàn toàn race
  * condition khi 2 thao tác xảy ra gần như đồng thời từ 2 thiết bị khác
  * nhau - Postgres tự khoá dòng trong lúc UPDATE nên không lệnh nào bị mất.
+ *
+ * LƯU Ý: hàm này có lùi về đường ghi dự phòng khi RPC lỗi (xem bên dưới) -
+ * dự phòng đó KHÔNG xác nhận được đã ghi thành công xuống Postgres. Với
+ * hành động trừ tiền thật cần chặn được hành động tiếp theo khi thất bại
+ * (đặt cược, rút tiền...), dùng adjustUserBalanceStrict() ở trên thay vì
+ * hàm này.
  *
  * @param {string} userId
  * @param {number} delta - số tiền cộng (dương) hoặc trừ (âm)

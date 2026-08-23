@@ -3,13 +3,13 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalance, adjustUserBalanceStrict, getFreshUserBalance } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
 import { getCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
-import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet } from "@/components/casino/MyBetsDrawer";
+import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet, reconcileStalePendingBets } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
 import { Receipt, XCircle, Sparkles, ArrowLeft } from "lucide-react";
 
@@ -115,6 +115,8 @@ export default function TigerBaccarat() {
   // Các ô cược đang được chọn (cho phép chọn nhiều ô cùng lúc, vd Player + Banker)
   // Bước: chọn ô cược -> chọn mệnh giá -> Đặt Cược -> Xác Nhận
   const [selectedZones, setSelectedZones] = useState([]);
+  // Chặn bấm ĐẶT CƯỢC liên tiếp trong lúc đang đợi xác nhận trừ tiền từ Postgres
+  const [isPlacingBet, setIsPlacingBet] = useState(false);
 
   // Placed Bets per zone - Cho phép cược nhiều ô đồng thời không giới hạn
   const [bets, setBets] = useState({
@@ -145,6 +147,20 @@ export default function TigerBaccarat() {
 
   // Audio Context
   const audioCtxRef = useRef(null);
+  // Id vé (từ recordCasinoBet) của vòng cược đang "pending" - cầu nối giữa
+  // executeGameRound() (ghi sổ) và triggerDealAndReveal() (quyết toán),
+  // dùng để resolveLatestCasinoBet() khớp ĐÚNG vé thay vì đoán "vé mới nhất".
+  const pendingBetIdRef = useRef(null);
+
+  // Tự động hoàn tiền các vé "pending" bị kẹt lại từ phiên trước (đóng
+  // tab/tải lại trang trước khi vòng cược kịp mở bài) - xem
+  // reconcileStalePendingBets() trong MyBetsDrawer.jsx. Chạy đúng 1 lần khi
+  // có user, không phụ thuộc việc người chơi có mở "Sổ Lệnh" hay không.
+  useEffect(() => {
+    if (user?.id) {
+      reconcileStalePendingBets(gameSlug, user.id);
+    }
+  }, [user?.id, gameSlug]);
 
   // Sync user balance with app-wide events & localStorage
   useEffect(() => {
@@ -272,8 +288,15 @@ export default function TigerBaccarat() {
   };
 
   // Bước 3: ĐẶT CƯỢC - áp mệnh giá đã chọn vào TẤT CẢ các ô đang chọn cùng lúc
-  const handlePlaceBet = () => {
-    if (phase !== "betting") return;
+  //
+  // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có xác
+  // nhận thật từ Postgres) và ĐỢI kết quả trước khi áp cược - trước đây gọi
+  // updateGlobalBalance() kiểu "bắn rồi quên" (không await, chỉ .catch im
+  // lặng): nếu RPC lỗi, code lùi về 1 đường ghi dự phòng luôn coi như thành
+  // công dù Postgres từ chối ghi, khiến bàn cược bị khoá và phiếu ghi sổ vẫn
+  // được tạo như thể đã trừ tiền - người chơi cược "chùa" mà không ai biết.
+  const handlePlaceBet = async () => {
+    if (phase !== "betting" || isPlacingBet) return;
 
     if (user?.is_locked) {
       toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
@@ -302,7 +325,24 @@ export default function TigerBaccarat() {
 
     playChipSound();
 
-    updateGlobalBalance(-totalNeeded);
+    setIsPlacingBet(true);
+    // Optimistic: hiển thị ngay cho mượt, nhưng chỉ áp cược sau khi có xác
+    // nhận thật - nếu ghi thất bại, hoàn tác đúng giá trị này (không phải
+    // đọc lại "balance" từ closure cũ, tránh lệch nếu có thay đổi xen giữa).
+    setBalance((prev) => Math.max(0, prev - totalNeeded));
+
+    const result = await adjustUserBalanceStrict(user?.id, -totalNeeded, 0);
+
+    if (!result) {
+      // Hoàn tác optimistic UI - không được để bàn cược trông như đã khoá
+      // trong khi Postgres chưa hề trừ tiền.
+      setBalance((prev) => prev + totalNeeded);
+      setIsPlacingBet(false);
+      toast.error("Không thể trừ tiền cược, vui lòng thử lại!");
+      return;
+    }
+
+    localStorage.setItem("vinclub_xito_balance", String(result.balance));
 
     setBets((prev) => {
       const updated = { ...prev };
@@ -315,6 +355,7 @@ export default function TigerBaccarat() {
     // Không gợi ý - reset để lượt cược tiếp theo phải chọn lại từ đầu
     setSelectedZones([]);
     setSelectedChipIndex(null);
+    setIsPlacingBet(false);
   };
 
   // Hủy cược ô cụ thể
@@ -419,8 +460,10 @@ export default function TigerBaccarat() {
       }).catch(() => null);
     }
 
-    // Record bet in local ledger
-    recordCasinoBet(gameSlug, gameTitle, bets, totalBet);
+    // Record bet in local ledger - giữ lại id để resolveLatestCasinoBet()
+    // sau này khớp ĐÚNG vé này, không phải "vé pending mới nhất" (xem
+    // ghi chú trong resolveLatestCasinoBet ở MyBetsDrawer.jsx).
+    pendingBetIdRef.current = recordCasinoBet(gameSlug, gameTitle, bets, totalBet);
 
     // Set phase to waiting_timer. Game will deal and calculate results when timer reaches 00:00!
     setPhase("waiting_timer");
@@ -651,8 +694,15 @@ export default function TigerBaccarat() {
       setWinPayout(totalPayout);
       setWinSummary(winsList);
 
-      // Resolve pending bet in ledger
-      resolveLatestCasinoBet(gameSlug, totalPayout, winsList.join(" | ") || `Player (${pScore}) vs Banker (${bScore})`);
+      // Resolve pending bet in ledger - khớp đúng vé vừa đặt qua id, không
+      // đoán theo "vé pending mới nhất" như trước đây.
+      resolveLatestCasinoBet(
+        gameSlug,
+        totalPayout,
+        winsList.join(" | ") || `Player (${pScore}) vs Banker (${bScore})`,
+        pendingBetIdRef.current
+      );
+      pendingBetIdRef.current = null;
 
       // Increment game revenue stats in admin
       const roundTotalBet = Object.values(bets).reduce((a, b) => a + b, 0);
@@ -1145,11 +1195,13 @@ export default function TigerBaccarat() {
           {/* Bước 3: ĐẶT CƯỢC - áp mệnh giá vào tất cả các ô đã chọn */}
           <button
             onClick={handlePlaceBet}
-            disabled={phase !== "betting" || selectedZones.length === 0 || selectedChipIndex === null}
+            disabled={phase !== "betting" || selectedZones.length === 0 || selectedChipIndex === null || isPlacingBet}
             className="w-full mb-2 sm:mb-3 py-3 rounded-xl bg-gradient-to-b from-emerald-600 to-emerald-800 border border-emerald-400/60 shadow-lg active:scale-95 transition-transform disabled:opacity-40 cursor-pointer"
           >
             <span className="text-white font-bold text-xs sm:text-sm uppercase tracking-wider text-shadow-strong">
-              {selectedZones.length === 0
+              {isPlacingBet
+                ? "ĐANG TRỪ TIỀN..."
+                : selectedZones.length === 0
                 ? "CHỌN Ô CƯỢC"
                 : selectedChipIndex === null
                 ? "CHỌN MỆNH GIÁ"
