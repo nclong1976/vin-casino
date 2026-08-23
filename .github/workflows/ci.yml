@@ -15,7 +15,14 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x]
+        # Node 20.x: API webidl noi bo cua undici thieu markAsUncloneable(),
+        # khien jsdom (moi truong test, xem vitest.config.js) crash ngay luc
+        # khoi dong voi loi "webidl.util.markAsUncloneable is not a function"
+        # - loi tuong thich da biet giua jsdom/undici va Node 20, khong lien
+        # quan gi den code test that. Node 22.x (LTS dang duoc ho tro) khong
+        # dinh loi nay. Chi doi Node cho buoc CI/test - khong dung Node cua
+        # Render (render.yaml van giu NODE_VERSION rieng cho production).
+        node-version: [22.x]
 
     steps:
       - name: Checkout repository
