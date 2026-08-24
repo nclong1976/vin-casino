@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { QrCode, Copy, ShieldCheck, Star, Wallet, Sparkles, CheckCircle2 } from "lucide-react";
+import { Copy, ShieldCheck, Star, Wallet, Sparkles, CheckCircle2 } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
+import QuickStats from "@/components/profile/QuickStats";
+import ProfitChart from "@/components/profile/ProfitChart";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo, ALL_CARD_TIERS } from "@/lib/membershipUtils";
@@ -53,10 +55,12 @@ export default function MembershipCard() {
   const walletBalance = Math.max(Number(user?.balance || 0), computeWalletNet(walletTxs).netCalculated);
 
   // Chỉ tính hợp đồng đầu tư đã thực sự chốt (status "completed") - loại
-  // pending/failed nếu có ra khỏi tổng.
-  const totalInvested = txs
-    .filter((t) => t.status === "completed")
-    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  // pending/failed nếu có ra khỏi tổng. Dùng chung cho cả "Tổng vốn đầu tư"
+  // (card đã có sẵn) lẫn "Lãi dự kiến" (cụm Thống kê di dời từ Profile.jsx)
+  // để 2 con số nhất quán với nhau trên cùng 1 trang, không tính 2 lần.
+  const completedTxs = txs.filter((t) => t.status === "completed");
+  const totalInvested = completedTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const totalProfit = completedTxs.reduce((s, t) => s + (Number(t.profit) || 0), 0);
 
   const currentTier = getCardTierInfo(user?.membership_tier);
 
@@ -214,21 +218,13 @@ export default function MembershipCard() {
               </div>
             </div>
 
-            {/* QR Code Section */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm text-center border border-gray-100">
-              <p className="text-[12px] font-bold text-black mb-1 flex items-center justify-center gap-1.5">
-                <QrCode className="w-4 h-4 text-[#948154]" /> Mã QR Thẻ VinClub
-              </p>
-              <p className="text-[9px] text-gray-400 mb-3">Quét mã để xác thực thông tin quyền lợi thành viên VIP</p>
-              <div className="inline-block p-3 bg-white border-2 border-[#948154]/20 rounded-xl shadow-inner">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=VINCLUB:${memberId}:${user?.email || ""}`}
-                  alt="QR Thẻ Thành Viên"
-                  className="w-[130px] h-[130px]"
-                />
-              </div>
-              <p className="text-[10px] text-gray-500 mt-2 font-mono font-medium">{user?.email || user?.phone || "Mã KH: " + memberId}</p>
-            </div>
+            {/* Thống kê & Biểu đồ - di dời từ Profile.jsx, thay thế đúng vị
+                trí Mã QR trước đây. Cả 2 component đều thuần presentational
+                (chỉ nhận props, không tự gọi API/đọc context) nên mount ở
+                đây không cần thêm logic gì - dùng lại đúng "txs"/"loading"
+                đã fetch sẵn ở trên cho "Tổng vốn đầu tư". */}
+            <QuickStats invested={totalInvested} profit={totalProfit} count={txs.length} />
+            <ProfitChart txs={txs} loading={loading} />
 
             {/* Tier Benefits */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-3">

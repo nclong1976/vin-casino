@@ -40,7 +40,7 @@ export default function ProfitChart({ txs, loading }) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-2xl p-4 shadow-sm"
+      className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100"
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5">

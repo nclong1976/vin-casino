@@ -9,7 +9,6 @@ import { getCardTierInfo } from "@/lib/membershipUtils";
 import { toast } from "sonner";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import BottomNav from "@/components/BottomNav";
-import QuickStats from "@/components/profile/QuickStats";
 import BankAccountList from "@/components/profile/BankAccountList";
 import BankAccountModal from "@/components/profile/BankAccountModal";
 import DepositModal from "@/components/profile/DepositModal";
@@ -20,7 +19,6 @@ import AppRulesModal from "@/components/profile/AppRulesModal";
 import TransactionList from "@/components/profile/TransactionList";
 import WalletTransactionList from "@/components/profile/WalletTransactionList";
 import SignatureList from "@/components/profile/SignatureList";
-import ProfitChart from "@/components/profile/ProfitChart";
 import AccountSwitcherModal from "@/components/profile/AccountSwitcherModal";
 import { computeWalletNet } from "@/lib/transactionHistory";
 
@@ -171,9 +169,6 @@ export default function Profile() {
   const totalDepositSum = Math.max(Number(user?.total_deposited || 0), depositSumFromTxs);
   const userTier = getCardTierInfo(user?.membership_tier);
 
-  const totalInvested = txs.reduce((s, t) => s + (t.amount || 0), 0);
-  const totalProfit = txs.reduce((s, t) => s + (t.profit || 0), 0);
-
   const displayName = user?.full_name || user?.name || user?.username || user?.email || "KHÁCH HÀNG";
   const avatarLetter = (displayName.trim().charAt(0) || "N").toUpperCase();
   const phoneOrEmail = user?.phone || user?.email || "Chưa cập nhật SĐT";
@@ -233,12 +228,6 @@ export default function Profile() {
             </button>
           </div>
         </motion.div>
-
-        {/* Investment Overview / Quick Stats */}
-        <QuickStats invested={totalInvested} profit={totalProfit} count={txs.length} />
-
-        {/* Profit Growth Chart */}
-        <ProfitChart txs={txs} loading={loading} />
 
         {/* Bank Accounts Management */}
         <div>
