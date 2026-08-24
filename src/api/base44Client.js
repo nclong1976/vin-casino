@@ -34,20 +34,17 @@ const SUPABASE_BACKED_ENTITIES = new Set([
 // tái diễn, tạm loại 'Message' khỏi Set này để Support.jsx lùi về
 // localStorage an toàn cho tới khi RLS được sửa lại.
 //
-// "WalletTransaction" KHÔNG ở trong danh sách này - đây là lỗi TÀI CHÍNH
-// NGHIÊM TRỌNG vừa phát hiện: bảng "wallet_transactions" trên Postgres
-// KHÔNG có cột "category"/"note" (xem supabase_schema.sql), nên
-// createSupabaseWalletTransaction() âm thầm loại bỏ 2 field này khi ghi.
-// dailyYieldEngine.js dựa vào field "category" ('Lãi VIP Hằng Ngày') để
-// kiểm tra "đã cộng lãi hôm nay chưa" - nếu đọc WalletTransaction từ
-// Supabase, điều kiện này sẽ LUÔN LUÔN false, khiến lãi bị cộng lặp lại
-// mỗi 30 giây (rà soát tự động trong AuthContext.jsx) VĨNH VIỄN không
-// điểm dừng cho tới khi hết phiên đăng nhập. Giữ WalletTransaction đọc từ
-// localStorage (như trước khi chuyển kiến trúc) cho tới khi bảng Postgres
-// được thêm đủ cột category + note VÀ createSupabaseWalletTransaction()
-// được cập nhật ghi đủ 2 field đó - lúc đó mới an toàn thêm lại vào đây.
+// "WalletTransaction" đã được thêm lại vào đây - bảng "wallet_transactions"
+// trên Postgres trước đây KHÔNG có cột "category"/"note" mà
+// dailyYieldEngine.js dùng làm lớp bảo vệ thứ 2 chống trả đáo hạn dự án
+// trùng lặp (đối chiếu "[ref:tx.id]" trong note); đọc thẳng từ Supabase lúc
+// đó sẽ luôn thiếu 2 field này, khiến lớp bảo vệ đó vô hiệu. Đã thêm đủ 2
+// cột vào bảng thật (migration add_category_note_to_wallet_transactions) và
+// cập nhật createSupabaseWalletTransaction() ghi đủ 2 field - lớp bảo vệ
+// thứ 1 (tx.payout_status === "paid" trên Transaction, vốn đã đọc Supabase
+// từ trước) không bị ảnh hưởng bởi thay đổi này.
 const SUPABASE_READABLE_ENTITIES = new Set([
-  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News',
+  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'WalletTransaction',
 ]);
 
 /**

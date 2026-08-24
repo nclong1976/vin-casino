@@ -7,51 +7,28 @@ import { adjustUserBalance, adjustUserBalanceStrict, getFreshUserBalance } from 
 import { toast } from "sonner";
 import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
-import { getCasinoConfig, saveCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
+import { incrementGameStats } from "@/lib/casinoConfig";
+import { resolveTigerBaccaratRound } from "@/lib/supabaseDb";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet, reconcileStalePendingBets } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
 import { Receipt, XCircle, Sparkles, ArrowLeft } from "lucide-react";
 
-// Card Definitions
-const SUITS = [
-  { symbol: "♠", name: "spades", isRed: false },
-  { symbol: "♥", name: "hearts", isRed: true },
-  { symbol: "♦", name: "diamonds", isRed: true },
-  { symbol: "♣", name: "clubs", isRed: false },
-];
 
-const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
-
-function buildDeck() {
-  const deck = [];
-  for (let d = 0; d < 8; d++) {
-    for (const suit of SUITS) {
-      for (const rank of RANKS) {
-        deck.push({
-          suit,
-          rank,
-          value: ["10", "J", "Q", "K"].includes(rank) ? 0 : rank === "A" ? 1 : parseInt(rank),
-        });
-      }
-    }
-  }
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-  return deck;
-}
-
+// Chia bài/tính điểm THẬT giờ chạy trên server (RPC resolve_tiger_baccarat_
+// round trong src/lib/supabaseDb.js) - getHandScore() ở đây CHỈ còn dùng để
+// hiển thị lại điểm từ dữ liệu bài server đã trả về, không quyết định tiền
+// thắng nữa.
 function getHandScore(cards) {
   if (!cards || cards.length === 0) return 0;
   const total = cards.reduce((sum, c) => sum + c.value, 0);
   return total % 10;
 }
 
-function isPair(cards) {
-  if (!cards || cards.length < 2) return false;
-  return cards[0].rank === cards[1].rank;
+// Chuyển 1 lá bài server trả về ({rank,value,suit:"♥",is_red:true}) sang
+// đúng hình dạng client đang render ({rank,value,suit:{symbol,isRed}}).
+function transformServerCard(c) {
+  return { rank: c.rank, value: c.value, suit: { symbol: c.suit, isRed: c.is_red } };
 }
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -277,6 +254,25 @@ export default function TigerBaccarat() {
   // (RPC nguyên tử trên Postgres) thay vì tính sẵn "số dư mới" ở client rồi
   // ghi đè tuyệt đối, để tránh 2 thao tác gần như đồng thời (vd. 2 tab cùng
   // tài khoản) ghi đè mất tiền của nhau.
+  // Đồng bộ lại state/cache cục bộ từ số dư THẬT server vừa trả về (sau khi
+  // resolve_tiger_baccarat_round đã cộng tiền thắng nguyên tử) - KHÔNG được
+  // gọi updateGlobalBalance()/adjustUserBalance() ở đây vì sẽ gọi thêm 1
+  // lần increment_user_balance nữa, cộng trùng đúng số tiền vừa thắng.
+  const syncBalanceFromServer = useCallback((newBalance) => {
+    const numBalance = Math.max(0, Number(newBalance) || 0);
+    setBalance(numBalance);
+    localStorage.setItem("vinclub_xito_balance", String(numBalance));
+    try {
+      const localUserStr = localStorage.getItem('base44_local_user');
+      if (localUserStr) {
+        const localUser = JSON.parse(localUserStr);
+        localUser.balance = numBalance;
+        localStorage.setItem('base44_local_user', JSON.stringify(localUser));
+      }
+    } catch (e) {}
+    window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+  }, []);
+
   const updateGlobalBalance = useCallback((delta) => {
     const numDelta = Number(delta) || 0;
     setBalance((prev) => {
@@ -552,156 +548,42 @@ export default function TigerBaccarat() {
   };
 
   // Called when timer reaches 00:00 (or user clicks skip to 00:00)
-  const triggerDealAndReveal = () => {
+  //
+  // Chia bài + tính điểm + tính tiền thắng giờ chạy HOÀN TOÀN trên server
+  // qua RPC resolve_tiger_baccarat_round (xem migration create_tiger_
+  // baccarat_resolve_rpc + casino_secure_config). Trước đây toàn bộ logic
+  // này chạy ở đây (client), đọc cấu hình ép kết quả/tỷ lệ 1.1x từ
+  // localStorage của CHÍNH trình duyệt người chơi - người chơi có thể tự
+  // sửa localStorage qua devtools để ép thắng 40:1 mọi ván rồi tự cộng tiền
+  // vào ví qua RPC increment_user_balance với số tiền tự tính, vì server
+  // không có gì xác thực ván bài có thật hay không. Giờ client chỉ gửi số
+  // tiền cược theo từng ô, nhận về kết quả ĐÃ CHỐT (bài + điểm + tiền
+  // thắng đã cộng nguyên tử) để hiển thị hiệu ứng - không tự tính gì ảnh
+  // hưởng tới tiền thật nữa.
+  const triggerDealAndReveal = async () => {
     setPhase("dealing");
     setShowWinModal(false);
     setFlippedCards({ player: [], banker: [] });
 
-    // Check Admin forced outcome configuration for Tiger Baccarat / Baccarat Long Hổ
     const gameSlug = location.pathname.includes("long-ho") ? "baccarat-long-ho" : "tiger-baccarat";
-    const casinoCfg = getCasinoConfig();
-    const gameSettings = casinoCfg.games[gameSlug] || {};
-    const forcedOutcome = gameSettings.forcedOutcome || "auto";
+    const roundBets = { ...bets };
 
-    // One-shot: đúng như mô tả trên UI Admin ("ván bài TIẾP THEO lật ra sẽ
-    // chắc chắn trả về kết quả đã định sẵn"), ép kết quả chỉ áp dụng cho
-    // ĐÚNG 1 ván này rồi tự đưa cấu hình về "auto" ngay - trước đây không
-    // tự reset nên admin quên tắt là tỷ lệ bất thường (vd Tiger 40:1) áp
-    // dụng vô thời hạn cho mọi ván sau thay vì chỉ 1 ván như ý định.
-    if (forcedOutcome !== "auto") {
-      saveCasinoConfig({
-        ...casinoCfg,
-        games: {
-          ...casinoCfg.games,
-          [gameSlug]: { ...gameSettings, forcedOutcome: "auto" },
-        },
-      });
+    const result = await resolveTigerBaccaratRound(gameSlug, roundBets);
+
+    if (!result) {
+      toast.error("Không thể chốt ván bài (lỗi kết nối máy chủ). Vui lòng liên hệ CSKH nếu số dư không đúng.");
+      setPhase("betting");
+      return;
     }
 
-    // Build & Deal
-    let deck = buildDeck();
-    let pHand = [deck.pop(), deck.pop()];
-    let bHand = [deck.pop(), deck.pop()];
-
-    let pScore = getHandScore(pHand);
-    let bScore = getHandScore(bHand);
-
-    // Natural Check (8 or 9)
-    if (pScore < 8 && bScore < 8) {
-      let p3 = null;
-      if (pScore <= 5) {
-        p3 = deck.pop();
-        pHand.push(p3);
-        pScore = getHandScore(pHand);
-      }
-
-      if (!p3) {
-        if (bScore <= 5) {
-          const b3 = deck.pop();
-          bHand.push(b3);
-          bScore = getHandScore(bHand);
-        }
-      } else {
-        const p3Val = p3.value;
-        let bankerDraws = false;
-        if (bScore <= 2) bankerDraws = true;
-        else if (bScore === 3 && p3Val !== 8) bankerDraws = true;
-        else if (bScore === 4 && [2, 3, 4, 5, 6, 7].includes(p3Val)) bankerDraws = true;
-        else if (bScore === 5 && [4, 5, 6, 7].includes(p3Val)) bankerDraws = true;
-        else if (bScore === 6 && [6, 7].includes(p3Val)) bankerDraws = true;
-
-        if (bankerDraws) {
-          const b3 = deck.pop();
-          bHand.push(b3);
-          bScore = getHandScore(bHand);
-        }
-      }
-    }
-
-    // APPLY ADMIN FORCED OUTCOME OVERRIDE & FEATURE RULES
-    if (forcedOutcome === "player") {
-      pHand = [
-        { rank: "9", suit: SUITS[1], value: 9 },
-        { rank: "K", suit: SUITS[0], value: 0 },
-      ];
-      bHand = [
-        { rank: "5", suit: SUITS[2], value: 5 },
-        { rank: "J", suit: SUITS[3], value: 0 },
-      ];
-    } else if (forcedOutcome === "banker") {
-      pHand = [
-        { rank: "4", suit: SUITS[0], value: 4 },
-        { rank: "Q", suit: SUITS[1], value: 0 },
-      ];
-      bHand = [
-        { rank: "9", suit: SUITS[2], value: 9 },
-        { rank: "K", suit: SUITS[3], value: 0 },
-      ];
-    } else if (forcedOutcome === "tie") {
-      pHand = [
-        { rank: "8", suit: SUITS[1], value: 8 },
-        { rank: "10", suit: SUITS[0], value: 0 },
-      ];
-      bHand = [
-        { rank: "8", suit: SUITS[2], value: 8 },
-        { rank: "J", suit: SUITS[3], value: 0 },
-      ];
-    } else if (forcedOutcome === "tiger") {
-      pHand = [
-        { rank: "5", suit: SUITS[1], value: 5 },
-        { rank: "10", suit: SUITS[0], value: 0 },
-      ];
-      bHand = [
-        { rank: "6", suit: SUITS[2], value: 6 },
-        { rank: "Q", suit: SUITS[3], value: 0 },
-      ];
-    }
-
-    // Recalculate scores after forced outcome
-    pScore = getHandScore(pHand);
-    bScore = getHandScore(bHand);
-
-    // If admin feature (odds205) is enabled
-    const isOdds205 = !!gameSettings?.odds205;
-    if (isOdds205) {
-      if (pScore === bScore || forcedOutcome === "auto" || forcedOutcome === "tie") {
-        if (Math.random() >= 0.5) {
-          pHand = [
-            { rank: "9", suit: SUITS[1], value: 9 },
-            { rank: "K", suit: SUITS[0], value: 0 },
-          ];
-          bHand = [
-            { rank: "5", suit: SUITS[2], value: 5 },
-            { rank: "J", suit: SUITS[3], value: 0 },
-          ];
-        } else {
-          pHand = [
-            { rank: "4", suit: SUITS[0], value: 4 },
-            { rank: "Q", suit: SUITS[1], value: 0 },
-          ];
-          bHand = [
-            { rank: "9", suit: SUITS[2], value: 9 },
-            { rank: "K", suit: SUITS[3], value: 0 },
-          ];
-        }
-      } else if (pScore === bScore) {
-        pHand = [
-          { rank: "8", suit: SUITS[0], value: 8 },
-          { rank: "K", suit: SUITS[1], value: 0 },
-        ];
-        bHand = [
-          { rank: "3", suit: SUITS[2], value: 3 },
-          { rank: "4", suit: SUITS[3], value: 4 },
-        ];
-      }
-      pScore = getHandScore(pHand);
-      bScore = getHandScore(bHand);
-    }
+    const pHand = (result.player_hand || []).map(transformServerCard);
+    const bHand = (result.banker_hand || []).map(transformServerCard);
 
     setPlayerCards(pHand);
     setBankerCards(bHand);
 
-    // Staggered card flip animation
+    // Staggered card flip animation - thuần hiệu ứng hiển thị, không ảnh
+    // hưởng gì tới kết quả (đã chốt xong từ server ở trên).
     const flipDelay = 300;
     pHand.forEach((_, idx) => {
       setTimeout(() => {
@@ -720,71 +602,11 @@ export default function TigerBaccarat() {
     setTimeout(() => {
       setPhase("revealed");
 
-      const winners = [];
-      const winsList = [];
-      let totalPayout = 0;
-
-      const playerPairWin = isPair(pHand);
-      const bankerPairWin = isPair(bHand);
-
-      if (playerPairWin) {
-        winners.push("player_pair");
-        if (bets.player_pair > 0) {
-          const pay = bets.player_pair * 11 + bets.player_pair;
-          totalPayout += pay;
-          winsList.push(`PLAYER PAIR (11:1): +${fmt(pay)}`);
-        }
-      }
-
-      if (bankerPairWin) {
-        winners.push("banker_pair");
-        if (bets.banker_pair > 0) {
-          const pay = bets.banker_pair * 11 + bets.banker_pair;
-          totalPayout += pay;
-          winsList.push(`BANKER PAIR (11:1): +${fmt(pay)}`);
-        }
-      }
-
-      const isOdds205 = !!gameSettings?.odds205;
-
-      if (pScore > bScore) {
-        winners.push("player");
-        if (bets.player > 0) {
-          const pay = isOdds205
-            ? Math.floor(bets.player * 2.1)
-            : (bets.player * 1 + bets.player);
-          totalPayout += pay;
-          winsList.push(`PLAYER thắng (${isOdds205 ? "1.1:1" : "1:1"}): +${fmt(pay)}`);
-        }
-      } else if (bScore > pScore) {
-        winners.push("banker");
-        if (bets.banker > 0) {
-          const pay = isOdds205
-            ? Math.floor(bets.banker * 2.1)
-            : (Math.floor(bets.banker * 0.95) + bets.banker);
-          totalPayout += pay;
-          winsList.push(`BANKER thắng (${isOdds205 ? "1.1:1" : "0.95:1"}): +${fmt(pay)}`);
-        }
-
-        if (bScore === 6) {
-          winners.push("tiger");
-          if (bets.tiger > 0) {
-            const tigerPay = bets.tiger * 40 + bets.tiger;
-            totalPayout += tigerPay;
-            winsList.push(`TIGER BACCARAT 6 ĐIỂM (40:1): +${fmt(tigerPay)}`);
-          }
-        }
-      } else {
-        winners.push("tie");
-        if (bets.tie > 0) {
-          const pay = bets.tie * 8 + bets.tie;
-          totalPayout += pay;
-          winsList.push(`TIE Hòa (8:1): +${fmt(pay)}`);
-        } else {
-          if (bets.player > 0) totalPayout += bets.player;
-          if (bets.banker > 0) totalPayout += bets.banker;
-        }
-      }
+      const winners = result.winning_zones || [];
+      const winsList = result.win_summary || [];
+      const totalPayout = Number(result.total_payout) || 0;
+      const pScore = result.player_score;
+      const bScore = result.banker_score;
 
       setWinningZones(winners);
       setWinPayout(totalPayout);
@@ -801,16 +623,19 @@ export default function TigerBaccarat() {
       pendingBetIdRef.current = null;
 
       // Increment game revenue stats in admin
-      const roundTotalBet = Object.values(bets).reduce((a, b) => a + b, 0);
+      const roundTotalBet = Object.values(roundBets).reduce((a, b) => a + b, 0);
       incrementGameStats(gameSlug, roundTotalBet, totalPayout);
 
+      const currentBal = (() => {
+        const local = localStorage.getItem("vinclub_xito_balance");
+        return local ? parseInt(local) : balance;
+      })();
+
       if (totalPayout > 0) {
-        const currentBal = (() => {
-          const local = localStorage.getItem("vinclub_xito_balance");
-          return local ? parseInt(local) : balance;
-        })();
         setPrevBalance(currentBal);
-        updateGlobalBalance(totalPayout);
+        // Server ĐÃ cộng tiền thắng nguyên tử trong RPC ở trên - chỉ đồng bộ
+        // lại hiển thị từ số dư thật server trả về, không cộng thêm lần nữa.
+        syncBalanceFromServer(result.balance);
         setShowWinModal(true);
 
         if (user?.id) {

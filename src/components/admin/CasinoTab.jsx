@@ -1,11 +1,32 @@
 import React, { useState, useEffect } from "react";
 import { Wrench, ShieldAlert, Sliders, Dices, Flame, RefreshCw, Power, Award, Sparkles } from "lucide-react";
 import { getCasinoConfig, saveCasinoConfig } from "@/lib/casinoConfig";
+import { getCasinoSecureConfig, updateCasinoSecureConfig } from "@/lib/supabaseDb";
 import { toast } from "sonner";
+
+const SPECIAL_GAMES = ["tiger-baccarat", "baccarat-long-ho"];
 
 export default function CasinoTab() {
   const [config, setConfig] = useState(getCasinoConfig);
   const [selectedSpecialGame, setSelectedSpecialGame] = useState("tiger-baccarat"); // 'tiger-baccarat' | 'baccarat-long-ho'
+
+  // Nguồn sự thật THẬT cho forced_outcome/odds205 - bảng Postgres
+  // casino_secure_config, được RPC resolve_tiger_baccarat_round đọc trực
+  // tiếp để tính tiền thắng. Tách khỏi "config" ở trên (vẫn dùng cho bảo
+  // trì/minBet/maxBet/thống kê - những phần không ảnh hưởng trực tiếp tới
+  // số tiền thắng nên chưa cần chuyển sang Postgres).
+  const [secureConfig, setSecureConfig] = useState({});
+
+  const fetchSecureConfig = async () => {
+    const entries = await Promise.all(
+      SPECIAL_GAMES.map(async (slug) => [slug, await getCasinoSecureConfig(slug)])
+    );
+    setSecureConfig(Object.fromEntries(entries.filter(([, v]) => v)));
+  };
+
+  useEffect(() => {
+    fetchSecureConfig();
+  }, []);
 
   useEffect(() => {
     const handleUpdate = (e) => {
@@ -78,11 +99,13 @@ export default function CasinoTab() {
     toast.success(`Đã cập nhật ${field} cho trò chơi ${current.name || gameKey}`);
   };
 
-  // Ép kết quả tách riêng khỏi handleUpdateSpecialGameSetting (dùng cho
-  // minBet/maxBet) - đây là thao tác tác động trực tiếp tới tiền thật ngay
-  // ván tiếp theo (đặc biệt mức "Ép TIGER" trả 40:1) nên bắt buộc xác nhận
-  // giống hệt toggle 1.1x bên dưới, tránh chọn nhầm trong dropdown.
-  const handleUpdateForcedOutcome = (gameKey, value) => {
+  // Ép kết quả giờ ghi thẳng vào casino_secure_config trên Postgres - đây
+  // là bảng RPC resolve_tiger_baccarat_round thật sự đọc để tính tiền
+  // thắng, KHÔNG còn ghi vào localStorage/RTDB cũ nữa (client người chơi
+  // không cần và không nên đọc được field này trước khi ván bài diễn ra).
+  // Vẫn bắt buộc xác nhận vì tác động trực tiếp tới tiền thật ngay ván tiếp
+  // theo (đặc biệt mức "Ép TIGER" trả 40:1).
+  const handleUpdateForcedOutcome = async (gameKey, value) => {
     const current = config.games[gameKey] || {};
 
     if (value !== "auto") {
@@ -99,12 +122,20 @@ export default function CasinoTab() {
       if (!confirmed) return;
     }
 
-    handleUpdateSpecialGameSetting(gameKey, "forcedOutcome", value);
+    const result = await updateCasinoSecureConfig(gameKey, { forced_outcome: value });
+    if (!result) {
+      toast.error("Không thể cập nhật - vui lòng thử lại.");
+      return;
+    }
+    setSecureConfig((prev) => ({ ...prev, [gameKey]: result }));
+    toast.success(`Đã cập nhật ép kết quả cho ${current.name || gameKey}`);
   };
 
-  const handleToggleOdds205 = (gameKey) => {
+  const handleToggleOdds205 = async (gameKey) => {
     const current = config.games[gameKey] || {};
-    const nextVal = !current.odds205;
+    // nextVal tính từ secureConfig (nguồn sự thật) chứ không phải config cũ
+    // - tránh trường hợp 2 bảng lệch nhau khiến bấm nút không đảo đúng chiều.
+    const nextVal = !(secureConfig[gameKey]?.odds205);
 
     if (nextVal) {
       const confirmed = window.confirm(
@@ -114,10 +145,23 @@ export default function CasinoTab() {
       if (!confirmed) return;
     }
 
+    // Ghi vào casino_secure_config (nguồn sự thật cho RPC tính tiền) TRƯỚC -
+    // nếu thất bại thì dừng lại luôn, không ghi tiếp vào bảng hiển thị cũ
+    // để tránh 2 nơi lệch nhau.
+    const secureResult = await updateCasinoSecureConfig(gameKey, { odds205: nextVal });
+    if (!secureResult) {
+      toast.error("Không thể cập nhật - vui lòng thử lại.");
+      return;
+    }
+    setSecureConfig((prev) => ({ ...prev, [gameKey]: secureResult }));
+
+    // Vẫn ghi vào hệ thống cũ (localStorage/RTDB) CHỈ để bảng cược của
+    // người chơi hiển thị đúng tỷ lệ "1.1x" đang áp dụng - không còn dùng
+    // để tính tiền thắng nữa (đã chuyển hẳn sang casino_secure_config).
     const updatedGames = {
       ...config.games,
-      [gameKey]: { 
-        ...current, 
+      [gameKey]: {
+        ...current,
         odds205: nextVal,
         forcedOutcome: nextVal ? "auto" : (current.forcedOutcome || "auto")
       },
@@ -134,6 +178,7 @@ export default function CasinoTab() {
   };
 
   const activeSpecialGameData = config.games[selectedSpecialGame] || {};
+  const activeSecureConfig = secureConfig[selectedSpecialGame] || {};
 
   return (
     <div className="space-y-4 font-heading">
@@ -283,7 +328,7 @@ export default function CasinoTab() {
                 <Sliders className="w-3.5 h-3.5 text-amber-400" /> Can thiệp kết quả ván tiếp theo (Forced Result):
               </label>
               <select
-                value={activeSpecialGameData.forcedOutcome || "auto"}
+                value={activeSecureConfig.forced_outcome || "auto"}
                 onChange={(e) =>
                   handleUpdateForcedOutcome(selectedSpecialGame, e.target.value)
                 }
@@ -318,13 +363,13 @@ export default function CasinoTab() {
                 <button
                   onClick={() => handleToggleOdds205(selectedSpecialGame)}
                   className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-lg ${
-                    activeSpecialGameData.odds205
+                    activeSecureConfig.odds205
                       ? "bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black ring-2 ring-yellow-300 shadow-amber-500/50 scale-105"
                       : "bg-gray-800 text-gray-400 border border-gray-600 hover:bg-gray-700 hover:text-white"
                   }`}
                 >
                   <Power className="w-3.5 h-3.5" />
-                  {activeSpecialGameData.odds205 ? "BẬT (1.1x — Không Hòa)" : "TẮT (Chuẩn)"}
+                  {activeSecureConfig.odds205 ? "BẬT (1.1x — Không Hòa)" : "TẮT (Chuẩn)"}
                 </button>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
@@ -81,14 +81,25 @@ export default function Contract() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
-        {signed && (
-          <div className="flex items-center gap-2 bg-green-50 rounded-xl p-2.5">
-            <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-            <span className="text-[11px] font-medium text-green-700">
-              Hợp đồng đã được ký
-            </span>
-          </div>
-        )}
+        {signed && (() => {
+          // Trạng thái duyệt thật của Admin (ContractsTab.jsx) - trước đây
+          // trang này chỉ báo "đã ký" mà không nói gì tới việc Admin đã
+          // duyệt hay từ chối, dù đây chính là trang "Xem chi tiết hợp đồng"
+          // người dùng bấm vào từ danh sách để xem tình trạng.
+          const status = tx.contract_status || "pending";
+          const cfg = {
+            approved: { icon: CheckCircle2, bg: "bg-green-50", text: "text-green-700", label: "Hợp đồng đã được ký và Admin đã DUYỆT" },
+            rejected: { icon: XCircle, bg: "bg-rose-50", text: "text-rose-700", label: "Hợp đồng bị Admin TỪ CHỐI" },
+            pending: { icon: Clock, bg: "bg-amber-50", text: "text-amber-700", label: "Hợp đồng đã được ký - đang chờ Admin duyệt" },
+          }[status] || { icon: Clock, bg: "bg-amber-50", text: "text-amber-700", label: "Hợp đồng đã được ký - đang chờ Admin duyệt" };
+          const StatusIcon = cfg.icon;
+          return (
+            <div className={`flex items-center gap-2 ${cfg.bg} rounded-xl p-2.5`}>
+              <StatusIcon className={`w-4 h-4 ${cfg.text} shrink-0`} />
+              <span className={`text-[11px] font-medium ${cfg.text}`}>{cfg.label}</span>
+            </div>
+          );
+        })()}
 
         <ContractDocument
           project={{ title: tx.project_title }}

@@ -1,8 +1,17 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, FileText, TrendingUp, Calendar, CheckCircle2 } from "lucide-react";
+import { ArrowRight, FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
+
+// contract_status do Admin set qua ContractsTab.jsx ("pending"/"approved"/
+// "rejected") - trước đây badge LUÔN tô xanh + icon check bất kể giá trị
+// thật (chỉ đổi phần chữ), khiến hợp đồng bị TỪ CHỐI vẫn trông như đã duyệt.
+const CONTRACT_STATUS_CONFIG = {
+  approved: { label: "Đã duyệt", icon: CheckCircle2, className: "bg-emerald-50 text-emerald-700 border-emerald-200/60" },
+  pending: { label: "Chờ duyệt", icon: Clock, className: "bg-amber-50 text-amber-700 border-amber-200/60" },
+  rejected: { label: "Từ chối", icon: XCircle, className: "bg-rose-50 text-rose-700 border-rose-200/60" },
+};
 
 const formatCompactDate = (dateStr) => {
   if (!dateStr) return "";
@@ -48,10 +57,20 @@ export default function TransactionList({ txs = [], loading = false }) {
                   {t.project_title || "Hợp đồng đầu tư"}
                 </p>
               </div>
-              <span className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0">
-                <CheckCircle2 className="w-2.5 h-2.5" />
-                {t.contract_status === "approved" || !t.contract_status ? "Hoàn tất" : t.contract_status}
-              </span>
+              {(() => {
+                // Mặc định "pending" khi thiếu contract_status - khớp đúng
+                // cách ContractsTab.jsx (nơi Admin duyệt) tự diễn giải field
+                // này (`tx.contract_status || "pending"`), tránh 2 nơi hiểu
+                // khác nhau về cùng 1 giao dịch.
+                const sc = CONTRACT_STATUS_CONFIG[t.contract_status] || CONTRACT_STATUS_CONFIG.pending;
+                const StatusIcon = sc.icon;
+                return (
+                  <span className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.2 rounded-full border shrink-0 ${sc.className}`}>
+                    <StatusIcon className="w-2.5 h-2.5" />
+                    {sc.label}
+                  </span>
+                );
+              })()}
             </div>
 
             {/* Compact grid stats */}

@@ -1,5 +1,5 @@
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance } from "@/lib/balanceSync";
+import { resolveProjectMaturityPayout } from "@/lib/supabaseDb";
 
 /**
  * Tự động kiểm tra và trả lãi cho hội viên VinClub:
@@ -10,6 +10,17 @@ import { adjustUserBalance } from "@/lib/balanceSync";
  * lãi tăng theo cấp số nhân không kiểm soát khi bị kích hoạt lặp lại từ
  * nhiều thiết bị/phiên) đã xảy ra thực tế nhiều lần. Chỉ còn lại cơ chế trả
  * gốc + lãi khi MỘT khoản đầu tư cụ thể (Transaction) đáo hạn thật sự.
+ *
+ * Việc XÁC THỰC đáo hạn + TÍNH tiền + CỘNG tiền giờ chạy hoàn toàn trên
+ * server qua RPC resolve_project_maturity_payout (xem migration
+ * create_resolve_project_maturity_payout_rpc) - trước đây hàm này tự đọc
+ * tx.total/tx.amount/tx.profit rồi tự cộng thẳng vào ví, trong khi RLS cho
+ * phép người dùng tự sửa các field đó trên chính giao dịch của mình (đã bị
+ * khoá lại bởi trigger protect_transaction_financial_fields), và việc ghi
+ * (đổi status + tạo WalletTransaction + cộng số dư) là 3 lệnh RIÊNG RẼ
+ * không nguyên tử - nay gộp thành đúng 1 RPC transaction. Hàm dưới đây giờ
+ * chỉ còn vai trò LỌC CỤC BỘ (tránh gọi RPC vô ích cho khoản còn lâu mới
+ * đáo hạn) rồi gọi RPC để lấy kết quả THẬT.
  */
 export async function runDailyYieldAndMaturityCheck(user) {
   if (!user || !user.id) return;
@@ -23,12 +34,6 @@ export async function runDailyYieldAndMaturityCheck(user) {
   try {
     const now = new Date();
 
-    const walletTxs = await base44.entities.WalletTransaction.filter(
-      { $or: [{ user_id: user.id }, { created_by_id: user.id }] },
-      "-created_date",
-      1000
-    ).catch(() => []);
-
     // ==========================================
     // RÀ SOÁT KẾT THÚC DỰ ÁN ĐẦU TƯ THỜI GIAN THỰC
     // ==========================================
@@ -38,29 +43,8 @@ export async function runDailyYieldAndMaturityCheck(user) {
       200
     ).catch(() => []);
 
-    // BẢO VỆ KÉP chống lặp trả đáo hạn (đã tái hiện thực tế: 1 tài khoản bị
-    // cộng lặp đúng 1 khoản cố định mỗi ~30 giây, cộng dồn tới hàng chục tỷ
-    // chỉ trong vài phút). Chỉ dựa vào tx.payout_status === "paid" là KHÔNG
-    // ĐỦ AN TOÀN: nếu Transaction.update() phía dưới ghi thất bại (mất mạng,
-    // lỗi tạm thời phía Supabase) hoặc phiên đang chạy mã cũ trước khi ghi
-    // Supabase được await đúng cách, trạng thái "đã trả" sẽ không bao giờ
-    // được ghi nhận và vòng lặp rà soát mỗi 30 giây sẽ trả tiếp mãi mãi. Vì
-    // vậy kiểm tra thêm 1 dấu vết ĐỘC LẬP: đã từng tạo WalletTransaction
-    // tham chiếu đúng tx.id này chưa - đây là lớp chặn thứ 2, không phụ
-    // thuộc việc update() có ghi Supabase thành công hay không.
-    const paidTxIds = new Set(
-      walletTxs
-        .filter((w) => w.category === "Đáo Hạn Dự Án" && typeof w.note === "string")
-        .map((w) => {
-          const m = w.note.match(/\[ref:([^\]]+)\]/);
-          return m ? m[1] : null;
-        })
-        .filter(Boolean)
-    );
-
     for (const tx of userTxs) {
       if (tx.payout_status === "paid" || tx.status === "completed_payout") continue;
-      if (paidTxIds.has(tx.id)) continue;
 
       const createdTime = new Date(tx.created_date || tx.created_at || now).getTime();
       const elapsedMs = now.getTime() - createdTime;
@@ -76,45 +60,25 @@ export async function runDailyYieldAndMaturityCheck(user) {
         durationMs = durationVal * 60 * 60 * 1000;
       }
 
-      // Nếu đã đủ thời gian đáo hạn
-      if (elapsedMs >= durationMs) {
-        const payoutAmount = Number(tx.total) || (Number(tx.amount) + Number(tx.profit));
+      // Chỉ là bộ lọc cục bộ để tránh gọi RPC vô ích cho các khoản còn lâu
+      // mới đáo hạn - quyết định THẬT (đã đủ giờ chưa theo đồng hồ server,
+      // đã trả chưa, trả đúng bao nhiêu) đều do RPC tự xác thực lại, không
+      // tin phép tính bằng đồng hồ máy người dùng ở đây.
+      if (elapsedMs < durationMs) continue;
 
-        // Đánh dấu "đã trả" (cả 2 lớp bảo vệ) TRƯỚC KHI thực sự cộng tiền -
-        // nếu cộng tiền trước rồi mới đánh dấu, một lỗi giữa chừng có thể
-        // khiến vòng lặp kế tiếp (30 giây sau) cộng lại lần nữa trước khi
-        // kịp thấy dấu "đã trả". [ref:tx.id] nhúng trong note để lớp bảo vệ
-        // thứ 2 ở trên nhận diện được, dù bảng WalletTransaction thật trên
-        // Postgres không có cột lưu category/note.
-        await base44.entities.Transaction.update(tx.id, {
-          status: "completed_payout",
-          payout_status: "paid"
-        }).catch(() => null);
+      const result = await resolveProjectMaturityPayout(tx.id).catch(() => null);
+      if (!result?.paid) continue;
 
-        // Cộng vốn + lãi vào ví người dùng
-        await base44.entities.WalletTransaction.create({
-          user_id: user.id,
-          type: "deposit",
-          amount: payoutAmount,
-          note: `Đáo hạn dự án "${tx.project_title}" - Hoàn vốn & trả lãi [ref:${tx.id}]`,
-          category: "Đáo Hạn Dự Án",
-          status: "approved"
-        }).catch(() => null);
+      // Thông báo cho người dùng
+      await base44.entities.Message.create({
+        sender: "admin",
+        conversation_id: user.id,
+        content: `[DỰ ÁN ĐÃ ĐÁO HẠN KẾT THÚC THỜI GIAN THỰC]\n\nDự án: ${result.project_title || tx.project_title}\nTổng nhận: ${Number(result.payout_amount || 0).toLocaleString("vi-VN")} VNĐ (Gồm vốn + lãi)\n\nSố tiền đã được tự động cộng vào Ví tài khoản VinClub của bạn.`,
+        attachments: []
+      }).catch(() => null);
 
-        // Áp dụng thật vào số dư qua RPC nguyên tử
-        await adjustUserBalance(user.id, payoutAmount, 0).catch(() => null);
-
-        // Thông báo cho người dùng
-        await base44.entities.Message.create({
-          sender: "admin",
-          conversation_id: user.id,
-          content: `[DỰ ÁN ĐÃ ĐÁO HẠN KẾT THÚC THỜI GIAN THỰC]\n\nDự án: ${tx.project_title}\nTổng nhận: ${payoutAmount.toLocaleString("vi-VN")} VNĐ (Gồm vốn + lãi)\n\nSố tiền đã được tự động cộng vào Ví tài khoản VinClub của bạn.`,
-          attachments: []
-        }).catch(() => null);
-
-        // Bắn sự kiện cập nhật số dư
-        window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
-      }
+      // Bắn sự kiện cập nhật số dư
+      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
     }
   } catch (err) {
     console.error("Lỗi trong quá trình rà soát tự động lãi suất:", err);

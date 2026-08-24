@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
+import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
 
 const NOTIF_TYPES = [
@@ -152,46 +153,55 @@ export default function NotificationsTab() {
         }
       }
 
-      let recipients = [];
       let targetLabel = "";
+      let created;
 
+      // NotificationBell.jsx (chuông chung của người dùng) CHỈ hiển thị các
+      // dòng Notification có user_id NULL (broadcast toàn hệ thống) hoặc
+      // đúng chuỗi "admin" (broadcast tới quản trị viên) - nó không tra theo
+      // user_id thật của từng người. Trước đây "Toàn bộ Quản trị viên" ghi 1
+      // dòng riêng cho MỖI id admin thật, và "Gửi đích danh" ghi 1 dòng với
+      // user_id là id thật của người nhận - cả 2 trường hợp này chuông không
+      // bao giờ đọc lại được, thông báo coi như gửi vào hư không dù DB ghi
+      // thành công. Sửa lại đúng theo quy ước đã có sẵn trong notifyUser.js:
+      // "admins" luôn dùng đúng 1 dòng sentinel user_id="admin"; "specific"
+      // gửi thẳng vào khung chat CSKH của người đó (notifyUser tự định tuyến).
       if (targetType === "all") {
-        // Broadcast notification to ALL users
-        recipients = [null]; // user_id: null indicates broadcast
+        created = await base44.entities.Notification.create({
+          title: title.trim(),
+          content: content.trim(),
+          image: finalImg || undefined,
+          type: notifType,
+          user_id: null,
+          is_read: false,
+          created_date: new Date().toISOString(),
+        });
         targetLabel = "tất cả hội viên toàn ứng dụng";
       } else if (targetType === "admins") {
-        const admins = users.filter((u) => u.role === "admin");
-        recipients = admins.length > 0 ? admins.map((u) => u.id) : ["admin"];
+        created = await base44.entities.Notification.create({
+          title: title.trim(),
+          content: content.trim(),
+          image: finalImg || undefined,
+          type: notifType,
+          user_id: "admin",
+          is_read: false,
+          created_date: new Date().toISOString(),
+        });
         targetLabel = "toàn bộ Quản trị viên";
       } else if (targetType === "specific" && selectedUser) {
-        recipients = [selectedUser.id];
-        targetLabel = `hội viên ${selectedUser.full_name || selectedUser.email}`;
+        created = await notifyUser(selectedUser.id, {
+          title: title.trim(),
+          content: content.trim(),
+          type: notifType,
+        });
+        targetLabel = `hội viên ${selectedUser.full_name || selectedUser.email} (qua khung chat CSKH)`;
       }
-
-      const records = recipients.map((uid) => ({
-        title: title.trim(),
-        content: content.trim(),
-        image: finalImg || undefined,
-        type: notifType,
-        user_id: uid ?? null, // null = broadcast (RLS notifications_select_own_or_admin cho phép đọc lại user_id IS NULL)
-        user_name: selectedUser?.full_name || selectedUser?.name || undefined,
-        user_email: selectedUser?.email || undefined,
-        is_read: false,
-        created_date: new Date().toISOString(),
-      }));
-
-      const created = await base44.entities.Notification.bulkCreate(records);
-      const failedCount = created.filter((r) => r?.__supabaseSynced === false).length;
 
       // Trigger local storage event for instant notification bell sync across open tabs
       localStorage.setItem("vinclub:balance_updated", Date.now().toString());
 
-      if (failedCount > 0) {
-        toast.error(
-          failedCount === created.length
-            ? "Gửi thất bại - máy chủ từ chối ghi thông báo. Vui lòng thử lại."
-            : `Gửi thành công một phần: ${created.length - failedCount}/${created.length} người nhận. Một số bản ghi có thể chưa lưu trên máy chủ.`
-        );
+      if (created?.__supabaseSynced === false) {
+        toast.error("Gửi thất bại - máy chủ từ chối ghi thông báo. Vui lòng thử lại.");
       } else {
         toast.success(`✅ Đã gửi thông báo thành công tới ${targetLabel}!`);
       }

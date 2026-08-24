@@ -59,12 +59,20 @@ export default function ContractsTab() {
         toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại (trạng thái có thể chưa được lưu).");
         return;
       }
-      if (action === "approved" && tx.user_id) {
-        await notifyUser(tx.user_id, {
-          title: "Hợp đồng đã được duyệt",
-          content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã được Admin phê duyệt. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ.`,
-          type: "contract",
-        });
+      if (tx.user_id) {
+        // Trước đây chỉ báo khi DUYỆT - hợp đồng bị TỪ CHỐI không thông báo
+        // gì cho người dùng, họ chỉ biết khi tự vào lại xem danh sách.
+        await notifyUser(tx.user_id, action === "approved"
+          ? {
+              title: "Hợp đồng đã được duyệt",
+              content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã được Admin phê duyệt. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ.`,
+              type: "contract",
+            }
+          : {
+              title: "Hợp đồng bị từ chối",
+              content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã bị Admin từ chối. Vui lòng liên hệ CSKH để biết thêm chi tiết.`,
+              type: "contract",
+            });
       }
       toast.success(action === "approved" ? "Đã duyệt hợp đồng" : "Đã từ chối hợp đồng");
       fetch();

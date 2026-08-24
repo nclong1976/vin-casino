@@ -22,6 +22,29 @@ function timeAgo(dateStr) {
   return `${d} ngày trước`;
 }
 
+// Mọi thông báo hiển thị ở chuông này (broadcast toàn hệ thống hoặc broadcast
+// admin) đều là 1 dòng DUY NHẤT được CHIA SẺ giữa tất cả người xem - không có
+// user_id riêng. Nếu dùng field is_read trên chính dòng đó, một người bấm
+// đọc sẽ tắt luôn dấu "mới" cho MỌI người khác (Postgres UPDATE 1 dòng, phát
+// qua Realtime tới mọi client). Nên trạng thái "đã đọc" của TỪNG người phải
+// theo dõi CỤC BỘ (localStorage riêng theo user.id), không ghi lên dòng DB.
+const readKey = (userId) => `vinclub_read_broadcast_notifs_${userId}`;
+
+function getReadSet(userId) {
+  try {
+    const raw = localStorage.getItem(readKey(userId));
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function saveReadSet(userId, set) {
+  try {
+    localStorage.setItem(readKey(userId), JSON.stringify([...set]));
+  } catch (e) {}
+}
+
 export default function NotificationBell() {
   const { user } = useAuth();
   const [notifs, setNotifs] = useState([]);
@@ -40,9 +63,10 @@ export default function NotificationBell() {
         // đã được gửi thẳng vào khung chat CSKH riêng (xem lib/notifyUser.js)
         // thay vì tạo Notification theo user_id như trước, nên các bản ghi
         // user_id === user.id cũ (nếu còn sót) cũng không hiển thị ở đây nữa.
-        const userNotifs = (list || []).filter(
-          n => !n.user_id || (n.user_id === "admin" && user.role === "admin")
-        );
+        const readSet = getReadSet(user.id);
+        const userNotifs = (list || [])
+          .filter(n => !n.user_id || (n.user_id === "admin" && user.role === "admin"))
+          .map(n => ({ ...n, is_read: readSet.has(n.id) }));
         setNotifs(userNotifs);
       })
       .catch(() => {})
@@ -74,18 +98,20 @@ export default function NotificationBell() {
 
   const unread = notifs.filter((n) => !n.is_read).length;
 
-  const markAllRead = async () => {
+  const markAllRead = () => {
     const unreadList = notifs.filter((n) => !n.is_read);
     if (unreadList.length === 0) return;
-    await base44.entities.Notification.bulkUpdate(
-      unreadList.map((n) => ({ id: n.id, is_read: true }))
-    );
+    const readSet = getReadSet(user.id);
+    unreadList.forEach((n) => readSet.add(n.id));
+    saveReadSet(user.id, readSet);
     fetchNotifs();
   };
 
-  const markRead = async (n) => {
+  const markRead = (n) => {
     if (n.is_read) return;
-    await base44.entities.Notification.update(n.id, { is_read: true });
+    const readSet = getReadSet(user.id);
+    readSet.add(n.id);
+    saveReadSet(user.id, readSet);
     fetchNotifs();
   };
 

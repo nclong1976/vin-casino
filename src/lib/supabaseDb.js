@@ -189,6 +189,96 @@ export async function processWithdrawal(txId, action, reason = null) {
 }
 
 /**
+ * Chia bài + tính điểm + tính tiền thắng cho Tiger Baccarat/Baccarat Long
+ * Hổ HOÀN TOÀN trên server (RPC resolve_tiger_baccarat_round). Client
+ * KHÔNG còn tự tính kết quả/tiền thắng - chỉ gửi số tiền cược theo từng ô
+ * và nhận về kết quả ĐÃ CHỐT (đã cộng tiền nguyên tử) để hiển thị hiệu ứng.
+ * Trả về null nếu RPC lỗi - bên gọi phải tự xử lý (không được coi là "huề
+ * cược", vì tiền cược đã bị trừ từ bước đặt cược riêng trước đó).
+ */
+export async function resolveTigerBaccaratRound(gameSlug, bets) {
+  try {
+    const { data, error } = await supabase.rpc('resolve_tiger_baccarat_round', {
+      p_game_slug: gameSlug,
+      p_bets: bets || {},
+    });
+    if (error) {
+      console.warn('[SupabaseDb] resolveTigerBaccaratRound error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] resolveTigerBaccaratRound exception:', e);
+    return null;
+  }
+}
+
+/**
+ * Trả gốc + lãi khi 1 khoản đầu tư đáo hạn - HOÀN TOÀN trên server (RPC
+ * resolve_project_maturity_payout): tự xác thực đã đủ hạn bằng đồng hồ
+ * server, tự chống trả trùng (khoá dòng FOR UPDATE), cộng tiền + ghi lịch
+ * sử ví trong CÙNG 1 transaction nguyên tử. Trả về:
+ *   { paid: true, payout_amount, balance, balance_version } nếu đã trả
+ *   { paid: false, reason: 'not_matured'|'already_paid'|'not_found'|'zero_payout' } nếu chưa
+ *   null nếu lỗi RPC (mất mạng...) - bên gọi tự thử lại ở chu kỳ rà soát sau.
+ */
+export async function resolveProjectMaturityPayout(txId) {
+  if (!txId) return null;
+  try {
+    const { data, error } = await supabase.rpc('resolve_project_maturity_payout', {
+      p_tx_id: txId,
+    });
+    if (error) {
+      console.warn('[SupabaseDb] resolveProjectMaturityPayout error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] resolveProjectMaturityPayout exception:', e);
+    return null;
+  }
+}
+
+/** Đọc cấu hình ép kết quả/tỷ lệ THẬT (nguồn sự thật cho RPC resolve ở
+ * trên) - chỉ Admin đọc được (RLS casino_secure_config_select_admin). */
+export async function getCasinoSecureConfig(gameSlug) {
+  try {
+    const { data, error } = await supabase
+      .from('casino_secure_config')
+      .select('*')
+      .eq('game_slug', gameSlug)
+      .maybeSingle();
+    if (error) {
+      console.warn('[SupabaseDb] getCasinoSecureConfig error:', error.message);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[SupabaseDb] getCasinoSecureConfig exception:', e);
+    return null;
+  }
+}
+
+export async function updateCasinoSecureConfig(gameSlug, patch) {
+  try {
+    const { data, error } = await supabase
+      .from('casino_secure_config')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('game_slug', gameSlug)
+      .select()
+      .maybeSingle();
+    if (error) {
+      console.warn('[SupabaseDb] updateCasinoSecureConfig error:', error.message);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[SupabaseDb] updateCasinoSecureConfig exception:', e);
+    return null;
+  }
+}
+
+/**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu
  * chung, dùng chung cho mọi thiết bị) hay chưa, để chặn đăng ký trùng lặp.
@@ -318,6 +408,8 @@ export async function createSupabaseWalletTransaction(tx) {
     approved_by: tx.approved_by || null,
     rejected_at: tx.rejected_at || null,
     rejected_by: tx.rejected_by || null,
+    category: tx.category || null,
+    note: tx.note || null,
     created_date: tx.created_date || new Date().toISOString(),
   };
 
