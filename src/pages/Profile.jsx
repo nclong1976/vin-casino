@@ -21,6 +21,9 @@ import WalletTransactionList from "@/components/profile/WalletTransactionList";
 import SignatureList from "@/components/profile/SignatureList";
 import AccountSwitcherModal from "@/components/profile/AccountSwitcherModal";
 import { computeWalletNet } from "@/lib/transactionHistory";
+import { useWithdrawalSync } from "@/hooks/useWithdrawalSync";
+
+const fmtVnd = (n) => (n || 0).toLocaleString("vi-VN");
 
 export default function Profile() {
   const { user, refreshUser } = useAuth();
@@ -132,6 +135,16 @@ export default function Profile() {
   };
 
   const location = useLocation();
+
+  // Realtime: Admin duyệt/từ chối rút tiền -> patch trực tiếp vào walletTxs
+  // (không đợi fetchData() refetch toàn bộ) + Toast thông báo ngay lập tức
+  useWithdrawalSync(user?.id, setWalletTxs, (updated) => {
+    if (updated.status === "completed") {
+      toast.success(`Giao dịch rút ${fmtVnd(updated.amount)} VNĐ đã thành công`);
+    } else if (updated.status === "rejected") {
+      toast.error(`Giao dịch rút ${fmtVnd(updated.amount)} VNĐ đã bị từ chối`);
+    }
+  });
 
   useEffect(() => {
     fetchData();

@@ -18,9 +18,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers } from "@/lib/supabaseDb";
-import { adjustUserBalance } from "@/lib/balanceSync";
-import { useAuth } from "@/lib/AuthContext";
+import { listSupabaseUsers, processWithdrawal } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -34,7 +32,6 @@ const REJECT_REASONS = [
 ];
 
 export default function WithdrawalsTab() {
-  const { user: adminUser } = useAuth();
   const [withdrawals, setWithdrawals] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -178,7 +175,10 @@ export default function WithdrawalsTab() {
     return statusMatch && queryMatch;
   });
 
-  // Handle Approve Withdrawal
+  // Handle Approve Withdrawal - qua RPC process_withdrawal() (đổi status +
+  // audit log + notification trong CÙNG 1 transaction Postgres, khoá đúng
+  // dòng nên click đúp không xử lý 2 lần) thay cho 3 lệnh update/create rời
+  // rạc trước đây (không nguyên tử - 1 trong 3 lỗi giữa chừng là lệch sổ).
   const handleApprove = async () => {
     if (!approvingTx) return;
     setProcessing(true);
@@ -186,61 +186,39 @@ export default function WithdrawalsTab() {
 
     const txId = approvingTx.id;
     const txCode = approvingTx.code || approvingTx.id;
-    const amount = approvingTx.amount || 0;
-    const userId = approvingTx.user_id;
-    const userInfo = userMap[userId];
 
     // ✅ Xoá khỏi danh sách NGAY LẬP TỨC (optimistic remove)
     processedIdsRef.current.add(txId);
     setWithdrawals((prev) => prev.filter((t) => t.id !== txId));
     setApprovingTx(null);
 
-    try {
-      await base44.entities.WalletTransaction.update(txId, {
-        status: "completed",
-        approved_at: new Date().toISOString(),
-        approved_by: adminUser?.email || "Admin",
-      });
+    const result = await processWithdrawal(txId, "approve");
 
-      await base44.entities.Notification.create({
-        title: `Biến động số dư: -${fmt(amount)} VNĐ`,
-        content: `Yêu cầu rút tiền mã ${txCode} đã được Quản trị viên phê duyệt thành công. Tiền đã chuyển về ngân hàng ${approvingTx.bank_name || "đối tác"} (${approvingTx.account_number || ""}).`,
-        type: "withdraw",
-        user_id: userId,
-        is_read: false,
-      });
-
-      await base44.entities.AuditLog.create({
-        action: "APPROVE_WITHDRAWAL",
-        tx_code: txCode,
-        amount,
-        user_id: userId,
-        user_name: userInfo?.full_name || userInfo?.email || "N/A",
-        admin_email: adminUser?.email || "Admin",
-        created_date: new Date().toISOString(),
-        notes: `Phê duyệt chuyển ${fmt(amount)} VNĐ về ${approvingTx.bank_name} - STK ${approvingTx.account_number}`,
-      });
-
-      toast.success(`✅ Đã phê duyệt lệnh rút ${txCode} thành công!`);
-
-      // Sau 1.5s mới full refresh (để server kịp xử lý)
-      setTimeout(() => {
-        isProcessingRef.current = false;
-        processedIdsRef.current.delete(txId);
-        fetchWithdrawalsFull();
-      }, 1500);
-    } catch (err) {
+    if (!result) {
       // Rollback
       processedIdsRef.current.delete(txId);
       isProcessingRef.current = false;
       fetchWithdrawalsFull();
       toast.error("Không thể hoàn tất phê duyệt. Vui lòng thử lại.");
-    } finally {
       setProcessing(false);
+      return;
     }
+
+    toast.success(`✅ Đã phê duyệt lệnh rút ${txCode} thành công!`);
+
+    // Sau 1.5s mới full refresh (để Realtime kịp lan tới các phiên khác)
+    setTimeout(() => {
+      isProcessingRef.current = false;
+      processedIdsRef.current.delete(txId);
+      fetchWithdrawalsFull();
+    }, 1500);
+    setProcessing(false);
   };
 
-  // Handle Reject Withdrawal
+  // Handle Reject Withdrawal - qua RPC process_withdrawal() (đổi status +
+  // hoàn tiền + dòng lịch sử hoàn tiền + audit log + notification trong
+  // CÙNG 1 transaction Postgres, khoá đúng dòng nên click đúp không xử lý
+  // 2 lần / không hoàn tiền 2 lần) thay cho 4 lệnh update/create rời rạc.
   const handleReject = async () => {
     if (!rejectingTx) return;
     setProcessing(true);
@@ -253,9 +231,6 @@ export default function WithdrawalsTab() {
 
     const txId = rejectingTx.id;
     const txCode = rejectingTx.code || rejectingTx.id;
-    const amount = rejectingTx.amount || 0;
-    const userId = rejectingTx.user_id;
-    const userInfo = userMap[userId];
 
     // ✅ Xoá khỏi danh sách NGAY LẬP TỨC (optimistic remove)
     processedIdsRef.current.add(txId);
@@ -263,65 +238,27 @@ export default function WithdrawalsTab() {
     setRejectingTx(null);
     setCustomReason("");
 
-    try {
-      await base44.entities.WalletTransaction.update(txId, {
-        status: "rejected",
-        rejection_reason: finalReason,
-        rejected_at: new Date().toISOString(),
-        rejected_by: adminUser?.email || "Admin",
-      });
+    const result = await processWithdrawal(txId, "reject", finalReason);
 
-      // Hoàn tiền về ví người dùng - cộng nguyên tử (atomic) trực tiếp trên
-      // Postgres thay vì đọc-rồi-ghi ở client, để 2 lệnh từ chối liên tiếp
-      // của cùng 1 user (hoặc từ 2 thiết bị/admin khác nhau) không còn thể
-      // ghi đè và làm mất khoản hoàn của nhau
-      await adjustUserBalance(userId, amount);
-
-      await base44.entities.WalletTransaction.create({
-        user_id: userId,
-        type: "deposit",
-        amount,
-        status: "completed",
-        description: `Hoàn tiền do lệnh rút ${txCode} bị từ chối: ${finalReason}`,
-        code: "REF" + Date.now().toString().slice(-8),
-      });
-
-      await base44.entities.Notification.create({
-        title: "Lệnh rút tiền bị từ chối",
-        content: `Lệnh rút ${fmt(amount)} VNĐ (Mã ${txCode}) bị từ chối. Lý do: ${finalReason}. Số tiền đã được hoàn trả nguyên vẹn vào ví VinClub.`,
-        type: "withdraw",
-        user_id: userId,
-        is_read: false,
-      });
-
-      await base44.entities.AuditLog.create({
-        action: "REJECT_WITHDRAWAL",
-        tx_code: txCode,
-        amount,
-        user_id: userId,
-        user_name: userInfo?.full_name || userInfo?.email || "N/A",
-        admin_email: adminUser?.email || "Admin",
-        created_date: new Date().toISOString(),
-        notes: `Từ chối lệnh rút ${fmt(amount)} VNĐ. Lý do: ${finalReason}. Đã hoàn trả lại ví.`,
-      });
-
-      toast.success(`✅ Đã từ chối lệnh rút ${txCode} & hoàn tiền lại ví người dùng!`);
-
-      // Sau 1.5s mới full refresh
-      setTimeout(() => {
-        isProcessingRef.current = false;
-        processedIdsRef.current.delete(txId);
-        fetchWithdrawalsFull();
-      }, 1500);
-    } catch (err) {
+    if (!result) {
       // Rollback
       processedIdsRef.current.delete(txId);
       isProcessingRef.current = false;
       fetchWithdrawalsFull();
       toast.error("Không thể xử lý từ chối. Vui lòng thử lại.");
-    } finally {
       setProcessing(false);
+      return;
     }
+
+    toast.success(`✅ Đã từ chối lệnh rút ${txCode} & hoàn tiền lại ví người dùng!`);
+
+    // Sau 1.5s mới full refresh (để Realtime kịp lan tới các phiên khác)
+    setTimeout(() => {
+      isProcessingRef.current = false;
+      processedIdsRef.current.delete(txId);
+      fetchWithdrawalsFull();
+    }, 1500);
+    setProcessing(false);
   };
 
   const copyText = (text) => {

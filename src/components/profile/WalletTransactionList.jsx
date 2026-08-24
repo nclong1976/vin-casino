@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { buildTransactionHistory, TRANSACTION_KINDS } from "@/lib/transactionHistory";
+import WithdrawalStatusBadge from "@/components/profile/WithdrawalStatusBadge";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
@@ -184,10 +185,14 @@ export default function WalletTransactionList({ items = [], loading = false, cur
 
                   <div className="flex items-center justify-between gap-1 mt-0.5">
                     <p className="text-[9.5px] text-gray-400 truncate font-mono">{formatPreciseTime(t.isoTime)}</p>
-                    <span className={`inline-flex items-center gap-1 text-[8.5px] font-semibold px-1.5 py-0.2 rounded-full border shrink-0 ${statusStyle.badgeClass}`}>
-                      <span className={`w-1 h-1 rounded-full ${statusStyle.dotClass}`} />
-                      {statusStyle.label}
-                    </span>
+                    {t.kind === TRANSACTION_KINDS.WITHDRAW ? (
+                      <WithdrawalStatusBadge status={t.status} reason={t.rejectionReason} />
+                    ) : (
+                      <span className={`inline-flex items-center gap-1 text-[8.5px] font-semibold px-1.5 py-0.2 rounded-full border shrink-0 ${statusStyle.badgeClass}`}>
+                        <span className={`w-1 h-1 rounded-full ${statusStyle.dotClass}`} />
+                        {statusStyle.label}
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-[9px] text-gray-400 mt-0.5 truncate">
@@ -245,10 +250,14 @@ export default function WalletTransactionList({ items = [], loading = false, cur
                 {fmt(selectedTx.amount)} VNĐ
               </p>
               <div className="mt-1.5 flex justify-center">
-                <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${STATUS_STYLE[selectedTx.status].badgeClass}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[selectedTx.status].dotClass}`} />
-                  {STATUS_STYLE[selectedTx.status].label}
-                </span>
+                {selectedTx.kind === TRANSACTION_KINDS.WITHDRAW ? (
+                  <WithdrawalStatusBadge status={selectedTx.status} reason={selectedTx.rejectionReason} />
+                ) : (
+                  <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${STATUS_STYLE[selectedTx.status].badgeClass}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[selectedTx.status].dotClass}`} />
+                    {STATUS_STYLE[selectedTx.status].label}
+                  </span>
+                )}
               </div>
             </div>
 

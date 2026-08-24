@@ -163,6 +163,32 @@ export async function setUserBalanceAbsolute(userId, balance, totalDeposited) {
 }
 
 /**
+ * Admin duyệt/từ chối 1 lệnh rút tiền qua RPC process_withdrawal() - đổi
+ * status + hoàn tiền (nếu từ chối) + ghi audit log/notification trong CÙNG
+ * 1 transaction Postgres, khoá đúng dòng (FOR UPDATE + status='pending')
+ * nên click đúp/2 tab admin cùng lúc chỉ xử lý được đúng 1 lần.
+ */
+export async function processWithdrawal(txId, action, reason = null) {
+  if (!txId || !['approve', 'reject'].includes(action)) return null;
+  try {
+    const { data, error } = await supabase.rpc('process_withdrawal', {
+      p_tx_id: txId,
+      p_action: action,
+      p_reason: reason,
+    });
+
+    if (error) {
+      console.warn('[SupabaseDb] processWithdrawal error:', error.message);
+      return null;
+    }
+    return Array.isArray(data) ? data[0] : data;
+  } catch (e) {
+    console.warn('[SupabaseDb] processWithdrawal exception:', e);
+    return null;
+  }
+}
+
+/**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu
  * chung, dùng chung cho mọi thiết bị) hay chưa, để chặn đăng ký trùng lặp.
@@ -410,6 +436,30 @@ export function subscribeSupabaseWalletTransactionsTable(callback) {
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'wallet_transactions' },
+      (payload) => {
+        if (typeof callback === 'function') {
+          callback(payload);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+// Kênh realtime lọc theo đúng 1 user_id cho wallet_transactions - dùng cho
+// useWithdrawalSync (theo dõi trạng thái rút tiền của chính người dùng) thay
+// vì phải nhận TOÀN BỘ thay đổi bảng (subscribeSupabaseWalletTransactionsTable
+// ở trên) rồi tự lọc user_id ở client.
+export function subscribeSupabaseWalletTransactionsForUser(userId, callback) {
+  if (!userId) return () => {};
+  const channel = supabase
+    .channel(nextChannelName(`public:wallet_transactions:user_id=eq.${userId}`))
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'wallet_transactions', filter: `user_id=eq.${userId}` },
       (payload) => {
         if (typeof callback === 'function') {
           callback(payload);

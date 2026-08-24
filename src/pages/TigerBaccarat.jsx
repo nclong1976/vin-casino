@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion, animate } from "framer-motion";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
 import { adjustUserBalance, adjustUserBalanceStrict, getFreshUserBalance } from "@/lib/balanceSync";
@@ -70,6 +70,51 @@ const CHIP_VALUES = [
   { label: "50%", value: 0.5, isPercent: true, bgClass: "bg-yellow-600 border-yellow-300/80 text-black font-extrabold" },
 ];
 
+// Lá bài tách thành component riêng + React.memo: khi 1 lá lật (đổi
+// isFlipped), chỉ đúng lá đó re-render, các lá còn lại bail-out qua so
+// sánh shallow props - tránh re-render toàn bàn chơi mỗi 300ms trong lúc
+// chia bài tuần tự.
+const PlayingCard = React.memo(function PlayingCard({
+  card,
+  isFlipped,
+  isWinner,
+  backGradientClass,
+  backBorderClass,
+  suitSymbol,
+  suitTextClass,
+}) {
+  return (
+    <div
+      className={`card-container w-14 h-20 sm:w-16 sm:h-24 ${isFlipped ? "flip" : ""} ${isWinner ? "winner" : ""}`}
+    >
+      <div className="card-flipper">
+        {/* Front face (Card Back) */}
+        <div className="card-front bg-white rounded-lg shadow-md border border-gray-300 flex items-center justify-center p-1">
+          <div className={`w-full h-full rounded bg-gradient-to-br ${backGradientClass} border ${backBorderClass} flex items-center justify-center`}>
+            <span className={`text-lg sm:text-xl ${suitTextClass}`}>{suitSymbol}</span>
+          </div>
+        </div>
+        {/* Back face (Card Front) */}
+        <div className="card-back bg-white rounded-lg shadow-md border border-gray-300 flex flex-col justify-between p-1.5">
+          {card ? (
+            <>
+              <div className={`text-xs sm:text-sm font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                {card.rank}{card.suit.symbol}
+              </div>
+              <div className={`text-xl sm:text-2xl self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                {card.suit.symbol}
+              </div>
+              <div className={`text-xs sm:text-sm font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
+                {card.rank}{card.suit.symbol}
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function TigerBaccarat() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -117,6 +162,36 @@ export default function TigerBaccarat() {
   const [selectedZones, setSelectedZones] = useState([]);
   // Chặn bấm ĐẶT CƯỢC liên tiếp trong lúc đang đợi xác nhận trừ tiền từ Postgres
   const [isPlacingBet, setIsPlacingBet] = useState(false);
+
+  // Odometer Effect: "displayBalance" là giá trị đang tween trên UI, tách
+  // khỏi "balance" (nguồn sự thật dùng để validate/trừ tiền) - đổi số dư
+  // không còn nhảy đột ngột (jump-cut) mà chạy mượt về số mới.
+  const [displayBalance, setDisplayBalance] = useState(balance);
+  const displayBalanceRef = useRef(balance);
+  useEffect(() => {
+    const controls = animate(displayBalanceRef.current, balance, {
+      duration: 0.6,
+      ease: [0.16, 1, 0.3, 1], // easeOutExpo - chạy nhanh rồi hãm mượt về đích
+      onUpdate: (v) => {
+        displayBalanceRef.current = v;
+        setDisplayBalance(Math.round(v));
+      },
+    });
+    return () => controls.stop();
+  }, [balance]);
+
+  // Floating Indicator: danh sách "-500K" đang bay lên cạnh số dư, mỗi item
+  // tự dọn dẹp sau 550ms (dài hơn animation 500ms 1 chút để chắc chắn đã
+  // fade hết trước khi bị gỡ khỏi DOM).
+  const [floatingDeltas, setFloatingDeltas] = useState([]);
+  const floatingIdRef = useRef(0);
+  const pushFloatingDelta = useCallback((amount) => {
+    const id = ++floatingIdRef.current;
+    setFloatingDeltas((prev) => [...prev, { id, amount }]);
+    setTimeout(() => {
+      setFloatingDeltas((prev) => prev.filter((d) => d.id !== id));
+    }, 550);
+  }, []);
 
   // Placed Bets per zone - Cho phép cược nhiều ô đồng thời không giới hạn
   const [bets, setBets] = useState({
@@ -267,14 +342,19 @@ export default function TigerBaccarat() {
     } catch (e) {}
   };
 
-  const getCurrentChipAmount = () => {
-    if (selectedChipIndex === null) return 0;
-    const chipConfig = CHIP_VALUES[selectedChipIndex];
+  // Dùng chung cho cả nút chip (kiểm tra đủ tiền để disable) lẫn lúc đặt
+  // cược thật (getCurrentChipAmount) - tránh lệch công thức % giữa 2 nơi.
+  const computeChipAmount = useCallback((chipConfig) => {
     if (!chipConfig) return 0;
     if (chipConfig.isPercent) {
       return Math.max(10000, Math.floor(balance * chipConfig.value));
     }
     return chipConfig.value;
+  }, [balance]);
+
+  const getCurrentChipAmount = () => {
+    if (selectedChipIndex === null) return 0;
+    return computeChipAmount(CHIP_VALUES[selectedChipIndex]);
   };
 
   // Bước 1: Chọn ô cược - cho phép chọn nhiều ô cùng lúc (vd Player + Banker),
@@ -330,6 +410,7 @@ export default function TigerBaccarat() {
     // nhận thật - nếu ghi thất bại, hoàn tác đúng giá trị này (không phải
     // đọc lại "balance" từ closure cũ, tránh lệch nếu có thay đổi xen giữa).
     setBalance((prev) => Math.max(0, prev - totalNeeded));
+    pushFloatingDelta(totalNeeded);
 
     const result = await adjustUserBalanceStrict(user?.id, -totalNeeded, 0);
 
@@ -785,7 +866,7 @@ export default function TigerBaccarat() {
           position: relative;
           width: 100%;
           height: 100%;
-          transition: transform 0.6s;
+          transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
           transform-style: preserve-3d;
         }
         .card-container.flip .card-flipper {
@@ -800,6 +881,14 @@ export default function TigerBaccarat() {
         }
         .card-back {
           transform: rotateY(180deg);
+        }
+        /* Highlight kết quả: đặt scale/glow lên .card-container (không phải
+           .card-flipper) để không xung đột với transform: rotateY(180deg)
+           đang dùng để lật bài. */
+        .card-container.winner {
+          transform: scale(1.08);
+          filter: drop-shadow(0 0 10px rgba(212,175,55,0.85));
+          transition: transform 0.35s ease-out, filter 0.35s ease-out;
         }
       `}</style>
 
@@ -826,11 +915,28 @@ export default function TigerBaccarat() {
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <div className="flex flex-col">
+            <div className="flex flex-col relative">
               <span className="text-[11px] font-bold tracking-wider text-white/80">VIP CASINO</span>
-              <span className="text-[#d4af37] font-extrabold text-base sm:text-xl leading-tight drop-shadow-md">
-                {fmt(balance)} VNĐ
+              {/* tabular-nums: giữ độ rộng chữ số cố định khi Odometer chạy,
+                  tránh giật layout mỗi frame animate */}
+              <span className="text-[#d4af37] font-extrabold text-base sm:text-xl leading-tight drop-shadow-md tabular-nums">
+                {fmt(displayBalance)} VNĐ
               </span>
+
+              {/* Floating Indicator: "-500K" bay lên và mờ dần khi đặt cược */}
+              <AnimatePresence>
+                {floatingDeltas.map((d) => (
+                  <motion.span
+                    key={d.id}
+                    initial={{ opacity: 1, y: 0 }}
+                    animate={{ opacity: 0, y: -28 }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                    className="absolute left-0 top-full mt-0.5 text-red-500 font-bold text-xs pointer-events-none will-change-transform"
+                  >
+                    - {fmt(d.amount)}
+                  </motion.span>
+                ))}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -868,37 +974,18 @@ export default function TigerBaccarat() {
                   PLAYER {phase === "revealed" && playerCards.length > 0 ? `(${pScore} nút)` : ""}
                 </span>
                 <div className="flex -space-x-6 sm:-space-x-8">
-                  {(playerCards.length > 0 ? playerCards : [null, null, null]).map((card, idx) => {
-                    const isFlipped = flippedCards.player.includes(idx);
-                    return (
-                      <div key={idx} className={`card-container w-14 h-20 sm:w-16 sm:h-24 ${isFlipped ? "flip" : ""}`}>
-                        <div className="card-flipper">
-                          {/* Front face (Card Back) */}
-                          <div className="card-front bg-white rounded-lg shadow-md border border-gray-300 flex items-center justify-center p-1">
-                            <div className="w-full h-full rounded bg-gradient-to-br from-amber-600 via-amber-700 to-amber-900 border border-yellow-400 flex items-center justify-center">
-                              <span className="text-[#f2ca50] text-lg sm:text-xl">♦</span>
-                            </div>
-                          </div>
-                          {/* Back face (Card Front) */}
-                          <div className="card-back bg-white rounded-lg shadow-md border border-gray-300 flex flex-col justify-between p-1.5">
-                            {card ? (
-                              <>
-                                <div className={`text-xs sm:text-sm font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
-                                  {card.rank}{card.suit.symbol}
-                                </div>
-                                <div className={`text-xl sm:text-2xl self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
-                                  {card.suit.symbol}
-                                </div>
-                                <div className={`text-xs sm:text-sm font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
-                                  {card.rank}{card.suit.symbol}
-                                </div>
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {(playerCards.length > 0 ? playerCards : [null, null, null]).map((card, idx) => (
+                    <PlayingCard
+                      key={idx}
+                      card={card}
+                      isFlipped={flippedCards.player.includes(idx)}
+                      isWinner={phase === "revealed" && winningZones.includes("player")}
+                      backGradientClass="from-amber-600 via-amber-700 to-amber-900"
+                      backBorderClass="border-yellow-400"
+                      suitSymbol="♦"
+                      suitTextClass="text-[#f2ca50]"
+                    />
+                  ))}
                 </div>
               </div>
 
@@ -913,37 +1000,18 @@ export default function TigerBaccarat() {
                   BANKER {phase === "revealed" && bankerCards.length > 0 ? `(${bScore} nút)` : ""}
                 </span>
                 <div className="flex -space-x-6 sm:-space-x-8">
-                  {(bankerCards.length > 0 ? bankerCards : [null, null, null]).map((card, idx) => {
-                    const isFlipped = flippedCards.banker.includes(idx);
-                    return (
-                      <div key={idx} className={`card-container w-14 h-20 sm:w-16 sm:h-24 ${isFlipped ? "flip" : ""}`}>
-                        <div className="card-flipper">
-                          {/* Front face (Card Back) */}
-                          <div className="card-front bg-white rounded-lg shadow-md border border-gray-300 flex items-center justify-center p-1">
-                            <div className="w-full h-full rounded bg-gradient-to-br from-red-700 via-red-800 to-red-950 border border-red-400 flex items-center justify-center">
-                              <span className="text-white text-lg sm:text-xl">♠</span>
-                            </div>
-                          </div>
-                          {/* Back face (Card Front) */}
-                          <div className="card-back bg-white rounded-lg shadow-md border border-gray-300 flex flex-col justify-between p-1.5">
-                            {card ? (
-                              <>
-                                <div className={`text-xs sm:text-sm font-black leading-none ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
-                                  {card.rank}{card.suit.symbol}
-                                </div>
-                                <div className={`text-xl sm:text-2xl self-center ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
-                                  {card.suit.symbol}
-                                </div>
-                                <div className={`text-xs sm:text-sm font-black leading-none rotate-180 ${card.suit.isRed ? "text-red-600" : "text-black"}`}>
-                                  {card.rank}{card.suit.symbol}
-                                </div>
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {(bankerCards.length > 0 ? bankerCards : [null, null, null]).map((card, idx) => (
+                    <PlayingCard
+                      key={idx}
+                      card={card}
+                      isFlipped={flippedCards.banker.includes(idx)}
+                      isWinner={phase === "revealed" && winningZones.includes("banker")}
+                      backGradientClass="from-red-700 via-red-800 to-red-950"
+                      backBorderClass="border-red-400"
+                      suitSymbol="♠"
+                      suitTextClass="text-white"
+                    />
+                  ))}
                 </div>
               </div>
             </div>
@@ -1171,17 +1239,25 @@ export default function TigerBaccarat() {
           <div className="w-full flex items-center justify-center gap-2 sm:gap-3 mb-4 px-2 overflow-x-auto no-scrollbar py-1">
             {CHIP_VALUES.map((chip, idx) => {
               const isSelected = selectedChipIndex === idx;
+              // Validate ngay khi chọn chip: nếu áp mệnh giá này vào tất cả
+              // ô đang chọn mà vượt số dư thì disable click luôn, không đợi
+              // tới lúc bấm ĐẶT CƯỢC mới báo lỗi.
+              const chipAmount = computeChipAmount(chip);
+              const insufficient = chipAmount * Math.max(1, selectedZones.length) > balance;
               return (
                 <button
                   key={chip.label}
+                  disabled={insufficient || isPlacingBet}
                   onClick={() => {
                     initAudio();
                     setSelectedChipIndex(idx);
                   }}
-                  className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 border-dashed flex items-center justify-center shadow-lg transition-all cursor-pointer ${chip.bgClass} ${
-                    isSelected
-                      ? "ring-2 ring-amber-300 ring-offset-2 ring-offset-black scale-105 opacity-100 font-black"
-                      : "opacity-80 hover:opacity-100 hover:scale-105"
+                  className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 border-dashed flex items-center justify-center shadow-lg transition-all ${chip.bgClass} ${
+                    insufficient
+                      ? "opacity-25 grayscale cursor-not-allowed"
+                      : isSelected
+                      ? "ring-2 ring-amber-300 ring-offset-2 ring-offset-black scale-105 opacity-100 font-black cursor-pointer"
+                      : "opacity-80 hover:opacity-100 hover:scale-105 cursor-pointer"
                   }`}
                 >
                   <span className="text-xs sm:text-sm font-bold tracking-tight">
