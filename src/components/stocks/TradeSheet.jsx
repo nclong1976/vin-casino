@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Wallet, AlertTriangle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -47,8 +47,19 @@ export default function TradeSheet({ stock, onClose }) {
 
     setLoading(true);
     try {
+      // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
+      // xác nhận thật từ Postgres) và ĐỢI kết quả trước khi ghi nhận lệnh -
+      // trước đây gọi adjustUserBalance() kiểu "bắn rồi quên" (không await,
+      // chỉ .catch im lặng), nếu ghi thất bại lệnh vẫn được báo "thành
+      // công" và tạo Transaction dù tiền chưa hề bị trừ.
       if (user?.id) {
-        adjustUserBalance(user.id, -totalNum, 0).catch(() => {});
+        const result = await adjustUserBalanceStrict(user.id, -totalNum, 0);
+        if (!result) {
+          toast.error("Không thể trừ tiền để đặt lệnh, vui lòng thử lại!");
+          setLoading(false);
+          return;
+        }
+        setUserBalance(result.balance);
       }
 
       await base44.entities.Transaction.create({

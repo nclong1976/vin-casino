@@ -4,7 +4,7 @@ import { Gift, RotateCcw, Sparkles, HelpCircle, Wallet } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -111,15 +111,13 @@ export default function LuckyWheel() {
     const newLeft = Math.max(0, earnedSpins - newUsed);
     setSpinsLeft(newLeft);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setSpinning(false);
       const prizeWon = PRIZES[prizeIndex];
       setResult(prizeWon);
       if (prizeWon.label === "Chúc may") {
         toast.info("Chúc bạn may mắn lần sau!");
       } else {
-        toast.success(`Chúc mừng! Bạn nhận được ${prizeWon.label}`);
-        
         let prizeAmt = 0;
         if (prizeWon.label.includes("50K")) prizeAmt = 50000;
         else if (prizeWon.label.includes("100K")) prizeAmt = 100000;
@@ -127,8 +125,18 @@ export default function LuckyWheel() {
         else if (prizeWon.label.includes("1M")) prizeAmt = 1000000;
         else if (prizeWon.label.includes("5M")) prizeAmt = 5000000;
 
+        // Xác nhận đã cộng tiền THẬT qua RPC nguyên tử trước khi báo thành
+        // công - trước đây báo "Chúc mừng, bạn nhận được..." ngay lập tức
+        // rồi mới cộng tiền kiểu "bắn rồi quên", nên nếu RPC lỗi, người
+        // chơi vẫn thấy thông báo trúng thưởng dù tiền chưa hề vào ví.
         if (prizeAmt > 0 && user?.id) {
-          adjustUserBalance(user.id, prizeAmt, prizeAmt).catch(() => {});
+          const result = await adjustUserBalanceStrict(user.id, prizeAmt, prizeAmt);
+          if (!result) {
+            toast.error("Không thể cộng tiền thưởng, vui lòng liên hệ CSKH để được hỗ trợ!");
+            return;
+          }
+
+          toast.success(`Chúc mừng! Bạn nhận được ${prizeWon.label}`);
 
           base44.entities.WalletTransaction.create({
             user_id: user.id,

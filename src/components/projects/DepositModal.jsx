@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, CreditCard, Wallet, QrCode, Check, ChevronRight, ChevronLeft, PenTool, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import ContractDocument from "@/components/projects/ContractDocument";
 import SignaturePicker from "@/components/signature/SignaturePicker";
@@ -175,8 +175,19 @@ export default function DepositModal({ project, onClose }) {
     }
 
     try {
+      // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
+      // xác nhận thật từ Postgres) - trước đây dùng adjustUserBalance()
+      // (có await nhưng KHÔNG kiểm tra kết quả trả về), đường dự phòng của
+      // hàm đó luôn trả về "coi như thành công" ngay cả khi Postgres từ
+      // chối ghi, khiến hợp đồng vẫn được lập và báo thành công dù tiền
+      // chưa hề bị trừ.
       if (user?.id) {
-        await adjustUserBalance(user.id, -amount);
+        const result = await adjustUserBalanceStrict(user.id, -amount);
+        if (!result) {
+          toast.error("Không thể trừ tiền để đầu tư, vui lòng thử lại!");
+          return;
+        }
+        setUserBalance(result.balance);
       }
 
       await base44.entities.Transaction.create({
