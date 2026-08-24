@@ -50,7 +50,8 @@ export default function ProjectsTab() {
     // Đổi giao diện ngay để admin thấy phản hồi tức thì, không đợi network
     setProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, is_active: nextStatus } : x)));
     try {
-      await base44.entities.Project.update(p.id, { is_active: nextStatus });
+      const result = await base44.entities.Project.update(p.id, { is_active: nextStatus });
+      if (result?.__supabaseSynced === false) throw new Error("Ghi lên máy chủ thất bại");
       toast.success(
         nextStatus
           ? `Đã BẬT mở đầu tư: "${p.title || p.name}"`
@@ -83,13 +84,14 @@ export default function ProjectsTab() {
 
   const handleSave = async (data) => {
     try {
-      if (editing?.id) {
-        await base44.entities.Project.update(editing.id, data);
-        toast.success(`Đã cập nhật dự án "${data.title}" thành công`);
-      } else {
-        await base44.entities.Project.create(data);
-        toast.success(`Đã tạo mới dự án "${data.title}"`);
+      const result = editing?.id
+        ? await base44.entities.Project.update(editing.id, data)
+        : await base44.entities.Project.create(data);
+      if (result?.__supabaseSynced === false) {
+        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
+        return;
       }
+      toast.success(editing?.id ? `Đã cập nhật dự án "${data.title}" thành công` : `Đã tạo mới dự án "${data.title}"`);
       setEditing(null);
       setShowAdd(false);
       fetch();
@@ -387,6 +389,24 @@ function ProjectEditModal({ project, onClose, onSave }) {
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v, ...(k === "title" ? { name: v } : {}) }));
 
+  // "minAmount" là input text tự do lưu số tiền tối thiểu (₫) - trước đây
+  // không validate nên có thể lưu rỗng/số âm, khiến điều kiện "đủ tối thiểu
+  // để đầu tư" ở phía người dùng bị vô hiệu hoá (Number("") === 0, Number
+  // âm luôn nhỏ hơn mọi khoản đầu tư thật). "rate" KHÔNG validate ở đây vì
+  // đây là nhãn hiển thị dạng chuỗi ("0.025%/giờ"), không phải số thuần.
+  const handleSubmit = () => {
+    if (!form.title.trim()) {
+      toast.error("Vui lòng nhập tên dự án");
+      return;
+    }
+    const minAmountNum = Number(form.minAmount);
+    if (!form.minAmount || isNaN(minAmountNum) || minAmountNum < 0) {
+      toast.error("Số tiền tối thiểu phải là một số không âm");
+      return;
+    }
+    onSave(form);
+  };
+
   // <input type="datetime-local"> cần dạng "YYYY-MM-DDTHH:mm" (giờ local), khác với
   // ISO string lưu trữ (UTC) - 2 hàm dưới đây chuyển đổi qua lại giữa 2 định dạng.
   const toLocalInputValue = (iso) => {
@@ -598,7 +618,7 @@ function ProjectEditModal({ project, onClose, onSave }) {
 
           {/* Submit */}
           <button
-            onClick={() => onSave(form)}
+            onClick={handleSubmit}
             className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[11px] font-bold shadow-md transition-all flex items-center justify-center gap-1.5 mt-2"
           >
             <Check className="w-4 h-4" /> Lưu thông tin dự án

@@ -7,7 +7,7 @@ import { adjustUserBalance, adjustUserBalanceStrict, getFreshUserBalance } from 
 import { toast } from "sonner";
 import GameCountdownTimer, { getSyncedTimerSeconds, scheduleSecondAlignedTicker } from "@/components/GameCountdownTimer";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
-import { getCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
+import { getCasinoConfig, saveCasinoConfig, incrementGameStats } from "@/lib/casinoConfig";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import MyBetsDrawer, { recordCasinoBet, resolveLatestCasinoBet, reconcileStalePendingBets } from "@/components/casino/MyBetsDrawer";
 import BetConfirmationModal from "@/components/casino/BetConfirmationModal";
@@ -562,6 +562,21 @@ export default function TigerBaccarat() {
     const casinoCfg = getCasinoConfig();
     const gameSettings = casinoCfg.games[gameSlug] || {};
     const forcedOutcome = gameSettings.forcedOutcome || "auto";
+
+    // One-shot: đúng như mô tả trên UI Admin ("ván bài TIẾP THEO lật ra sẽ
+    // chắc chắn trả về kết quả đã định sẵn"), ép kết quả chỉ áp dụng cho
+    // ĐÚNG 1 ván này rồi tự đưa cấu hình về "auto" ngay - trước đây không
+    // tự reset nên admin quên tắt là tỷ lệ bất thường (vd Tiger 40:1) áp
+    // dụng vô thời hạn cho mọi ván sau thay vì chỉ 1 ván như ý định.
+    if (forcedOutcome !== "auto") {
+      saveCasinoConfig({
+        ...casinoCfg,
+        games: {
+          ...casinoCfg.games,
+          [gameSlug]: { ...gameSettings, forcedOutcome: "auto" },
+        },
+      });
+    }
 
     // Build & Deal
     let deck = buildDeck();

@@ -493,6 +493,7 @@ const ENTITY_TABLE_MAP = {
   Signature: 'signatures',
   Transaction: 'transactions',
   AuditLog: 'audit_logs',
+  News: 'news',
 };
 
 // Whitelist cột thật của từng bảng - field nào không nằm trong danh sách
@@ -506,6 +507,7 @@ const ENTITY_COLUMNS = {
   Signature: ['id', 'user_id', 'type', 'content', 'label', 'created_date'],
   Transaction: ['id', 'user_id', 'user_email', 'user_name', 'project_id', 'project_name', 'project_title', 'category', 'amount', 'shares', 'method', 'rate', 'duration_days', 'profit', 'total', 'status', 'payout_status', 'contract_status', 'signature_type', 'signature_content', 'note', 'created_date'],
   AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
+  News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date'],
 };
 
 /** Tách một object thành {cột thật theo whitelist..., extra: {phần còn lại}} */

@@ -69,6 +69,7 @@ export default function StocksTab() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [togglingId, setTogglingId] = useState(null);
+  const [processingOrderId, setProcessingOrderId] = useState(null);
 
   // Modals
   const [editingStock, setEditingStock] = useState(null);
@@ -129,15 +130,42 @@ export default function StocksTab() {
   const handleToggleStockStatus = async (proj) => {
     const nextStatus = !proj.is_active;
     setTogglingId(proj.id || proj.symbol);
-    setProjects((prev) => prev.map((x) => (x === proj || x.id === proj.id ? { ...x, is_active: nextStatus } : x)));
+    // So khớp bằng reference (x === proj) trước - proj.id có thể undefined
+    // với mã mặc định (DEFAULT_STOCKS) và "x.id === proj.id" sẽ khớp NHẦM
+    // mọi mã mặc định khác (undefined === undefined) nếu dùng riêng.
+    const matches = (x) => x === proj || (!!proj.id && x.id === proj.id);
+    setProjects((prev) => prev.map((x) => (matches(x) ? { ...x, is_active: nextStatus } : x)));
     try {
+      let result;
       if (proj.id) {
-        await base44.entities.Project.update(proj.id, { is_active: nextStatus });
+        result = await base44.entities.Project.update(proj.id, { is_active: nextStatus });
+      } else {
+        // Mã mặc định (DEFAULT_STOCKS) chưa từng có dòng Project thật trong
+        // Supabase - trước đây bấm khóa chỉ đổi state cục bộ, fetchData()
+        // sau đó không thấy dòng thật nào nên lại rơi về DEFAULT_STOCKS
+        // (luôn is_active:true), khiến nút "Tạm khóa" báo thành công nhưng
+        // vô tác dụng. Tạo luôn 1 dòng Project thật ngay lần đầu toggle để
+        // trạng thái khóa/mở thực sự được lưu lại.
+        result = await base44.entities.Project.create({
+          id: `p_stock_${proj.symbol.toLowerCase()}`,
+          title: `Quỹ Cổ Phiếu ${proj.name} (${proj.symbol})`,
+          name: proj.name,
+          category: proj.category || "Đầu tư chứng khoán",
+          price_per_m2: Number(proj.price) || 45000,
+          priceStr: `${new Intl.NumberFormat("vi-VN").format(proj.price || 0)} ₫/CP`,
+          rate: proj.yieldRate || "15%/năm",
+          minAmount: String(proj.minAmount || "10000000"),
+          is_active: nextStatus,
+          description: proj.description || "",
+        });
+      }
+      if (result?.__supabaseSynced === false) {
+        throw new Error("Ghi lên máy chủ thất bại");
       }
       toast.success(`Đã ${nextStatus ? "MỞ" : "KHÓA"} giao dịch cổ phiếu "${proj.title || proj.symbol}"`);
       fetchData();
     } catch (e) {
-      setProjects((prev) => prev.map((x) => (x === proj || x.id === proj.id ? { ...x, is_active: proj.is_active } : x)));
+      setProjects((prev) => prev.map((x) => (matches(x) ? { ...x, is_active: proj.is_active } : x)));
       toast.error("Lỗi khi thay đổi trạng thái cổ phiếu");
     } finally {
       setTogglingId(null);
@@ -145,6 +173,20 @@ export default function StocksTab() {
   };
 
   const handleSaveStockTicker = async (stockData) => {
+    // Chặn niêm yết trùng ký hiệu: id sinh cố định theo symbol
+    // (`p_stock_${symbol}`) nên tạo mới với symbol đã tồn tại sẽ ÂM THẦM
+    // GHI ĐÈ mã cũ (upsert onConflict:id) trong khi UI vẫn báo "niêm yết
+    // mã MỚI" - không phải cập nhật.
+    if (!editingStock?.id) {
+      const dup = projects.find(
+        (p) => (p.symbol || "").toUpperCase() === stockData.symbol.toUpperCase()
+      );
+      if (dup) {
+        toast.error(`Mã ${stockData.symbol} đã tồn tại - vui lòng bấm "Điều chỉnh" thay vì thêm mới.`);
+        return;
+      }
+    }
+
     try {
       const payload = {
         title: `Quỹ Cổ Phiếu ${stockData.name} (${stockData.symbol})`,
@@ -158,13 +200,17 @@ export default function StocksTab() {
         description: stockData.description || "",
       };
 
+      let result;
       if (editingStock?.id) {
-        await base44.entities.Project.update(editingStock.id, payload);
-        toast.success(`Đã cập nhật cổ phiếu ${stockData.symbol}`);
+        result = await base44.entities.Project.update(editingStock.id, payload);
       } else {
-        await base44.entities.Project.create({ ...payload, id: `p_stock_${stockData.symbol.toLowerCase()}` });
-        toast.success(`Đã niêm yết cổ phiếu ${stockData.symbol} mới`);
+        result = await base44.entities.Project.create({ ...payload, id: `p_stock_${stockData.symbol.toLowerCase()}` });
       }
+      if (result?.__supabaseSynced === false) {
+        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
+        return;
+      }
+      toast.success(editingStock?.id ? `Đã cập nhật cổ phiếu ${stockData.symbol}` : `Đã niêm yết cổ phiếu ${stockData.symbol} mới`);
       setEditingStock(null);
       setShowAddStock(false);
       fetchData();
@@ -182,7 +228,7 @@ export default function StocksTab() {
     const amountNum = Number(orderForm.amount) || 0;
 
     try {
-      await base44.entities.Transaction.create({
+      const result = await base44.entities.Transaction.create({
         user_id: orderForm.userId,
         user_email: selectedUser?.email || "User",
         user_name: selectedUser?.name || "Khách hàng",
@@ -196,6 +242,10 @@ export default function StocksTab() {
         note: orderForm.note,
         created_date: new Date().toISOString(),
       });
+      if (result?.__supabaseSynced === false) {
+        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
+        return;
+      }
 
       toast.success("Đã cấp lệnh giao dịch chứng khoán thành công!");
       setShowCreateOrder(false);
@@ -205,16 +255,32 @@ export default function StocksTab() {
     }
   };
 
-  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+  const handleUpdateOrderStatus = async (order, newStatus) => {
+    // Idempotency: chặn double-click / 2 tab admin duyệt trùng cùng 1 lệnh.
+    if (processingOrderId) return;
+    const currentStatus = order.status === "completed" || order.contract_status === "approved"
+      ? "completed"
+      : order.status === "rejected" || order.contract_status === "rejected"
+      ? "rejected"
+      : "pending";
+    if (currentStatus !== "pending") return;
+
+    setProcessingOrderId(order.id);
     try {
-      await base44.entities.Transaction.update(orderId, {
+      const result = await base44.entities.Transaction.update(order.id, {
         status: newStatus,
         contract_status: newStatus === "completed" ? "approved" : newStatus === "rejected" ? "rejected" : "pending",
       });
+      if (result?.__supabaseSynced === false) {
+        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
+        return;
+      }
       toast.success(`Đã chuyển trạng thái lệnh sang: ${newStatus}`);
       fetchData();
     } catch (e) {
       toast.error("Lỗi khi duyệt lệnh");
+    } finally {
+      setProcessingOrderId(null);
     }
   };
 
@@ -382,14 +448,16 @@ export default function StocksTab() {
                           ) : (
                             <div className="flex items-center gap-1">
                               <button
-                                onClick={() => handleUpdateOrderStatus(order.id, "completed")}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-xs cursor-pointer"
+                                onClick={() => handleUpdateOrderStatus(order, "completed")}
+                                disabled={processingOrderId === order.id}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-xs cursor-pointer disabled:opacity-50"
                               >
                                 Duyệt lệnh
                               </button>
                               <button
-                                onClick={() => handleUpdateOrderStatus(order.id, "rejected")}
-                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-xs cursor-pointer"
+                                onClick={() => handleUpdateOrderStatus(order, "rejected")}
+                                disabled={processingOrderId === order.id}
+                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-xs cursor-pointer disabled:opacity-50"
                               >
                                 Hủy
                               </button>

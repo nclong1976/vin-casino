@@ -9,12 +9,28 @@ export default function CasinoTab() {
 
   useEffect(() => {
     const handleUpdate = (e) => {
-      if (e.detail) {
-        setConfig(e.detail);
-      }
+      setConfig(e?.detail || getCasinoConfig());
     };
+
+    // Lắng nghe cả RTDB (đổi từ ván chơi thật của người dùng - vd tự động
+    // reset "forcedOutcome" về "auto" sau khi áp dụng xong 1 ván) lẫn sự
+    // kiện cùng tab và "storage" (đổi từ tab admin khác) - trước đây chỉ
+    // nghe CustomEvent cùng tab nên 2 tab admin mở song song có thể ghi đè
+    // ngược lại thay đổi của nhau mà không hay biết.
+    let unsubRTDB;
+    import('@/lib/rtdbSync').then(({ subscribeCasinoConfigFromRTDB }) => {
+      unsubRTDB = subscribeCasinoConfigFromRTDB((rtdbConfig) => {
+        if (rtdbConfig) setConfig(rtdbConfig);
+      });
+    }).catch(() => null);
+
     window.addEventListener("vinclub:casino_config_updated", handleUpdate);
-    return () => window.removeEventListener("vinclub:casino_config_updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
+    return () => {
+      if (typeof unsubRTDB === "function") unsubRTDB();
+      window.removeEventListener("vinclub:casino_config_updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
+    };
   }, []);
 
   const handleToggleGlobalMaintenance = () => {
@@ -60,6 +76,30 @@ export default function CasinoTab() {
     setConfig(newCfg);
     saveCasinoConfig(newCfg);
     toast.success(`Đã cập nhật ${field} cho trò chơi ${current.name || gameKey}`);
+  };
+
+  // Ép kết quả tách riêng khỏi handleUpdateSpecialGameSetting (dùng cho
+  // minBet/maxBet) - đây là thao tác tác động trực tiếp tới tiền thật ngay
+  // ván tiếp theo (đặc biệt mức "Ép TIGER" trả 40:1) nên bắt buộc xác nhận
+  // giống hệt toggle 1.1x bên dưới, tránh chọn nhầm trong dropdown.
+  const handleUpdateForcedOutcome = (gameKey, value) => {
+    const current = config.games[gameKey] || {};
+
+    if (value !== "auto") {
+      const OUTCOME_LABELS = {
+        player: "PLAYER thắng",
+        banker: "BANKER thắng",
+        tie: "HÒA (8:1)",
+        tiger: "TIGER thắng (40:1)",
+      };
+      const confirmed = window.confirm(
+        `Xác nhận ÉP KẾT QUẢ "${OUTCOME_LABELS[value] || value}" cho ${current.name || gameKey}?\n\n` +
+        `Thao tác này áp dụng cho ĐÚNG 1 ván tiếp theo của bàn cược thật rồi tự động trở về "Tự động" - không cần tắt tay sau đó.`
+      );
+      if (!confirmed) return;
+    }
+
+    handleUpdateSpecialGameSetting(gameKey, "forcedOutcome", value);
   };
 
   const handleToggleOdds205 = (gameKey) => {
@@ -245,7 +285,7 @@ export default function CasinoTab() {
               <select
                 value={activeSpecialGameData.forcedOutcome || "auto"}
                 onChange={(e) =>
-                  handleUpdateSpecialGameSetting(selectedSpecialGame, "forcedOutcome", e.target.value)
+                  handleUpdateForcedOutcome(selectedSpecialGame, e.target.value)
                 }
                 className="w-full bg-[#1c1913] border border-[#d4af37]/60 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 focus:outline-none focus:border-amber-400"
               >
@@ -256,7 +296,7 @@ export default function CasinoTab() {
                 <option value="tiger">Ép TIGER Thắng (Thần Hổ 40:1)</option>
               </select>
               <p className="text-[9.5px] text-gray-400 mt-1 italic">
-                * Khi chọn ép kết quả, ván bài tiếp theo lật ra sẽ chắc chắn trả về kết quả đã định sẵn cho phòng chơi.
+                * Khi chọn ép kết quả, ván bài tiếp theo lật ra sẽ chắc chắn trả về kết quả đã định sẵn, sau đó tự động trở về "Tự động".
               </p>
             </div>
 

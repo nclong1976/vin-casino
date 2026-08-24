@@ -16,6 +16,10 @@ export default function ContractsTab() {
   const [txs, setTxs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("pending");
+  // Chặn click đúp / double-submit trong lúc đang chờ update() - không có
+  // khoá phía server (contract_status không phải tiền, chỉ là trạng thái
+  // hiển thị) nên khoá client-side là đủ để tránh gửi trùng notifyUser.
+  const [processingId, setProcessingId] = useState(null);
 
   const fetch = () => {
     base44.entities.Transaction
@@ -44,8 +48,17 @@ export default function ContractsTab() {
   }, []);
 
   const handleAction = async (tx, action) => {
+    // Idempotency: chặn double-click và race giữa 2 tab admin - nếu hợp
+    // đồng đã được xử lý (không còn "pending") thì bỏ qua, không gửi
+    // notifyUser trùng lặp cho người dùng.
+    if (processingId || (tx.contract_status || "pending") !== "pending") return;
+    setProcessingId(tx.id);
     try {
-      await base44.entities.Transaction.update(tx.id, { contract_status: action });
+      const result = await base44.entities.Transaction.update(tx.id, { contract_status: action });
+      if (result?.__supabaseSynced === false) {
+        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại (trạng thái có thể chưa được lưu).");
+        return;
+      }
       if (action === "approved" && tx.user_id) {
         await notifyUser(tx.user_id, {
           title: "Hợp đồng đã được duyệt",
@@ -57,6 +70,8 @@ export default function ContractsTab() {
       fetch();
     } catch (e) {
       toast.error("Không thể cập nhật");
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -145,13 +160,15 @@ export default function ContractsTab() {
                 <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                   <button
                     onClick={() => handleAction(tx, "approved")}
-                    className="flex-1 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-[11px] font-semibold flex items-center justify-center gap-1"
+                    disabled={processingId === tx.id}
+                    className="flex-1 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-[11px] font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
                   >
                     <Check className="w-3.5 h-3.5" /> Duyệt
                   </button>
                   <button
                     onClick={() => handleAction(tx, "rejected")}
-                    className="flex-1 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 text-[11px] font-semibold flex items-center justify-center gap-1"
+                    disabled={processingId === tx.id}
+                    className="flex-1 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 text-[11px] font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
                   >
                     <X className="w-3.5 h-3.5" /> Từ chối
                   </button>

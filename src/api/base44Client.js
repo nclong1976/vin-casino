@@ -21,7 +21,7 @@ import {
 // Các entity được ghi write-through xuống Postgres (Supabase) như một lớp
 // lưu trữ bền vững bổ sung - xem chi tiết trong supabaseDb.js mục 4.
 const SUPABASE_BACKED_ENTITIES = new Set([
-  'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
+  'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News',
 ]);
 
 // Các entity đọc thẳng từ Supabase thay vì chỉ đọc localStorage riêng của
@@ -47,7 +47,7 @@ const SUPABASE_BACKED_ENTITIES = new Set([
 // được thêm đủ cột category + note VÀ createSupabaseWalletTransaction()
 // được cập nhật ghi đủ 2 field đó - lúc đó mới an toàn thêm lại vào đây.
 const SUPABASE_READABLE_ENTITIES = new Set([
-  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog',
+  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News',
 ]);
 
 /**
@@ -660,6 +660,7 @@ class LocalEntityClient {
     // "chưa cộng lãi" và cộng lại lần nữa - tái diễn đúng lỗi lãi cộng dồn
     // không kiểm soát đã từng vá trước đây (xem ghi chú trong
     // dailyYieldEngine.js).
+    let supabaseSynced = true;
     try {
       if (this.entityName === 'User') {
         await upsertSupabaseUser(newItem).catch(() => null);
@@ -686,7 +687,8 @@ class LocalEntityClient {
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-        await upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
+        const supaResult = await upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
+        supabaseSynced = !!supaResult;
       }
       // Firestore (pushEntityToFirestore) & RTDB tổng quát (pushGenericEntityToRTDB)
       // đã GỠ BỎ khỏi đây - Firestore không còn listener nào lắng nghe (đã gỡ
@@ -697,7 +699,13 @@ class LocalEntityClient {
       console.error("Lỗi đồng bộ Supabase (create):", e);
     }
 
-    return newItem;
+    // "synced" chỉ có ý nghĩa khi entity thực sự ghi Supabase (SUPABASE_BACKED_
+    // ENTITIES) - còn lại giữ mặc định true để không đổi hành vi của các nơi
+    // gọi hiện có (phần lớn không kiểm tra field này). Nơi gọi nào cần biết
+    // chắc chắn Postgres đã nhận ghi (không chỉ tin toast "thành công") thì
+    // tự kiểm tra `result?.__supabaseSynced === false` - xem ContractsTab/
+    // StocksTab/NotificationsTab để biết cách dùng.
+    return { ...newItem, __supabaseSynced: supabaseSynced };
   }
 
   async update(id, data) {
@@ -731,6 +739,7 @@ class LocalEntityClient {
     // "đã xử lý xong chưa" (vd. dailyYieldEngine.js kiểm tra
     // tx.payout_status === "paid" trước khi trả lãi đáo hạn dự án mỗi 30
     // giây) cần bản ghi đã THỰC SỰ lên Postgres, không phải "bắn rồi quên".
+    let supabaseSynced = true;
     try {
       if (this.entityName === 'User') {
         await updateSupabaseUser(id, updated).catch(() => null);
@@ -760,14 +769,16 @@ class LocalEntityClient {
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-        await upsertSupabaseEntity(this.entityName, updated).catch(() => null);
+        const supaResult = await upsertSupabaseEntity(this.entityName, updated).catch(() => null);
+        supabaseSynced = !!supaResult;
       }
       // Firestore & RTDB tổng quát: xem ghi chú tương tự trong create() ở trên.
     } catch (e) {
       console.error("Lỗi đồng bộ Supabase (update):", e);
     }
 
-    return updated;
+    // Xem ghi chú "__supabaseSynced" trong create() ở trên.
+    return { ...updated, __supabaseSynced: supabaseSynced };
   }
 
   async delete(id) {
@@ -776,6 +787,11 @@ class LocalEntityClient {
     setLocalStore(this.entityName, items);
     this.notifySubscribers();
 
+    // "synced" chỉ có ý nghĩa với entity SUPABASE_BACKED - mặc định true cho
+    // các entity khác để không đổi hành vi những nơi gọi hiện có (return vẫn
+    // là 1 object truthy giống hệt "true" cũ với mọi `if (await ...delete())`
+    // đang có, không có nơi nào so sánh === true).
+    let supabaseSynced = true;
     try {
       if (this.entityName === 'Message') {
         import('@/lib/rtdbSync').then(({ deleteMessageFromRTDB }) => {
@@ -788,13 +804,15 @@ class LocalEntityClient {
         });
       }
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-        deleteSupabaseEntity(this.entityName, id).catch(() => null);
+        // Await (thay vì "bắn rồi quên" như trước) để nơi gọi cần chắc chắn
+        // (vd NotificationsTab xoá thông báo) có thể kiểm tra kết quả thật.
+        supabaseSynced = await deleteSupabaseEntity(this.entityName, id).catch(() => false);
       }
     } catch (e) {
       console.error("Lỗi đồng bộ Supabase (delete):", e);
     }
 
-    return true;
+    return { success: true, __supabaseSynced: supabaseSynced };
   }
 
   async filter(query, sort, limit) {

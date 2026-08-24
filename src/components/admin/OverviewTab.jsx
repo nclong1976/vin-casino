@@ -20,9 +20,12 @@ export default function OverviewTab({ stats = {} }) {
   const disabledProjects = Math.max(0, totalProjects - activeProjects);
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText("E-CUV");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard?.writeText("E-CUV")
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {});
   };
 
   const cards = [

@@ -9,7 +9,6 @@ import {
   User,
   Shield,
   Search,
-  Bell,
   Trash2,
   CheckCircle2,
   AlertTriangle,
@@ -19,12 +18,10 @@ import {
   Clock,
   Eye,
   Maximize2,
-  Filter,
   Sparkles
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 
 const NOTIF_TYPES = [
@@ -62,22 +59,15 @@ export default function NotificationsTab() {
   const fileInputRef = useRef(null);
 
   // Fetch Users & Notifications History
+  //
+  // base44.entities.User.list() đã tự đọc thẳng từ Supabase (User nằm trong
+  // SUPABASE_READABLE_ENTITIES) - trước đây gọi thêm listSupabaseUsers() độc
+  // lập song song chỉ để merge lại là chạy 2 lần đúng 1 câu SELECT * FROM
+  // users, không mang thêm dữ liệu nào mới.
   const fetchUsers = async () => {
     try {
-      const [localUsers, supaUsers] = await Promise.all([
-        base44.entities.User.list().catch(() => []),
-        listSupabaseUsers().catch(() => []),
-      ]);
-      const mergedMap = {};
-      (Array.isArray(localUsers) ? localUsers : []).forEach((u) => {
-        if (u && (u.id || u.email)) mergedMap[u.id || u.email] = u;
-      });
-      (Array.isArray(supaUsers) ? supaUsers : []).forEach((su) => {
-        if (su && (su.id || su.email)) {
-          mergedMap[su.id || su.email] = { ...(mergedMap[su.id || su.email] || {}), ...su };
-        }
-      });
-      setUsers(Object.values(mergedMap));
+      const localUsers = await base44.entities.User.list().catch(() => []);
+      setUsers(Array.isArray(localUsers) ? localUsers : []);
     } catch (e) {
       console.error(e);
     }
@@ -183,19 +173,28 @@ export default function NotificationsTab() {
         content: content.trim(),
         image: finalImg || undefined,
         type: notifType,
-        user_id: uid || undefined, // undefined or null creates broadcast
+        user_id: uid ?? null, // null = broadcast (RLS notifications_select_own_or_admin cho phép đọc lại user_id IS NULL)
         user_name: selectedUser?.full_name || selectedUser?.name || undefined,
         user_email: selectedUser?.email || undefined,
         is_read: false,
         created_date: new Date().toISOString(),
       }));
 
-      await base44.entities.Notification.bulkCreate(records);
+      const created = await base44.entities.Notification.bulkCreate(records);
+      const failedCount = created.filter((r) => r?.__supabaseSynced === false).length;
 
       // Trigger local storage event for instant notification bell sync across open tabs
       localStorage.setItem("vinclub:balance_updated", Date.now().toString());
 
-      toast.success(`✅ Đã gửi thông báo thành công tới ${targetLabel}!`);
+      if (failedCount > 0) {
+        toast.error(
+          failedCount === created.length
+            ? "Gửi thất bại - máy chủ từ chối ghi thông báo. Vui lòng thử lại."
+            : `Gửi thành công một phần: ${created.length - failedCount}/${created.length} người nhận. Một số bản ghi có thể chưa lưu trên máy chủ.`
+        );
+      } else {
+        toast.success(`✅ Đã gửi thông báo thành công tới ${targetLabel}!`);
+      }
 
       // Reset form
       setTitle("");
@@ -222,7 +221,11 @@ export default function NotificationsTab() {
     if (!window.confirm("Bạn có chắc chắn muốn xóa thông báo này khỏi lịch sử?")) return;
     setDeletingId(id);
     try {
-      await base44.entities.Notification.delete(id);
+      const result = await base44.entities.Notification.delete(id);
+      if (result?.__supabaseSynced === false) {
+        toast.error("Xóa trên máy chủ thất bại - thông báo có thể xuất hiện lại sau khi tải lại trang.");
+        return;
+      }
       setHistory((prev) => prev.filter((n) => n.id !== id));
       toast.success("Đã xóa thông báo thành công");
     } catch {
