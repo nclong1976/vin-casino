@@ -7,7 +7,7 @@ import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier"
 import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleIcon from "@/components/GoogleIcon";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function Register() {
@@ -135,8 +135,7 @@ export default function Register() {
       }
 
       setShowTermsModal(false);
-      toast({
-        title: "Đăng ký thành công",
+      toast.success("Đăng ký thành công", {
         description: "Chào mừng bạn đến với VinClub!",
       });
       window.location.href = "/";

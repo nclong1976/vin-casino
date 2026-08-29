@@ -84,18 +84,22 @@ export default function Resort() {
   useEffect(() => {
     const processItems = (all) => {
       if (!Array.isArray(all)) return;
-      const resortList = all.filter(
-        (p) => p.category === "Nghỉ dưỡng" || p.category === "Đầu tư nghỉ dưỡng" || (p.title || p.name || "").toLowerCase().includes("vinpearl") || (p.category || "").toLowerCase().includes("resort")
-      );
+      // Lọc CHỈ theo category - trước đây dò thêm theo tiêu đề chứa
+      // "vinpearl" khiến cổ phiếu "Quỹ Cổ Phiếu Vinpearl (VPL)" bị lọt vào
+      // danh sách resort chỉ vì tên công ty trùng chữ "Vinpearl".
+      const resortList = all.filter((p) => (p.category || "").trim() === "Đầu tư nghỉ dưỡng");
       if (resortList.length > 0) {
         setResorts(
           resortList.map((p) => ({
             ...p,
             name: p.title || p.name,
+            // DepositModal đọc "minAmount" (camelCase) - cột Postgres thật
+            // là "min_amount", thiếu alias này số tiền tối thiểu đọc ra 0.
+            minAmount: p.minAmount ?? p.min_amount,
             desc: p.description || "Resort 5 sao tiêu chuẩn quốc tế, cam kết sinh lời theo giờ.",
-            price: p.priceStr || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫` : "2.5 tỷ"),
+            price: p.priceStr || p.price_str || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫` : "2.5 tỷ"),
             rate: p.rate || "0.025%/giờ",
-            tag: p.area || "Nghỉ dưỡng",
+            tag: p.tag || "Nghỉ dưỡng",
             is_active: p.is_active ?? true,
           }))
         );

@@ -10,7 +10,6 @@ import {
   Shield,
   Search,
   Trash2,
-  CheckCircle2,
   AlertTriangle,
   Gift,
   Briefcase,
@@ -22,7 +21,6 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
 
 const NOTIF_TYPES = [
@@ -41,9 +39,7 @@ export default function NotificationsTab() {
   // Form State
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [targetType, setTargetType] = useState("all"); // 'all' | 'specific' | 'admins'
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [userSearch, setUserSearch] = useState("");
+  const [targetType, setTargetType] = useState("all"); // 'all' | 'admins'
   const [notifType, setNotifType] = useState("admin");
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState(null);
@@ -108,19 +104,6 @@ export default function NotificationsTab() {
     return map;
   }, [users]);
 
-  // Filter users for target dropdown
-  const filteredTargetUsers = useMemo(() => {
-    if (!userSearch.trim()) return users.slice(0, 10);
-    const q = userSearch.toLowerCase().trim();
-    return users.filter((u) => {
-      const name = (u.full_name || u.name || "").toLowerCase();
-      const email = (u.email || "").toLowerCase();
-      const phone = (u.phone || "").toLowerCase();
-      const id = (u.id || "").toLowerCase();
-      return name.includes(q) || email.includes(q) || phone.includes(q) || id.includes(q);
-    }).slice(0, 15);
-  }, [users, userSearch]);
-
   const handleImageFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -136,9 +119,6 @@ export default function NotificationsTab() {
   const handleSendNotification = async () => {
     if (!title.trim()) return toast.error("Vui lòng nhập tiêu đề thông báo");
     if (!content.trim()) return toast.error("Vui lòng nhập nội dung thông báo");
-    if (targetType === "specific" && !selectedUser) {
-      return toast.error("Vui lòng chọn người nhận thông báo");
-    }
 
     setSending(true);
     try {
@@ -159,13 +139,14 @@ export default function NotificationsTab() {
       // NotificationBell.jsx (chuông chung của người dùng) CHỈ hiển thị các
       // dòng Notification có user_id NULL (broadcast toàn hệ thống) hoặc
       // đúng chuỗi "admin" (broadcast tới quản trị viên) - nó không tra theo
-      // user_id thật của từng người. Trước đây "Toàn bộ Quản trị viên" ghi 1
-      // dòng riêng cho MỖI id admin thật, và "Gửi đích danh" ghi 1 dòng với
-      // user_id là id thật của người nhận - cả 2 trường hợp này chuông không
-      // bao giờ đọc lại được, thông báo coi như gửi vào hư không dù DB ghi
-      // thành công. Sửa lại đúng theo quy ước đã có sẵn trong notifyUser.js:
-      // "admins" luôn dùng đúng 1 dòng sentinel user_id="admin"; "specific"
-      // gửi thẳng vào khung chat CSKH của người đó (notifyUser tự định tuyến).
+      // user_id thật của từng người, nên tab này CHỈ còn phát broadcast thật
+      // (2 lựa chọn dưới đây). Gửi riêng 1 hội viên đã chuyển hẳn sang
+      // "Tin nhắn CSKH" (subtab của Quản lý Hội viên & Giao dịch) - trước
+      // đây "Gửi đích danh" ở đây thực chất cũng chỉ tạo đúng 1 Message y
+      // hệt khung chat đó (xem notifyUser.js), nhưng lại KHÔNG hỗ trợ đính
+      // kèm ảnh/tệp như khung chat thật đang có, và trường "Loại thông báo"
+      // chọn ở form này cũng bị bỏ qua hoàn toàn cho đường gửi cá nhân -
+      // giữ lại chỉ gây nhầm lẫn admin tưởng 2 trường đó có tác dụng.
       if (targetType === "all") {
         created = await base44.entities.Notification.create({
           title: title.trim(),
@@ -188,13 +169,6 @@ export default function NotificationsTab() {
           created_date: new Date().toISOString(),
         });
         targetLabel = "toàn bộ Quản trị viên";
-      } else if (targetType === "specific" && selectedUser) {
-        created = await notifyUser(selectedUser.id, {
-          title: title.trim(),
-          content: content.trim(),
-          type: notifType,
-        });
-        targetLabel = `hội viên ${selectedUser.full_name || selectedUser.email} (qua khung chat CSKH)`;
       }
 
       // Trigger local storage event for instant notification bell sync across open tabs
@@ -212,8 +186,6 @@ export default function NotificationsTab() {
       setImageUrl("");
       setImageFile(null);
       setImagePreview("");
-      setSelectedUser(null);
-      setUserSearch("");
       setTargetType("all");
       setNotifType("admin");
       setShowForm(false);
@@ -523,10 +495,10 @@ export default function NotificationsTab() {
                   <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
                     <Users className="w-3.5 h-3.5 text-[#948154]" /> Đối tượng nhận thông báo:
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => { setTargetType("all"); setSelectedUser(null); }}
+                      onClick={() => setTargetType("all")}
                       className={`p-2.5 rounded-xl border text-[11px] font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                         targetType === "all"
                           ? "bg-[#948154] text-white border-[#948154] shadow-xs"
@@ -539,20 +511,7 @@ export default function NotificationsTab() {
 
                     <button
                       type="button"
-                      onClick={() => setTargetType("specific")}
-                      className={`p-2.5 rounded-xl border text-[11px] font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
-                        targetType === "specific"
-                          ? "bg-[#948154] text-white border-[#948154] shadow-xs"
-                          : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-                      }`}
-                    >
-                      <User className="w-4 h-4" />
-                      <span>Gửi từng Cá nhân</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => { setTargetType("admins"); setSelectedUser(null); }}
+                      onClick={() => setTargetType("admins")}
                       className={`p-2.5 rounded-xl border text-[11px] font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                         targetType === "admins"
                           ? "bg-[#948154] text-white border-[#948154] shadow-xs"
@@ -563,83 +522,16 @@ export default function NotificationsTab() {
                       <span>Chỉ Ban Quản Trị</span>
                     </button>
                   </div>
+                  {/* "Gửi từng Cá nhân" đã bỏ khỏi form này - nó vốn chỉ tạo
+                      đúng 1 tin nhắn trong khung chat CSKH (xem notifyUser.js)
+                      nhưng không hỗ trợ đính kèm ảnh/tệp như khung chat thật,
+                      và "Loại thông báo" chọn bên dưới cũng bị bỏ qua hoàn
+                      toàn cho đường gửi đó - giữ 2 tính năng cùng làm 1 việc
+                      chỉ gây nhầm lẫn. */}
+                  <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                    <User className="w-3 h-3" /> Muốn nhắn riêng 1 hội viên? Dùng <b>Tin nhắn CSKH</b> (tab Hội viên &amp; Giao dịch) - hỗ trợ đính kèm ảnh/tệp đầy đủ.
+                  </p>
                 </div>
-
-                {/* 1.1 Specific User Search & Selector (when targetType === 'specific') */}
-                {targetType === "specific" && (
-                  <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-200 space-y-2">
-                    <label className="text-[11px] font-bold text-blue-950 flex items-center justify-between">
-                      <span>Chọn hội viên nhận thông báo đích danh:</span>
-                      {selectedUser && (
-                        <span className="text-emerald-700 text-[10px] font-bold flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Đã chọn
-                        </span>
-                      )}
-                    </label>
-
-                    {/* Search box for users */}
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        value={userSearch}
-                        onChange={(e) => setUserSearch(e.target.value)}
-                        placeholder="Tìm hội viên theo Tên, Email, SĐT hoặc ID..."
-                        className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white border border-blue-200 text-[11.5px] focus:outline-none focus:border-[#948154]"
-                      />
-                    </div>
-
-                    {/* Selected user card or list of selectable users */}
-                    {selectedUser ? (
-                      <div className="p-2 bg-white rounded-xl border border-emerald-300 flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="w-8 h-8 rounded-full bg-[#948154] text-white font-bold flex items-center justify-center text-[11px] shrink-0">
-                            {(selectedUser.full_name || selectedUser.email || "U").charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[11.5px] font-bold text-black truncate">
-                              {selectedUser.full_name || "Chưa đặt tên"}
-                            </p>
-                            <p className="text-[9.5px] text-gray-500 truncate">{selectedUser.email || selectedUser.phone}</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUser(null)}
-                          className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-[10px] font-bold"
-                        >
-                          Đổi người khác
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="max-h-36 overflow-y-auto space-y-1 bg-white p-1.5 rounded-xl border border-gray-200">
-                        {filteredTargetUsers.length === 0 ? (
-                          <p className="text-center py-2 text-[10.5px] text-gray-400">Không tìm thấy hội viên nào</p>
-                        ) : (
-                          filteredTargetUsers.map((u) => (
-                            <button
-                              key={u.id || u.email}
-                              type="button"
-                              onClick={() => setSelectedUser(u)}
-                              className="w-full p-1.5 rounded-lg hover:bg-blue-50 flex items-center justify-between text-left transition-colors cursor-pointer"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-[9px] shrink-0">
-                                  {(u.full_name || u.email || "U").charAt(0).toUpperCase()}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-black truncate">{u.full_name || u.email}</p>
-                                  <p className="text-[9px] text-gray-400 truncate">{u.email || u.phone || u.id}</p>
-                                </div>
-                              </div>
-                              <span className="text-[9.5px] text-blue-600 font-bold shrink-0 ml-1">Chọn ➔</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* 2. Notification Type Selection */}
                 <div className="space-y-1.5">
@@ -744,7 +636,7 @@ export default function NotificationsTab() {
                   <div className="bg-white rounded-xl p-3 shadow-xs border border-gray-200/80 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-[#948154] border border-amber-200">
-                        {targetType === "all" ? "TOÀN HỆ THỐNG" : targetType === "admins" ? "BAN QUẢN TRỊ" : `CÁ NHÂN: ${selectedUser?.full_name || "Hội viên"}`}
+                        {targetType === "all" ? "TOÀN HỆ THỐNG" : "BAN QUẢN TRỊ"}
                       </span>
                       <span className="text-[8px] text-gray-400">Vừa xong</span>
                     </div>

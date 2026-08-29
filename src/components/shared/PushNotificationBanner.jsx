@@ -126,8 +126,11 @@ export default function PushNotificationBanner() {
         for (const n of list) {
           if (!seenIdsRef.current.has(n.id)) {
             seenIdsRef.current.add(n.id);
-            // Check if notification is for this user or global
-            if (!n.user_id || n.user_id === user.id) {
+            // Check if notification is for this user, global, hoặc broadcast
+            // riêng cho admin (khớp đúng bộ lọc NotificationBell.jsx đang
+            // dùng - trước đây thiếu nhánh "admin" nên toast không bao giờ
+            // nổ cho thông báo admin-only, dù chuông vẫn hiện đúng).
+            if (!n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin")) {
               triggerPushAlert({
                 id: n.id,
                 title: n.title,

@@ -52,17 +52,19 @@ export default function ResortSection() {
   useEffect(() => {
     const processItems = (all) => {
       if (!Array.isArray(all)) return;
-      const resortList = all.filter(
-        (p) => p.category === "Nghỉ dưỡng" || p.category === "Đầu tư nghỉ dưỡng" || (p.title || p.name || "").toLowerCase().includes("vinpearl") || (p.category || "").toLowerCase().includes("resort")
-      );
+      // Lọc CHỈ theo category - tránh lọt nhầm cổ phiếu "Vinpearl (VPL)".
+      const resortList = all.filter((p) => (p.category || "").trim() === "Đầu tư nghỉ dưỡng");
       if (resortList.length > 0) {
         setResorts(
           resortList.map((p) => ({
             ...p,
             name: p.title || p.name,
-            price: p.priceStr || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫` : "2.5 tỷ"),
+            // DepositModal đọc "minAmount" (camelCase) - cột Postgres thật
+            // là "min_amount", thiếu alias này số tiền tối thiểu đọc ra 0.
+            minAmount: p.minAmount ?? p.min_amount,
+            price: p.priceStr || p.price_str || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫` : "2.5 tỷ"),
             rate: p.rate || "0.025%/giờ",
-            tag: p.area || "Nghỉ dưỡng",
+            tag: p.tag || "Nghỉ dưỡng",
             is_active: p.is_active ?? true,
           }))
         );
@@ -95,7 +97,7 @@ export default function ResortSection() {
           <div className="w-[3px] h-4 bg-[#948154] rounded-full" />
           <h2 className="text-[13px] font-bold text-[#3a352e]">Đầu tư nghỉ dưỡng</h2>
         </div>
-        <Link to="/projects" className="flex items-center gap-0.5 text-[10px] text-[#948154] font-medium">
+        <Link to="/resort" className="flex items-center gap-0.5 text-[10px] text-[#948154] font-medium">
           Xem tất cả <ArrowRight className="w-3 h-3" />
         </Link>
       </div>

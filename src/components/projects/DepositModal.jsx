@@ -8,9 +8,14 @@ import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import ContractDocument from "@/components/projects/ContractDocument";
 import SignaturePicker from "@/components/signature/SignaturePicker";
+import {
+  TERM_RATE_LABEL,
+  getProjectTermUnit,
+  getProjectTermDurationDisplayValue,
+  calculateExpectedInterest,
+} from "@/lib/investmentTerms";
 
 const parseAmount = (str) => parseInt(String(str).replace(/[^\d]/g, "")) || 0;
-const parseRate = (str) => parseFloat(String(str).replace(/[^\d.]/g, "")) || 0;
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
 const steps = ["Số tiền", "Thanh toán", "Hợp đồng", "Ký xác nhận"];
@@ -19,29 +24,18 @@ export default function DepositModal({ project, onClose }) {
   const navigate = useNavigate();
 
   const min = useMemo(() => parseAmount(project?.minAmount), [project]);
-  const rate = useMemo(() => parseRate(project?.rate), [project]);
-  
-  const isMinute = useMemo(
-    () => project?.category === "Dự Án" || String(project?.rate || "").includes("phút") || String(project?.duration || "").includes("phút"),
-    [project]
-  );
-  const isHourly = useMemo(
-    () => !isMinute && (project?.category === "Đầu tư nghỉ dưỡng" || project?.category === "Nghỉ dưỡng" || String(project?.rate || "").includes("giờ") || String(project?.title || "").includes("Vinpearl")),
-    [project]
-  );
-  const isDaily = useMemo(
-    () => !isMinute && !isHourly,
-    [project]
-  );
+  // Lãi suất TOÀN KỲ (%) - áp 1 lần cho toàn bộ kỳ hạn, không còn là lãi
+  // suất theo phút/giờ/ngày phải nhân thêm với số đơn vị kỳ hạn.
+  const totalTermInterestRate = useMemo(() => Number(project?.total_term_interest_rate) || 0, [project]);
 
-  const durationVal = useMemo(() => {
-    const dStr = String(project?.duration || "");
-    const parsed = parseInt(dStr.replace(/[^\d]/g, "")) || 0;
-    if (parsed > 0) return parsed;
-    if (isMinute) return 60;
-    if (isHourly) return 24;
-    return 30;
-  }, [project, isMinute, isHourly]);
+  const termUnit = useMemo(() => getProjectTermUnit(project), [project]);
+  const isMinute = termUnit === "phút";
+  const isHourly = termUnit === "giờ";
+  const isDaily = termUnit === "ngày";
+
+  // Chỉ dùng để HIỂN THỊ "Kỳ hạn: X giờ/ngày/phút" và lưu snapshot lịch sử
+  // trên hợp đồng - không còn dùng để tính lãi (xem calculateExpectedInterest).
+  const durationVal = useMemo(() => getProjectTermDurationDisplayValue(project), [project]);
 
   const days = useMemo(() => (isDaily ? durationVal : Math.round(durationVal / 1440) || 1), [isDaily, durationVal]);
   const hours = useMemo(() => (isHourly ? durationVal : Math.round(durationVal / 60) || 1), [isHourly, durationVal]);
@@ -125,9 +119,12 @@ export default function DepositModal({ project, onClose }) {
     { id: "qr", label: "Chuyển khoản QR", desc: "Vietcombank · Techcombank", icon: QrCode },
   ];
 
+  // Refactor calculateExpectedInterest(): render real-time mỗi khi amount
+  // đổi (kể cả qua 3 nút Tối thiểu 1x/Gấp đôi 2x/Gấp năm 5x, vì chúng chỉ
+  // setAmount rồi useMemo này tự tính lại).
   const profit = useMemo(
-    () => Math.round(amount * (rate / 100) * durationVal),
-    [amount, rate, durationVal]
+    () => calculateExpectedInterest(amount, totalTermInterestRate),
+    [amount, totalTermInterestRate]
   );
   const total = amount + profit;
   const valid = amount >= min && amount > 0;
@@ -193,11 +190,16 @@ export default function DepositModal({ project, onClose }) {
       await base44.entities.Transaction.create({
         user_id: user?.id,
         user_email: user?.email,
+        project_id: project.id,
         project_title: project.title,
         project_name: project.title,
         amount,
         method: selectedMethod.label,
-        rate,
+        // rate/profit/total/matures_at gửi lên chỉ mang tính tham khảo -
+        // trigger compute_transaction_interest() ở Postgres LUÔN tính lại
+        // từ investment_projects.total_term_interest_rate theo project_id,
+        // client không còn khả năng tự khai lãi suất/lãi dự kiến sai lệch.
+        rate: totalTermInterestRate,
         duration_days: days,
         profit,
         total,
@@ -405,10 +407,8 @@ export default function DepositModal({ project, onClose }) {
                     >
                       <div className="flex justify-between text-[11px]">
                         <div>
-                          <span className="text-gray-500">
-                            {isMinute ? "Lãi suất theo phút: " : isHourly ? "Lãi suất theo giờ: " : "Lãi suất theo ngày: "}
-                          </span>
-                          <span className="font-bold text-[#D32F2F]">{project?.rate || `${rate}%`}</span>
+                          <span className="text-gray-500">{TERM_RATE_LABEL}: </span>
+                          <span className="font-bold text-[#D32F2F]">{totalTermInterestRate}%</span>
                         </div>
                         <div>
                           <span className="text-gray-500">Kỳ hạn: </span>
@@ -455,13 +455,7 @@ export default function DepositModal({ project, onClose }) {
                       <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 space-y-1">
                         <p className="text-[9px] font-bold tracking-wider text-gray-400 uppercase">DỰ TÍNH SINH LỜI SẢN PHẨM</p>
                         <div className="flex justify-between text-[11px]">
-                          <span className="text-gray-500">
-                            {isMinute
-                              ? `Lãi dự kiến (${durationVal} phút):`
-                              : isHourly
-                              ? `Lãi dự kiến (${durationVal} giờ):`
-                              : `Lãi dự kiến (${durationVal} ngày):`}
-                          </span>
+                          <span className="text-gray-500">Lãi dự kiến (toàn kỳ):</span>
                           <span className="font-bold text-[#D32F2F] font-mono">{fmt(profit)} VNĐ</span>
                         </div>
                         <div className="flex justify-between text-[11px]">
@@ -522,7 +516,7 @@ export default function DepositModal({ project, onClose }) {
                         project={project}
                         amount={amount}
                         method={selectedMethod.label}
-                        rate={rate}
+                        rate={totalTermInterestRate}
                         days={days}
                         hours={hours}
                         isMinute={isMinute}

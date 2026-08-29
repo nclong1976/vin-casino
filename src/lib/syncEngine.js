@@ -147,6 +147,14 @@ export async function hydrateUserOnNewDevice(authUser) {
       name: dbUser?.name || dbUser?.full_name || matchedSupa?.name || matchedSupa?.full_name || rtdbUser?.name || authUser.name || authUser.full_name || "Hội viên VinClub",
       full_name: dbUser?.full_name || dbUser?.name || matchedSupa?.full_name || matchedSupa?.name || rtdbUser?.full_name || authUser.full_name || authUser.name || "Hội viên VinClub",
       phone: dbUser?.phone || matchedSupa?.phone || rtdbUser?.phone || authUser.phone || "",
+      id_card_number: dbUser?.id_card_number || matchedSupa?.id_card_number || rtdbUser?.id_card_number || "",
+      // authUser.identifier (tên đăng nhập gốc, từ user_metadata lúc đăng ký)
+      // ưu tiên trước - cột users.identifier trên Postgres ở một số tài
+      // khoản đang bị ghi nhầm thành email tổng hợp (xem normalizeIdentifier
+      // ToAuthEmail) thay vì tên đăng nhập gốc người dùng đã nhập. Không đặt
+      // field này trong khối override thì spread ...(dbUser||{}) phía trên sẽ
+      // âm thầm ghi đè giá trị đúng của authUser bằng giá trị sai đó.
+      identifier: authUser.identifier || dbUser?.identifier || matchedSupa?.identifier || rtdbUser?.identifier || "",
       balance: finalBalance,
       total_deposited: finalTotalDeposited,
       balance_version: finalBalanceVersion,

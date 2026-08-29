@@ -139,20 +139,27 @@ export default function LandInvestment() {
   useEffect(() => {
     const processItems = (all) => {
       if (!Array.isArray(all)) return;
-      const landList = all.filter(
-        (p) => p.category === "Đất nền" || p.category === "VinHomes" || (p.title || p.name || "").toLowerCase().includes("vinhomes") || (p.category || "").toLowerCase().includes("bất động sản")
-      );
+      // Lọc CHỈ theo category (không dò theo tiêu đề chứa "vinhomes" nữa -
+      // trước đây khiến cổ phiếu "Quỹ Cổ Phiếu Vinhomes (VHM)" bị lọt vào
+      // danh sách bất động sản chỉ vì tên công ty trùng chữ "Vinhomes").
+      const landList = all.filter((p) => (p.category || "").trim() === "VinHomes");
       if (landList.length > 0) {
         setProperties(
           landList.map((p) => ({
             ...p,
             name: p.title || p.name,
+            // DepositModal đọc "minAmount" (camelCase) trong khi cột Postgres
+            // là "min_amount" - thiếu alias này khiến số tiền tối thiểu luôn
+            // đọc ra 0, vô hiệu hoá validate + làm nút 1x/2x/5x ra 0 VNĐ.
+            minAmount: p.minAmount ?? p.min_amount,
             pricePerM2: p.price_per_m2 || 35000000,
-            priceStr: p.priceStr || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫/m²` : "35 triệu/m²"),
+            priceStr: p.priceStr || p.price_str || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫/m²` : "35 triệu/m²"),
             rateNum: parseFloat(String(p.rate || "12").replace(/[^\d.]/g, "")) || 12,
-            legalStatus: "Sổ hồng chính chủ - Bảo lãnh 100%",
-            growthHistory: "+18.5% (3 năm qua)",
-            monthlyTransactions: "142 giao dịch/tháng"
+            // Đọc đúng dữ liệu riêng của từng dự án (admin sửa qua ProjectsTab) -
+            // trước đây 3 trường này bị gán cứng 1 chuỗi tĩnh cho MỌI dự án.
+            legalStatus: p.legal_status || "Đang cập nhật pháp lý",
+            growthHistory: p.growth_history || "Đang cập nhật",
+            monthlyTransactions: p.monthly_transactions || "Đang cập nhật"
           }))
         );
       }

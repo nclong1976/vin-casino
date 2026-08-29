@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Volume2, VolumeX, ChevronRight, LogIn, UserPlus } from "lucide-react";
 
 export default function WelcomeIntroPlayer({ onFinish }) {
@@ -85,7 +85,6 @@ export default function WelcomeIntroPlayer({ onFinish }) {
         autoPlay
         muted={isMuted}
         playsInline
-        webkit-playsinline="true"
         onEnded={() => handleComplete("/login")}
         onError={() => handleComplete("/login")}
       />

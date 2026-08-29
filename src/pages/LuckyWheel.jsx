@@ -3,24 +3,28 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Gift, RotateCcw, Sparkles, HelpCircle, Wallet } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
-import { base44 } from "@/api/base44Client";
-import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
+import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
+import { spinLuckyWheel } from "@/lib/supabaseDb";
 
+// Bảng màu hiển thị vòng quay - PHẢI cùng thứ tự với danh sách phần thưởng
+// trong RPC spin_lucky_wheel() ở server (xem migration
+// xitobala_luckywheel_server_side) vì server mới là nơi CHỌN phần thưởng.
 const PRIZES = [
-  { label: "100K VNĐ", color: "#948154", weight: 30 },
-  { label: "500K VNĐ", color: "#3B82F6", weight: 15 },
-  { label: "Chúc may", color: "#94A3B8", weight: 25 },
-  { label: "1M VNĐ", color: "#10B981", weight: 8 },
-  { label: "50K VNĐ", color: "#F59E0B", weight: 15 },
-  { label: "5M VNĐ", color: "#EF4444", weight: 7 },
+  { label: "100K VNĐ", color: "#948154" },
+  { label: "500K VNĐ", color: "#3B82F6" },
+  { label: "Chúc may", color: "#94A3B8" },
+  { label: "1M VNĐ", color: "#10B981" },
+  { label: "50K VNĐ", color: "#F59E0B" },
+  { label: "5M VNĐ", color: "#EF4444" },
 ];
 
 const SEGMENT_ANGLE = 360 / PRIZES.length;
 
 export default function LuckyWheel() {
   const { user } = useAuth();
+  const { isMaintenance, maintenanceMessage } = useCasinoMaintenance("lucky-wheel");
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState(null);
@@ -86,67 +90,42 @@ export default function LuckyWheel() {
     loadUserDataAndSpins();
   }, [loadUserDataAndSpins]);
 
-  const spin = () => {
+  // Quay HOÀN TOÀN trên server (RPC spin_lucky_wheel) - server tự xác thực
+  // số lượt quay còn lại (từ tiền nạp thật trong ngày + bộ đếm server, không
+  // còn tin bộ đếm localStorage) và tự chọn phần thưởng bằng random số máy
+  // chủ, cộng tiền nguyên tử nếu trúng. Trước đây phần thưởng được CHỌN Ở
+  // CLIENT rồi tự gọi RPC cộng tiền với số tiền tự chọn - ai đó gọi thẳng
+  // RPC cộng tiền qua devtools có thể tự thưởng 5.000.000đ không giới hạn số
+  // lần, không cần nạp tiền/quay gì cả.
+  const spin = async () => {
     if (spinning || spinsLeft <= 0 || !user) return;
     setSpinning(true);
     setResult(null);
 
-    const totalWeight = PRIZES.reduce((s, p) => s + p.weight, 0);
-    let rand = Math.random() * totalWeight;
-    let prizeIndex = 0;
-    for (let i = 0; i < PRIZES.length; i++) {
-      rand -= PRIZES[i].weight;
-      if (rand <= 0) { prizeIndex = i; break; }
+    const data = await spinLuckyWheel();
+    if (!data || data.error) {
+      setSpinning(false);
+      toast.error(data?.error?.includes("no spins left") ? "Bạn đã dùng hết lượt quay hôm nay!" : "Không thể quay lúc này, vui lòng thử lại!");
+      loadUserDataAndSpins();
+      return;
     }
 
+    const prizeIndex = Math.max(0, PRIZES.findIndex((p) => p.label === data.prize_label));
     const targetAngle = 360 * 5 + (360 - (prizeIndex * SEGMENT_ANGLE + SEGMENT_ANGLE / 2));
-    setRotation(rotation + targetAngle);
+    setRotation((prev) => prev + targetAngle);
 
-    const todayStr = new Date().toISOString().split("T")[0];
-    const storageKey = `vinclub_wheel_spins_used_${todayStr}_${user.id}`;
-    const used = parseInt(localStorage.getItem(storageKey) || "0") || 0;
-    const newUsed = used + 1;
-    localStorage.setItem(storageKey, String(newUsed));
-
-    const newLeft = Math.max(0, earnedSpins - newUsed);
-    setSpinsLeft(newLeft);
-
-    setTimeout(async () => {
+    setTimeout(() => {
       setSpinning(false);
-      const prizeWon = PRIZES[prizeIndex];
-      setResult(prizeWon);
-      if (prizeWon.label === "Chúc may") {
-        toast.info("Chúc bạn may mắn lần sau!");
+      setResult(PRIZES[prizeIndex]);
+      setSpinsLeft(data.spins_left);
+      setEarnedSpins(data.earned_spins);
+      setTodayDeposit(data.today_deposit);
+
+      if (data.prize_amount > 0) {
+        window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+        toast.success(`Chúc mừng! Bạn nhận được ${data.prize_label}`);
       } else {
-        let prizeAmt = 0;
-        if (prizeWon.label.includes("50K")) prizeAmt = 50000;
-        else if (prizeWon.label.includes("100K")) prizeAmt = 100000;
-        else if (prizeWon.label.includes("500K")) prizeAmt = 500000;
-        else if (prizeWon.label.includes("1M")) prizeAmt = 1000000;
-        else if (prizeWon.label.includes("5M")) prizeAmt = 5000000;
-
-        // Xác nhận đã cộng tiền THẬT qua RPC nguyên tử trước khi báo thành
-        // công - trước đây báo "Chúc mừng, bạn nhận được..." ngay lập tức
-        // rồi mới cộng tiền kiểu "bắn rồi quên", nên nếu RPC lỗi, người
-        // chơi vẫn thấy thông báo trúng thưởng dù tiền chưa hề vào ví.
-        if (prizeAmt > 0 && user?.id) {
-          const result = await adjustUserBalanceStrict(user.id, prizeAmt, prizeAmt);
-          if (!result) {
-            toast.error("Không thể cộng tiền thưởng, vui lòng liên hệ CSKH để được hỗ trợ!");
-            return;
-          }
-
-          toast.success(`Chúc mừng! Bạn nhận được ${prizeWon.label}`);
-
-          base44.entities.WalletTransaction.create({
-            user_id: user.id,
-            type: "deposit",
-            amount: prizeAmt,
-            note: `Trúng thưởng ${prizeWon.label} từ Vòng Quay May Mắn`,
-            category: "Thưởng Vòng Quay",
-            status: "approved",
-          }).catch(() => null);
-        }
+        toast.info("Chúc bạn may mắn lần sau!");
       }
     }, 4000);
   };
@@ -300,6 +279,14 @@ export default function LuckyWheel() {
         </div>
       </div>
       <BottomNav />
+
+      {isMaintenance && (
+        <BankingDowntimeScreen
+          message={maintenanceMessage}
+          gameTitle="VÒNG QUAY MAY MẮN"
+          onRetry={() => window.location.reload()}
+        />
+      )}
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Home, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, Home, ShieldCheck } from "lucide-react";
 import cskhIcon from "@/assets/images/regenerated_image_1786328347646.png";
 
 export default function SupportHeader() {

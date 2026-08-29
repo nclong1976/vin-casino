@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Users, MessageSquare, ArrowRightLeft, Sparkles, UserCheck, Clock, ShieldCheck } from "lucide-react";
+import { Users, MessageSquare, ArrowRightLeft, FileSignature } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import UsersTab from "@/components/admin/UsersTab";
 import MessagesTab from "@/components/admin/MessagesTab";
 import TransactionsTab from "@/components/admin/TransactionsTab";
+import ContractsTab from "@/components/admin/ContractsTab";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import { base44 } from "@/api/base44Client";
 
 export default function MemberHubTab({ initialSubTab = "users" }) {
-  const [subTab, setSubTab] = useState(initialSubTab); // 'users' | 'messages' | 'transactions'
+  const [subTab, setSubTab] = useState(initialSubTab); // 'users' | 'messages' | 'transactions' | 'contracts'
 
   // Cross-navigation states
   const [chatTargetUserId, setChatTargetUserId] = useState(null);
@@ -18,17 +19,23 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
   const [unreadMsgCount, setUnreadMsgCount] = useState(0);
   const [pendingTxCount, setPendingTxCount] = useState(0);
   const [totalUsersCount, setTotalUsersCount] = useState(0);
+  const [pendingContractsCount, setPendingContractsCount] = useState(0);
 
   const fetchHubStats = () => {
     Promise.all([
       base44.entities.Message.list("-created_date", 200).catch(() => []),
       base44.entities.WalletTransaction.filter({ status: "pending" }, "-created_date", 200).catch(() => []),
       base44.entities.User.list().catch(() => []),
-    ]).then(([msgs, pendingTxs, users]) => {
+      // "Hợp đồng" trước đây là tab riêng ở Admin.jsx (đọc Transaction có
+      // chữ ký) - giờ gộp làm subtab thứ 4 tại đây, cần đếm số hợp đồng
+      // đang chờ duyệt để hiện badge y hệt cách 3 subtab kia đang làm.
+      base44.entities.Transaction.filter({ signature_content: { $exists: true } }, "-created_date", 100).catch(() => []),
+    ]).then(([msgs, pendingTxs, users, signedTxs]) => {
       const unread = (msgs || []).filter((m) => m.sender === "user" && !m.is_read).length;
       setUnreadMsgCount(unread);
       setPendingTxCount((pendingTxs || []).length);
       setTotalUsersCount((users || []).length);
+      setPendingContractsCount((signedTxs || []).filter((t) => (t.contract_status || "pending") === "pending").length);
     });
   };
 
@@ -82,7 +89,7 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
     <div className="space-y-3.5">
       {/* ── Sub-Navigation Master Hub Switcher ── */}
       <div className="bg-white rounded-2xl p-1.5 border border-gray-200/90 shadow-xs">
-        <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
+        <div className="grid grid-cols-4 gap-1 sm:gap-1.5">
           {/* SubTab 1: Hội viên */}
           <button
             onClick={() => { setSubTab("users"); }}
@@ -165,6 +172,33 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
               )}
             </span>
           </button>
+
+          {/* SubTab 4: Hợp đồng - gộp từ tab "Hợp đồng" cấp cao nhất cũ vì
+              cùng bản chất "hàng chờ duyệt" như Phê duyệt Giao dịch, chỉ
+              khác đối tượng (Transaction có chữ ký, không phải WalletTransaction). */}
+          <button
+            onClick={() => { setSubTab("contracts"); }}
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 rounded-xl text-[12px] font-bold transition-all cursor-pointer relative ${
+              subTab === "contracts" ? "text-white" : "text-gray-600 hover:bg-gray-100 hover:text-black"
+            }`}
+          >
+            {subTab === "contracts" && (
+              <motion.span
+                layoutId="member-hub-subtab-active-bg"
+                className="absolute inset-0 bg-[#948154] rounded-xl shadow-xs"
+                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2">
+              <FileSignature className="w-4 h-4 shrink-0" />
+              <span className="truncate">Hợp đồng</span>
+              {pendingContractsCount > 0 && (
+                <span className="min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center shrink-0">
+                  {pendingContractsCount}
+                </span>
+              )}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -198,6 +232,8 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
                   onNavigateToChat={handleNavigateToChat}
                 />
               )}
+
+              {subTab === "contracts" && <ContractsTab />}
             </motion.div>
           </AnimatePresence>
         </AdminErrorBoundary>

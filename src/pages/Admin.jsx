@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   Users,
-  FileCheck,
   FolderOpen,
   ArrowLeft,
   Bell,
   TrendingUp,
   Dices,
   LogOut,
-  Sparkles,
   Newspaper
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
@@ -19,19 +17,19 @@ import { useAuth } from "@/lib/AuthContext";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
-import ContractsTab from "@/components/admin/ContractsTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
 import StocksTab from "@/components/admin/StocksTab";
 import CasinoTab from "@/components/admin/CasinoTab";
 import NewsTab from "@/components/admin/NewsTab";
 
+// "Hợp đồng" đã gộp vào subtab thứ 4 của "Quản lý Hội viên & Giao dịch"
+// (MemberHubTab) - cùng bản chất "hàng chờ duyệt" như subtab Phê duyệt
+// Giao dịch, tách tab riêng chỉ gây phân mảnh điều hướng không cần thiết.
 const TABS = [
-  { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
   { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
   { id: "stocks", label: "Đầu tư chứng khoán", icon: TrendingUp },
   { id: "casino", label: "Quản lý Casino", icon: Dices },
-  { id: "contracts", label: "Hợp đồng", icon: FileCheck },
   { id: "projects", label: "Dự án", icon: FolderOpen },
   { id: "news", label: "Tin tức", icon: Newspaper },
   { id: "notifications", label: "Thông báo", icon: Bell },
@@ -40,8 +38,16 @@ const TABS = [
 export default function Admin() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("member_hub");
   const [stats, setStats] = useState({});
+  // "Tổng quan" không còn là tab riêng - gộp thành dải số liệu gọn có thể
+  // thu/mở phía trên thanh tab, mặc định thu gọn để không chiếm chỗ trên
+  // mọi tab.
+  const [showOverview, setShowOverview] = useState(false);
+  // "Đi tới Dự án" từ tab Chứng khoán mở đúng luôn bộ lọc STOCKS thay vì
+  // bắt admin tự bấm lại - reset về "ALL" mỗi lần set để lần bấm sau (từ
+  // 1 nơi khác, nếu có) không vô tình kẹt lại filter cũ.
+  const [projectsInitialFilter, setProjectsInitialFilter] = useState("ALL");
 
   const fetchStats = () => {
     Promise.all([
@@ -58,11 +64,15 @@ export default function Admin() {
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
       const pendingDepositsCount = dTxs.filter((t) => (t.status || "pending") === "pending").length;
       const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.is_read).length;
-      const totalPendingHub = pendingWithdrawalsCount + pendingDepositsCount + unreadMessagesCount;
+      const pendingContractsCount = signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length;
+      // "Hợp đồng" giờ là subtab của "Quản lý Hội viên & Giao dịch" - gộp
+      // luôn vào tổng badge của tab đó thay vì có badge riêng ở 1 tab đã
+      // không còn tồn tại.
+      const totalPendingHub = pendingWithdrawalsCount + pendingDepositsCount + unreadMessagesCount + pendingContractsCount;
 
       setStats({
         users: users.length,
-        pendingContracts: signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length,
+        pendingContracts: pendingContractsCount,
         pendingWithdrawals: pendingWithdrawalsCount,
         pendingDeposits: pendingDepositsCount,
         pendingTransactions: pendingWithdrawalsCount + pendingDepositsCount,
@@ -161,14 +171,39 @@ export default function Admin() {
                     {stats.totalPendingHub}
                   </span>
                 )}
-                {t.id === "contracts" && stats.pendingContracts > 0 && (
-                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold">
-                    {stats.pendingContracts}
-                  </span>
-                )}
               </span>
             </button>
           ))}
+        </div>
+
+        {/* "Tổng quan" không còn là tab riêng - dải số liệu này thu/mở
+            được, hiện ở mọi tab thay vì phải bấm sang 1 tab tách biệt chỉ
+            để xem số liệu (tab đó vốn không có thao tác quản trị nào). */}
+        <div className="max-w-4xl mx-auto px-4 pb-2">
+          <button
+            onClick={() => setShowOverview((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-500 text-[11px] font-medium transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5">
+              <LayoutDashboard className="w-3.5 h-3.5" /> Tổng quan hệ thống
+            </span>
+            <span className="text-[10px]">{showOverview ? "Thu gọn ▴" : "Xem số liệu ▾"}</span>
+          </button>
+          <AnimatePresence>
+            {showOverview && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="overflow-hidden"
+              >
+                <div className="pt-2 max-h-[70vh] overflow-y-auto">
+                  <OverviewTab stats={stats} />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
@@ -185,12 +220,17 @@ export default function Admin() {
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
             >
-              {tab === "overview" && <OverviewTab stats={stats} />}
               {tab === "member_hub" && <MemberHubTab />}
-              {tab === "stocks" && <StocksTab />}
+              {tab === "stocks" && (
+                <StocksTab
+                  onNavigateToProjects={() => {
+                    setProjectsInitialFilter("STOCKS");
+                    setTab("projects");
+                  }}
+                />
+              )}
               {tab === "casino" && <CasinoTab />}
-              {tab === "contracts" && <ContractsTab />}
-              {tab === "projects" && <ProjectsTab />}
+              {tab === "projects" && <ProjectsTab initialCategoryFilter={projectsInitialFilter} />}
               {tab === "news" && <NewsTab />}
               {tab === "notifications" && <NotificationsTab />}
             </motion.div>

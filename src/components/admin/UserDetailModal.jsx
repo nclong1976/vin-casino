@@ -7,13 +7,11 @@ import {
   Wallet,
   Building2,
   FileCheck,
-  History,
   Crown,
   Lock,
   Unlock,
   Check,
   Trash2,
-  AlertTriangle,
   Calendar,
   Phone,
   Mail,
@@ -26,7 +24,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { getFreshUserBalance, setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
+import { setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
 import { normalizeWalletTransaction } from "@/lib/transactionHistory";
 import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
@@ -57,6 +55,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   // Editable user fields
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [idCardNumber, setIdCardNumber] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [role, setRole] = useState("user");
@@ -78,6 +77,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
     if (open && user) {
       setFullName(user.full_name || user.name || "");
       setPhone(user.phone || "");
+      setIdCardNumber(user.id_card_number || "");
       setIdentifier(user.identifier || user.username || user.phone || user.email || "");
       setReferralCode(user.referral_code || "");
       setRole(user.role || "user");
@@ -183,6 +183,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
         full_name: fullName,
         name: fullName,
         phone: phone,
+        id_card_number: idCardNumber,
         identifier: identifier,
         referral_code: referralCode,
         role: role,
@@ -501,6 +502,17 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                     </div>
                   </div>
 
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-600 block mb-1">Số CCCD/Hộ chiếu (đầy đủ - chỉ Admin xem được)</label>
+                    <input
+                      type="text"
+                      value={idCardNumber}
+                      onChange={(e) => setIdCardNumber(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
+                      placeholder="Chưa cập nhật"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[12px] font-mono font-semibold focus:outline-none focus:border-[#948154]"
+                    />
+                  </div>
+
                   {/* Financial Balance Modification */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -600,6 +612,11 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   <div className="flex items-center justify-between pb-2 border-b border-gray-200">
                     <span className="text-gray-500 flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> Số điện thoại</span>
                     <span className="font-mono font-semibold text-black">{user.phone || phone || "Chưa cập nhật"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><CreditCard className="w-3.5 h-3.5" /> Số CCCD/Hộ chiếu</span>
+                    <span className="font-mono font-semibold text-black">{user.id_card_number || idCardNumber || "Chưa cập nhật"}</span>
                   </div>
 
                   <div className="flex items-center justify-between pb-2 border-b border-gray-200">

@@ -6,54 +6,64 @@ import StockCard from "@/components/stocks/StockCard";
 import TradeSheet from "@/components/stocks/TradeSheet";
 import BottomNav from "@/components/BottomNav";
 import MarketSearchBar from "@/components/shared/MarketSearchBar";
+import { base44 } from "@/api/base44Client";
 
-const DEFAULT_STOCKS = [
-  {
-    symbol: "VIC",
-    name: "Tập đoàn Vingroup",
-    price: "45.200",
-    change: 3.1,
-    spark: [42, 42.5, 41.8, 43, 44, 43.5, 44.8, 45.2],
-  },
-  {
-    symbol: "VHM",
-    name: "Vinhomes",
-    price: "42.800",
-    change: 2.4,
-    spark: [41, 41.2, 40.8, 41.5, 42, 41.8, 42.5, 42.8],
-  },
-  {
-    symbol: "VRE",
-    name: "Vincom Retail",
-    price: "18.350",
-    change: 1.6,
-    spark: [17.8, 17.9, 18, 17.95, 18.1, 18.2, 18.3, 18.35],
-  },
-  {
-    symbol: "VPL",
-    name: "Vinpearl",
-    price: "71.500",
-    change: 4.2,
-    spark: [67, 68, 67.5, 69, 70, 69.5, 71, 71.5],
-  },
-  {
-    symbol: "VFS",
-    name: "VinFast Auto (Nasdaq)",
-    price: "3.480",
-    change: -1.8,
-    spark: [3.7, 3.65, 3.6, 3.55, 3.5, 3.52, 3.48, 3.48],
-  },
+// Chỉ dùng khi bảng investment_projects chưa có mã cổ phiếu nào (vd lần
+// khởi tạo đầu tiên/mất kết nối) - KHÔNG còn là nguồn dữ liệu chính. Trước
+// đây trang này 100% hardcode, không hề đọc Supabase, nên StocksTab.jsx
+// bên Admin chỉnh sửa gì cũng không ảnh hưởng người dùng thật.
+const FALLBACK_STOCKS = [
+  { symbol: "VIC", name: "Tập đoàn Vingroup", price: "45.200", change: 3.1, spark: [42, 42.5, 41.8, 43, 44, 43.5, 44.8, 45.2] },
+  { symbol: "VHM", name: "Vinhomes", price: "42.800", change: 2.4, spark: [41, 41.2, 40.8, 41.5, 42, 41.8, 42.5, 42.8] },
 ];
+
+/** Sinh dãy điểm cho mini-chart (spark) ổn định theo giá+biến động hiện tại - không có cột lưu từng điểm biểu đồ trong DB. */
+function synthesizeSpark(price, changePercent) {
+  const end = Number(price) || 0;
+  const start = end / (1 + (Number(changePercent) || 0) / 100);
+  const points = [];
+  for (let i = 0; i < 8; i++) {
+    const t = i / 7;
+    const wobble = Math.sin(i * 1.7) * (end - start) * 0.08;
+    points.push(Number((start + (end - start) * t + wobble).toFixed(2)));
+  }
+  points[7] = end;
+  return points;
+}
+
+function mapProjectToStock(p) {
+  const symbolFallback = (p.title || p.name || "").match(/\(([^)]+)\)/)?.[1] || "CP";
+  const symbol = (p.stock_symbol || symbolFallback).toUpperCase();
+  const price = Math.round(Number(p.price_per_m2) || 0);
+  const change = Number(p.daily_change_percent) || 0;
+  return {
+    id: p.id,
+    symbol,
+    name: p.name || p.title || symbol,
+    price: price.toLocaleString("vi-VN"),
+    change,
+    spark: synthesizeSpark(price, change),
+  };
+}
+
+async function fetchStocks() {
+  const allProjects = await base44.entities.Project.list().catch(() => []);
+  const stockProjects = allProjects.filter(
+    (p) => p.is_active !== false && (p.category || "").trim() === "Đầu tư chứng khoán"
+  );
+  return stockProjects.length > 0 ? stockProjects.map(mapProjectToStock) : FALLBACK_STOCKS;
+}
 
 export default function Stocks() {
   const [selected, setSelected] = useState(null);
 
-  // Retrieve stock prices using TanStack Query
-  const { data: stocks = DEFAULT_STOCKS } = useQuery({
+  // Đọc trực tiếp danh sách cổ phiếu admin cấu hình trong StocksTab.jsx
+  // (đọc-nhanh khi mount, không polling liên tục vì giá không thay đổi
+  // ngẫu nhiên trong app demo này).
+  const { data: stocks = FALLBACK_STOCKS } = useQuery({
     queryKey: ["stocks"],
-    queryFn: async () => DEFAULT_STOCKS, // Fallback query function
-    staleTime: Infinity, // Rely on Socket.io push updates to setQueryData
-    initialData: DEFAULT_STOCKS,
+    queryFn: fetchStocks,
+    staleTime: 30_000,
   });
 
   return (
@@ -74,7 +84,7 @@ export default function Stocks() {
         </div>
 
         {stocks.map((stock, index) => (
-          <StockCard key={stock.symbol} stock={stock} index={index} onTrade={setSelected} />
+          <StockCard key={stock.id || stock.symbol} stock={stock} index={index} onTrade={setSelected} />
         ))}
 
         <p className="text-[9px] text-gray-600 text-center pt-2 leading-relaxed">

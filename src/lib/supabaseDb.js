@@ -196,11 +196,44 @@ export async function processWithdrawal(txId, action, reason = null) {
  * Trả về null nếu RPC lỗi - bên gọi phải tự xử lý (không được coi là "huề
  * cược", vì tiền cược đã bị trừ từ bước đặt cược riêng trước đó).
  */
-export async function resolveTigerBaccaratRound(gameSlug, bets) {
+/**
+ * Đăng ký + trừ tiền cược Tiger Baccarat/Baccarat Long Hổ HOÀN TOÀN trên
+ * server (RPC place_tiger_baccarat_bet) - trả về round_id để gọi
+ * resolveTigerBaccaratRound(roundId) sau đó. Server lưu lại CHÍNH XÁC số
+ * tiền đã trừ cho từng ô, resolve chỉ đọc lại giá trị đã lưu này chứ không
+ * còn nhận số tiền cược trực tiếp từ client nữa (trước đây client tự gửi
+ * số tiền cược sang thẳng resolve_tiger_baccarat_round mà không hề kiểm tra
+ * có khớp với số tiền THẬT đã bị trừ hay không - ai đó gọi thẳng RPC qua
+ * devtools với số cược khống có thể tự cộng tiền thắng mà không mất 1 đồng
+ * nào). Trả về null nếu RPC lỗi (vd. số dư không đủ, tài khoản bị khoá).
+ */
+export async function placeTigerBaccaratBet(gameSlug, bets) {
   try {
-    const { data, error } = await supabase.rpc('resolve_tiger_baccarat_round', {
+    const { data, error } = await supabase.rpc('place_tiger_baccarat_bet', {
       p_game_slug: gameSlug,
       p_bets: bets || {},
+    });
+    if (error) {
+      console.warn('[SupabaseDb] placeTigerBaccaratBet error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] placeTigerBaccaratBet exception:', e);
+    return null;
+  }
+}
+
+/**
+ * Chia bài + tính điểm + tính tiền thắng cho Tiger Baccarat/Baccarat Long
+ * Hổ HOÀN TOÀN trên server (RPC resolve_tiger_baccarat_round), đọc lại
+ * ĐÚNG số tiền cược đã đăng ký qua placeTigerBaccaratBet(roundId) ở trên -
+ * không còn nhận bets trực tiếp từ client. Trả về null nếu RPC lỗi.
+ */
+export async function resolveTigerBaccaratRound(roundId) {
+  try {
+    const { data, error } = await supabase.rpc('resolve_tiger_baccarat_round', {
+      p_round_id: roundId,
     });
     if (error) {
       console.warn('[SupabaseDb] resolveTigerBaccaratRound error:', error.message);
@@ -210,6 +243,112 @@ export async function resolveTigerBaccaratRound(gameSlug, bets) {
   } catch (e) {
     console.warn('[SupabaseDb] resolveTigerBaccaratRound exception:', e);
     return null;
+  }
+}
+
+/** Hoàn tiền 1 vòng cược của CHÍNH mình bị bỏ dở quá lâu (đóng tab giữa
+ * chừng) - đọc số tiền đã cược từ server (casino_rounds), KHÔNG tin số tiền
+ * từ localStorage như cơ chế reconcileStalePendingBets() cũ. */
+export async function reconcileMyStaleCasinoRound(gameSlug) {
+  try {
+    const { data, error } = await supabase.rpc('reconcile_my_stale_casino_round', {
+      p_game_slug: gameSlug,
+    });
+    if (error) {
+      console.warn('[SupabaseDb] reconcileMyStaleCasinoRound error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] reconcileMyStaleCasinoRound exception:', e);
+    return null;
+  }
+}
+
+/** Bài Cào: cược + chia bài + tính thắng thua HOÀN TOÀN trên server trong 1
+ * lần gọi duy nhất (không có bước quyết định nào giữa "cược" và "mở bài"
+ * nên không cần lưu trạng thái vòng cược). */
+export async function playBaicaoRound(betAmount) {
+  try {
+    const { data, error } = await supabase.rpc('play_baicao_round', {
+      p_bet_amount: Math.trunc(Number(betAmount) || 0),
+    });
+    if (error) {
+      console.warn('[SupabaseDb] playBaicaoRound error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] playBaicaoRound exception:', e);
+    return null;
+  }
+}
+
+/** Xì Tố Ba Lá: bắt đầu 1 vòng mới (cược + chia bài) trên server. */
+export async function startXiToBaLaRound(betAmount) {
+  try {
+    const { data, error } = await supabase.rpc('start_xitobala_round', {
+      p_bet_amount: Math.trunc(Number(betAmount) || 0),
+    });
+    if (error) {
+      console.warn('[SupabaseDb] startXiToBaLaRound error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] startXiToBaLaRound exception:', e);
+    return null;
+  }
+}
+
+/** Xì Tố Ba Lá: tăng cược thêm 50.000 VNĐ vào pot của vòng đang chơi. */
+export async function raiseXiToBaLaRound(roundId) {
+  try {
+    const { data, error } = await supabase.rpc('raise_xitobala_round', {
+      p_round_id: roundId,
+    });
+    if (error) {
+      console.warn('[SupabaseDb] raiseXiToBaLaRound error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] raiseXiToBaLaRound exception:', e);
+    return null;
+  }
+}
+
+/** Xì Tố Ba Lá: mở bài + tính thắng thua + cộng tiền (nếu thắng) trên server. */
+export async function revealXiToBaLaRound(roundId) {
+  try {
+    const { data, error } = await supabase.rpc('reveal_xitobala_round', {
+      p_round_id: roundId,
+    });
+    if (error) {
+      console.warn('[SupabaseDb] revealXiToBaLaRound error:', error.message);
+      return null;
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] revealXiToBaLaRound exception:', e);
+    return null;
+  }
+}
+
+/** Vòng Quay May Mắn: quay 1 lượt trên server - server tự xác thực số lượt
+ * còn lại (dựa trên tiền nạp thật trong ngày) và tự chọn phần thưởng, cộng
+ * tiền nguyên tử nếu trúng. */
+export async function spinLuckyWheel() {
+  try {
+    const { data, error } = await supabase.rpc('spin_lucky_wheel');
+    if (error) {
+      console.warn('[SupabaseDb] spinLuckyWheel error:', error.message);
+      return { error: error.message };
+    }
+    return data || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] spinLuckyWheel exception:', e);
+    return { error: e?.message || 'exception' };
   }
 }
 
@@ -594,7 +733,7 @@ const ENTITY_TABLE_MAP = {
 const ENTITY_COLUMNS = {
   Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'is_read', 'created_date'],
   Notification: ['id', 'user_id', 'title', 'content', 'image', 'type', 'is_read', 'created_date'],
-  Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'scale', 'is_active', 'description', 'created_date'],
+  Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'total_term_interest_rate', 'term_duration_minutes', 'scale', 'is_active', 'description', 'created_date', 'stock_symbol', 'daily_change_percent', 'legal_status', 'growth_history', 'monthly_transactions', 'tag'],
   BankAccount: ['id', 'user_id', 'bank_name', 'bank_code', 'account_number', 'account_holder', 'is_default', 'created_date'],
   Signature: ['id', 'user_id', 'type', 'content', 'label', 'created_date'],
   Transaction: ['id', 'user_id', 'user_email', 'user_name', 'project_id', 'project_name', 'project_title', 'category', 'amount', 'shares', 'method', 'rate', 'duration_days', 'profit', 'total', 'status', 'payout_status', 'contract_status', 'signature_type', 'signature_content', 'note', 'created_date'],

@@ -73,12 +73,6 @@ export function initSocketSync() {
     addLog("SYSTEM", `Mất kết nối với máy chủ: ${reason}`);
   });
 
-  // 1. Stock price updates
-  socket.on("stock:update", (updatedStocks) => {
-    addLog("STOCK_TICKER", `Cập nhật thị giá: ${updatedStocks.map(s => `${s.symbol}: ${s.price}`).join(", ")}`);
-    queryClientInstance.setQueryData(["stocks"], updatedStocks);
-  });
-
   // 2. Project updates (e.g. progress, status)
   socket.on("project:update", (updatedProjects) => {
     addLog("PROJECT_UPDATE", "Cập nhật tiến trình & trạng thái các dự án VinClub.");

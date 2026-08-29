@@ -12,13 +12,15 @@ const fmtSchedule = (iso) => {
   }
 };
 
-export default function ProjectsTab() {
+export default function ProjectsTab({ initialCategoryFilter = "ALL" }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("ALL");
+  // "Đi tới Dự án" từ tab Chứng khoán truyền sẵn "STOCKS" để mở đúng bộ
+  // lọc, không bắt admin tự bấm lại.
+  const [categoryFilter, setCategoryFilter] = useState(initialCategoryFilter);
   const [togglingId, setTogglingId] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -244,8 +246,8 @@ export default function ProjectsTab() {
                       <span className="font-bold text-[#948154]">{p.priceStr || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫/m²` : "Linh hoạt")}</span>
                     </div>
                     <div>
-                      <span className="text-gray-400 block text-[8px]">Lãi suất:</span>
-                      <span className="font-bold text-red-600">{p.rate || "12%/năm"}</span>
+                      <span className="text-gray-400 block text-[8px]">Lãi suất toàn kỳ:</span>
+                      <span className="font-bold text-red-600">{p.total_term_interest_rate ?? 0}%</span>
                     </div>
                     <div>
                       <span className="text-gray-400 block text-[8px]">Diện tích:</span>
@@ -372,19 +374,31 @@ function ProjectEditModal({ project, onClose, onSave }) {
     name: project?.name || project?.title || "",
     category: project?.category || "VinHomes",
     location: project?.location || "",
-    priceStr: project?.priceStr || "",
+    priceStr: project?.priceStr || project?.price_str || "",
     price_per_m2: project?.price_per_m2 || 35000000,
     rate: project?.rate || "12%/năm",
+    total_term_interest_rate: project?.total_term_interest_rate ?? 12,
+    term_duration_minutes: project?.term_duration_minutes ?? 43200,
     area: project?.area || "80-120m²",
     progress: project?.progress ?? 85,
     description: project?.description || "",
     image: project?.image || "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&h=400&fit=crop",
-    minAmount: project?.minAmount || "2800000000",
+    minAmount: project?.minAmount || project?.min_amount || "2800000000",
     duration: project?.duration || "64800",
     scale: project?.scale || "",
     is_active: project?.is_active ?? true,
     scheduled_open_at: project?.scheduled_open_at || "",
     scheduled_close_at: project?.scheduled_close_at || "",
+    // Trường riêng theo từng mục trong 4 Mục Đầu tư - trước đây trang
+    // người dùng (LandInvestment/Resort/Stocks.jsx) tự bịa cứng trong code
+    // (cùng 1 chuỗi tĩnh cho MỌI dự án), admin không sửa được. Giờ mỗi
+    // dự án có giá trị riêng, lưu thẳng vào investment_projects.
+    legalStatus: project?.legal_status || "",
+    growthHistory: project?.growth_history || "",
+    monthlyTransactions: project?.monthly_transactions || "",
+    tag: project?.tag || "",
+    stockSymbol: project?.stock_symbol || "",
+    dailyChangePercent: project?.daily_change_percent ?? 0,
   });
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v, ...(k === "title" ? { name: v } : {}) }));
@@ -404,7 +418,35 @@ function ProjectEditModal({ project, onClose, onSave }) {
       toast.error("Số tiền tối thiểu phải là một số không âm");
       return;
     }
-    onSave(form);
+    // total_term_interest_rate/term_duration_minutes là 2 trường DUY NHẤT
+    // dùng để tính lãi thật (xem trigger compute_transaction_interest trong
+    // supabase_total_term_interest_migration.sql) - phải validate chặt vì
+    // sai ở đây sẽ tính sai lãi cho MỌI hợp đồng mới của dự án này.
+    if (isNaN(Number(form.total_term_interest_rate)) || Number(form.total_term_interest_rate) < 0) {
+      toast.error("Lãi suất toàn kỳ phải là một số không âm");
+      return;
+    }
+    if (!Number(form.term_duration_minutes) || Number(form.term_duration_minutes) <= 0) {
+      toast.error("Kỳ hạn (phút) phải lớn hơn 0");
+      return;
+    }
+    onSave({
+      ...form,
+      total_term_interest_rate: Number(form.total_term_interest_rate),
+      term_duration_minutes: Math.round(Number(form.term_duration_minutes)),
+      // Cột Postgres thật là "min_amount"/"price_str" (snake_case) - form
+      // này dùng "minAmount"/"priceStr" (camelCase) để khớp quy ước cũ của
+      // ProjectCard/DepositModal, nhưng gửi thẳng camelCase lên Supabase sẽ
+      // bị lệch tên cột, rơi vào JSONB "extra" thay vì ghi đúng cột thật.
+      min_amount: form.minAmount,
+      price_str: form.priceStr,
+      legal_status: form.legalStatus,
+      growth_history: form.growthHistory,
+      monthly_transactions: form.monthlyTransactions,
+      tag: form.tag,
+      stock_symbol: form.stockSymbol.trim().toUpperCase(),
+      daily_change_percent: Number(form.dailyChangePercent) || 0,
+    });
   };
 
   // <input type="datetime-local"> cần dạng "YYYY-MM-DDTHH:mm" (giờ local), khác với
@@ -472,7 +514,19 @@ function ProjectEditModal({ project, onClose, onSave }) {
           {/* Price & Rate Grid */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Đơn giá niêm yết:</label>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                {form.category === "Đầu tư chứng khoán" ? "Giá khớp lệnh (₫/CP):" : "Đơn giá (số, vd 35000000):"}
+              </label>
+              <input
+                type="number"
+                value={form.price_per_m2}
+                onChange={(e) => set("price_per_m2", Number(e.target.value) || 0)}
+                placeholder="35000000"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-mono focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Đơn giá niêm yết (chuỗi hiển thị):</label>
               <input
                 value={form.priceStr}
                 onChange={(e) => set("priceStr", e.target.value)}
@@ -480,16 +534,126 @@ function ProjectEditModal({ project, onClose, onSave }) {
                 className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
               />
             </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Nhãn hiển thị (chỉ để tham khảo):</label>
+            <input
+              value={form.rate}
+              onChange={(e) => set("rate", e.target.value)}
+              placeholder="vd: 90%/45 ngày"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+            />
+          </div>
+
+          {/* Lãi suất TOÀN KỲ & Kỳ hạn - 2 trường DUY NHẤT dùng để tính lãi */}
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Lãi suất (%/giờ hoặc %/ngày):</label>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Lãi suất toàn kỳ (%):</label>
               <input
-                value={form.rate}
-                onChange={(e) => set("rate", e.target.value)}
-                placeholder="0.025%/giờ"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.total_term_interest_rate}
+                onChange={(e) => set("total_term_interest_rate", e.target.value)}
+                placeholder="90"
                 className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
               />
+              <p className="text-[9px] text-gray-400 mt-0.5">Lãi cho TRỌN kỳ hạn, trả 1 lần khi đáo hạn.</p>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Kỳ hạn (phút):</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={form.term_duration_minutes}
+                onChange={(e) => set("term_duration_minutes", e.target.value)}
+                placeholder="64800"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+              <p className="text-[9px] text-gray-400 mt-0.5">45 ngày = 64800 · 1 giờ = 60 · 1 ngày = 1440</p>
             </div>
           </div>
+
+          {/* Trường riêng cho từng Mục Đầu tư - trang người dùng tương ứng
+              (LandInvestment/Resort/Stocks.jsx) đọc trực tiếp các trường
+              này, không còn bịa cứng trong code nữa. */}
+          {form.category === "VinHomes" && (
+            <div className="space-y-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+              <p className="text-[10px] font-bold text-amber-800">Thông tin riêng - VinHomes</p>
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Tình trạng pháp lý:</label>
+                <input
+                  value={form.legalStatus}
+                  onChange={(e) => set("legalStatus", e.target.value)}
+                  placeholder="Sổ hồng chính chủ - Bảo lãnh 100%"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">Lịch sử tăng trưởng:</label>
+                  <input
+                    value={form.growthHistory}
+                    onChange={(e) => set("growthHistory", e.target.value)}
+                    placeholder="+18.5% (3 năm qua)"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">Giao dịch/tháng:</label>
+                  <input
+                    value={form.monthlyTransactions}
+                    onChange={(e) => set("monthlyTransactions", e.target.value)}
+                    placeholder="142 giao dịch/tháng"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {form.category === "Đầu tư nghỉ dưỡng" && (
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+              <p className="text-[10px] font-bold text-emerald-800 mb-1.5">Thông tin riêng - Đầu tư nghỉ dưỡng</p>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Nhãn ngắn hiển thị trên thẻ:</label>
+              <input
+                value={form.tag}
+                onChange={(e) => set("tag", e.target.value)}
+                placeholder="Biển / Đảo / Vịnh / Sông..."
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+              />
+            </div>
+          )}
+
+          {form.category === "Đầu tư chứng khoán" && (
+            <div className="space-y-2 p-2.5 rounded-xl bg-indigo-50 border border-indigo-200">
+              <p className="text-[10px] font-bold text-indigo-800">Thông tin riêng - Cổ phiếu</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">Mã cổ phiếu (Symbol):</label>
+                  <input
+                    value={form.stockSymbol}
+                    onChange={(e) => set("stockSymbol", e.target.value.toUpperCase())}
+                    placeholder="VIC"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] uppercase font-mono font-bold bg-white focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">Biến động trong ngày (%):</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={form.dailyChangePercent}
+                    onChange={(e) => set("dailyChangePercent", e.target.value)}
+                    placeholder="3.1"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-mono bg-white focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+              </div>
+              <p className="text-[9px] text-gray-500">Giá/CP nhập ở ô "Giá khớp lệnh" phía trên.</p>
+            </div>
+          )}
 
           {/* Area & Progress Grid */}
           <div className="grid grid-cols-2 gap-2">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Headphones, Sparkles, ShieldCheck } from "lucide-react";
+import { Headphones, Sparkles } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";

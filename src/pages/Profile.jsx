@@ -14,6 +14,7 @@ import BankAccountModal from "@/components/profile/BankAccountModal";
 import DepositModal from "@/components/profile/DepositModal";
 import WithdrawModal from "@/components/profile/WithdrawModal";
 import SecurityModal from "@/components/profile/SecurityModal";
+import PersonalInfoModal from "@/components/profile/PersonalInfoModal";
 import NotificationModal from "@/components/profile/NotificationModal";
 import AppRulesModal from "@/components/profile/AppRulesModal";
 import TransactionList from "@/components/profile/TransactionList";
@@ -43,6 +44,7 @@ export default function Profile() {
   const [showNotification, setShowNotification] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
+  const [showPersonalInfo, setShowPersonalInfo] = useState(false);
 
   const fetchData = async () => {
     const me = user || (await base44.auth.me().catch(() => null));
@@ -215,7 +217,10 @@ export default function Profile() {
           animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-2xl p-4 shadow-sm relative overflow-hidden"
         >
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowPersonalInfo(true)}
+            className="flex items-center gap-3 w-full text-left cursor-pointer"
+          >
             <div className="w-13 h-13 w-[52px] h-[52px] rounded-full bg-gradient-to-br from-[#948154] to-[#6b5e3e] text-white flex items-center justify-center text-[20px] font-bold shadow-md shrink-0">
               {avatarLetter}
             </div>
@@ -224,22 +229,24 @@ export default function Profile() {
                 {displayName}
               </p>
               <p className="text-[11px] text-gray-500 truncate">{phoneOrEmail}</p>
-              <Link
-                to="/card"
-                className="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full bg-[#948154]/10 hover:bg-[#948154]/20 text-[#948154] text-[9px] font-bold tracking-wider transition-colors"
+              <span
+                className="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full bg-[#948154]/10 text-[#948154] text-[9px] font-bold tracking-wider"
               >
                 <Sparkles className="w-2.5 h-2.5" />
                 {user?.role === "admin" ? "QUẢN TRỊ VIÊN VIP" : userTier.fullName.toUpperCase()}
-              </Link>
+              </span>
             </div>
-            <button
-              onClick={() => setShowAccountSwitcher(true)}
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowAccountSwitcher(true);
+              }}
               className="w-8 h-8 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-500 flex items-center justify-center shrink-0 border border-gray-100"
               title="Chuyển đổi tài khoản"
             >
               <Users className="w-3.5 h-3.5" />
-            </button>
-          </div>
+            </span>
+          </button>
         </motion.div>
 
         {/* Bank Accounts Management */}
@@ -343,6 +350,7 @@ export default function Profile() {
       <NotificationModal open={showNotification} onClose={() => setShowNotification(false)} />
       <AppRulesModal open={showRules} onClose={() => setShowRules(false)} />
       <AccountSwitcherModal open={showAccountSwitcher} onClose={() => setShowAccountSwitcher(false)} />
+      <PersonalInfoModal open={showPersonalInfo} onClose={() => setShowPersonalInfo(false)} />
 
       <BottomNav />
     </main>

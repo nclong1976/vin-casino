@@ -4,12 +4,11 @@ import { base44 } from "@/api/base44Client";
 import { signIn as supaSignIn, signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
 import { upsertSupabaseUser } from "@/lib/supabaseDb";
 import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier";
-import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import GoogleIcon from "@/components/GoogleIcon";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 import { useConfig } from "@/lib/ConfigContext";
 
 export default function Login() {
@@ -203,8 +202,7 @@ export default function Login() {
       setCountdown(30);
       setShowPushNotification(true);
       triggerSound("notification");
-      toast({
-        title: "Đã gửi lại OTP",
+      toast.success("Đã gửi lại OTP", {
         description: `Mã xác thực mới đã được tạo và gửi đến ${email}.`,
       });
     } catch (err) {

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { X, Bell, Sparkles, Smartphone, CheckCircle2 } from "lucide-react";
+import { X, Bell, Smartphone, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { playSound } from "@/lib/soundFx";
 import { useConfig } from "@/lib/ConfigContext";
 
 export default function NotificationModal({ open, onClose }) {

@@ -1,44 +1,15 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { RefreshCw, Coins, ArrowLeft } from "lucide-react";
+import { Coins, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import PlayingCard from "@/components/casino/PlayingCard";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance, adjustUserBalanceStrict, setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
+import { playBaicaoRound } from "@/lib/supabaseDb";
+import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 
-const SUITS = ["♠", "♥", "♦", "♣"];
-const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-
-const cardValue = (rank) => (rank === "A" ? 1 : ["J", "Q", "K"].includes(rank) ? 10 : parseInt(rank));
-const handScore = (cards) => cards.reduce((s, c) => s + cardValue(c.rank), 0) % 10;
-const isCao = (cards) => {
-  const r = cards.map((c) => c.rank);
-  return r.every((x) => ["J", "Q", "K"].includes(x)) || r.every((x) => x === "A");
-};
 const fmt = (n) => n.toLocaleString("vi-VN");
-
-function buildDeck() {
-  const deck = [];
-  for (const s of SUITS) for (const r of RANKS) deck.push({ rank: r, suit: s });
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-  return deck;
-}
-const draw = (deck, n) => deck.splice(0, n);
-const compare = (player, dealer) => {
-  const pC = isCao(player), dC = isCao(dealer);
-  if (pC && dC) return "tie";
-  if (pC) return "win";
-  if (dC) return "lose";
-  const ps = handScore(player), ds = handScore(dealer);
-  if (ps > ds) return "win";
-  if (ps < ds) return "lose";
-  return "tie";
-};
 
 const CHIPS = [10000, 50000, 100000, 500000];
 const RESULT_TEXT = {
@@ -47,202 +18,103 @@ const RESULT_TEXT = {
   tie: { label: "HÒA", color: "#9ca3af" },
 };
 
+// Cược + chia bài + tính thắng thua HOÀN TOÀN trên server (RPC
+// play_baicao_round) - client không còn tự rút bài/tự tính điểm/tự cộng
+// tiền thắng nữa. Trước đây toàn bộ logic này chạy ở đây bằng Math.random(),
+// rồi tự gọi RPC cộng tiền với số tiền tự tính - ai đó gọi thẳng RPC cộng
+// tiền qua devtools với số cược khống có thể tự thắng mà không cần chơi.
 export default function BaiCao() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [balance, setBalance] = useState(() => {
-    if (user?.balance !== undefined) return Number(user.balance);
-    const localUserStr = localStorage.getItem("base44_local_user");
-    if (localUserStr) {
-      try {
-        const u = JSON.parse(localUserStr);
-        if (u && u.balance !== undefined) return Number(u.balance);
-      } catch (e) {}
-    }
-    const v = localStorage.getItem("baicao_balance");
-    return v ? parseInt(v) : 0;
-  });
+  const { isMaintenance, maintenanceMessage } = useCasinoMaintenance("bai-cao");
+  const [balance, setBalance] = useState(() => Number(user?.balance || 0));
   const [bet, setBet] = useState(50000);
   const [phase, setPhase] = useState("betting"); // betting | dealt | result
   const [player, setPlayer] = useState([]);
   const [dealer, setDealer] = useState([]);
+  const [playerInfo, setPlayerInfo] = useState({ score: 0, cao: false });
+  const [dealerInfo, setDealerInfo] = useState({ score: 0, cao: false });
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pendingResult, setPendingResult] = useState(null);
 
-  useEffect(() => {
-    const handleSync = () => {
-      const localUserStr = localStorage.getItem("base44_local_user");
-      if (localUserStr) {
-        try {
-          const u = JSON.parse(localUserStr);
-          if (u && u.balance !== undefined) {
-            setBalance(Number(u.balance));
-            return;
-          }
-        } catch (e) {}
-      }
-      if (user?.balance !== undefined) {
-        setBalance(Number(user.balance));
-      }
-    };
-
-    handleSync();
-    window.addEventListener("vinclub:balance_updated", handleSync);
-    window.addEventListener("storage", handleSync);
-
-    return () => {
-      window.removeEventListener("vinclub:balance_updated", handleSync);
-      window.removeEventListener("storage", handleSync);
-    };
-  }, [user]);
-
-  // Nhận DELTA (cược/thắng/hòa) thay vì số dư tuyệt đối - ghi qua
-  // adjustUserBalance (RPC nguyên tử) để tránh ghi đè mất tiền khi 2 thao
-  // tác gần như đồng thời.
-  const applyDelta = (delta) => {
-    const numDelta = Number(delta) || 0;
-    setBalance((prev) => {
-      const next = Math.max(0, Number(prev || 0) + numDelta);
-      localStorage.setItem("baicao_balance", String(next));
-      return next;
-    });
-    if (user?.id) {
-      adjustUserBalance(user.id, numDelta, 0).catch(() => {});
-    } else {
-      try {
-        const localUserStr = localStorage.getItem("base44_local_user");
-        if (localUserStr) {
-          const localUser = JSON.parse(localUserStr);
-          localUser.balance = Math.max(0, Number(localUser.balance || 0) + numDelta);
-          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
-        }
-      } catch (e) {}
-      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
-    }
+  const syncBalance = (numBalance) => {
+    const safe = Math.max(0, Number(numBalance) || 0);
+    setBalance(safe);
+    window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+    return safe;
   };
 
-  // Nạp lại số dư demo về đúng 1 mốc cố định - đây LÀ đặt giá trị tuyệt đối
-  // có chủ đích (không phải tiền thật di chuyển), nên dùng hàm set tuyệt đối
-  // riêng thay vì applyDelta().
-  const resetToAmount = (amount) => {
-    const safeBal = Math.max(0, Number(amount) || 0);
-    setBalance(safeBal);
-    localStorage.setItem("baicao_balance", String(safeBal));
-    if (user?.id) {
-      setAbsoluteUserBalanceAndDeposit(user.id, safeBal, Number(user.total_deposited || 0));
-    } else {
-      try {
-        const localUserStr = localStorage.getItem("base44_local_user");
-        if (localUserStr) {
-          const localUser = JSON.parse(localUserStr);
-          localUser.balance = safeBal;
-          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
-        }
-      } catch (e) {}
-      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
-    }
-  };
-
-  // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có xác
-  // nhận thật từ Postgres) và ĐỢI kết quả trước khi chia bài - trước đây
-  // applyDelta() bắn đi rồi quên (không await), nếu ghi thất bại người chơi
-  // vẫn được chia bài như đã trừ tiền dù Postgres chưa hề trừ.
   const deal = useCallback(async () => {
+    if (!user?.id) {
+      toast.error("Vui lòng đăng nhập để chơi!");
+      return;
+    }
     if (bet > balance || busy) {
       if (bet > balance) toast.error("Số dư không đủ để đặt cược!");
       return;
     }
     setBusy(true);
 
-    setBalance((prev) => Math.max(0, prev - bet));
-
-    if (user?.id) {
-      const result = await adjustUserBalanceStrict(user.id, -bet, 0);
-      if (!result) {
-        setBalance((prev) => prev + bet);
-        setBusy(false);
-        toast.error("Không thể trừ tiền cược, vui lòng thử lại!");
-        return;
-      }
-      localStorage.setItem("baicao_balance", String(result.balance));
-    } else {
-      // Khách chưa đăng nhập: không có gì trên Postgres để xác nhận, chỉ
-      // cập nhật cache cục bộ như hành vi cũ.
-      try {
-        const localUserStr = localStorage.getItem("base44_local_user");
-        if (localUserStr) {
-          const localUser = JSON.parse(localUserStr);
-          localUser.balance = Math.max(0, Number(localUser.balance || 0) - bet);
-          localStorage.setItem("base44_local_user", JSON.stringify(localUser));
-        }
-      } catch (e) {}
-      localStorage.setItem("baicao_balance", String(Math.max(0, balance - bet)));
-      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
+    const data = await playBaicaoRound(bet);
+    if (!data) {
+      setBusy(false);
+      toast.error("Không thể đặt cược lúc này, vui lòng thử lại!");
+      return;
     }
 
-    if (user?.id) {
-      base44.entities.WalletTransaction.create({
-        user_id: user.id,
-        type: "withdrawal",
-        amount: bet,
-        note: `Đặt cược Bài Cào`,
-        category: "Cược Casino",
-        status: "approved",
-      }).catch(() => null);
-    }
+    // Hiện số dư ở mốc "đã trừ cược, chưa cộng thưởng" - tiền thắng (nếu có)
+    // chỉ hiện ra khi bấm "MỞ BÀI" để giữ đúng nhịp hồi hộp như trước, dù cả
+    // 2 bước cộng/trừ đã xảy ra nguyên tử trong CÙNG 1 lần gọi RPC ở trên.
+    syncBalance(Number(data.balance) - Number(data.payout || 0));
 
-    const deck = buildDeck();
-    setPlayer(draw(deck, 3));
-    setDealer(draw(deck, 3));
+    setPlayer(data.player_hand);
+    setDealer(data.dealer_hand);
+    setPlayerInfo({ score: data.player_score, cao: data.player_cao });
+    setDealerInfo({ score: data.dealer_score, cao: data.dealer_cao });
+    setPendingResult(data);
     setResult(null);
     setPhase("dealt");
     setBusy(false);
     toast.success(`Đã đặt cược ${fmt(bet)} VNĐ thành công!`);
+
+    base44.entities.WalletTransaction.create({
+      user_id: user.id,
+      type: "withdrawal",
+      amount: bet,
+      note: `Đặt cược Bài Cào`,
+      category: "Cược Casino",
+      status: "approved",
+    }).catch(() => null);
   }, [bet, balance, busy, user]);
 
   const reveal = useCallback(() => {
-    const r = compare(player, dealer);
-    let winPayout = 0;
+    if (!pendingResult) return;
+    const { result: r, payout } = pendingResult;
 
-    if (r === "win") {
-      // Thắng: Trả lại vốn (1x) + Lợi nhuận (1x hoặc 2x nếu là sáp/cao)
-      winPayout = isCao(player) ? bet * 3 : bet * 2;
-      applyDelta(winPayout);
-
-      if (user?.id) {
-        base44.entities.WalletTransaction.create({
-          user_id: user.id,
-          type: "deposit",
-          amount: winPayout,
-          note: `Thắng Bài Cào ${isCao(player) ? "(3 Tiên)" : ""}`,
-          category: "Thắng Casino",
-          status: "approved",
-        }).catch(() => null);
-      }
-    } else if (r === "tie") {
-      // Hòa: Hoàn trả lại tiền cược
-      winPayout = bet;
-      applyDelta(winPayout);
-    } else {
-      // Thua: Tiền đã trừ lúc đặt cược, không cộng thêm
-      winPayout = 0;
-    }
-
-    setResult({ type: r, payout: r === "win" ? winPayout : r === "lose" ? -bet : 0 });
+    syncBalance(pendingResult.balance);
+    setResult({ type: r, payout: r === "win" ? payout : r === "lose" ? -bet : 0 });
     setPhase("result");
-  }, [player, dealer, bet, balance, user]);
+
+    if (r === "win" && user?.id) {
+      base44.entities.WalletTransaction.create({
+        user_id: user.id,
+        type: "deposit",
+        amount: payout,
+        note: `Thắng Bài Cào ${pendingResult.player_cao ? "(3 Tiên)" : ""}`,
+        category: "Thắng Casino",
+        status: "approved",
+      }).catch(() => null);
+    }
+  }, [pendingResult, bet, user]);
 
   const newRound = useCallback(() => {
     setPhase("betting");
     setPlayer([]);
     setDealer([]);
     setResult(null);
+    setPendingResult(null);
   }, []);
-
-  const resetBalance = () => {
-    resetToAmount(5000000);
-    toast.success("Đã nạp lại số dư");
-  };
 
   const dealerRevealed = phase === "result";
   const playerRevealed = phase === "dealt" || phase === "result";
@@ -276,9 +148,6 @@ export default function BaiCao() {
             <Coins className="w-3.5 h-3.5 text-[#e8c87a]" />
             <span className="text-[11px] sm:text-xs font-semibold text-[#e8c87a]">{fmt(balance)} VNĐ</span>
           </div>
-          <button onClick={resetBalance} className="text-[10px] text-[#9a8456] active:opacity-70 flex items-center gap-1 cursor-pointer">
-            <RefreshCw className="w-3 h-3" /> Nạp lại
-          </button>
         </div>
       </div>
 
@@ -297,7 +166,7 @@ export default function BaiCao() {
             )}
           </div>
           {dealerRevealed && (
-            <ScoreTag score={handScore(dealer)} cao={isCao(dealer)} />
+            <ScoreTag score={dealerInfo.score} cao={dealerInfo.cao} />
           )}
         </div>
 
@@ -311,7 +180,7 @@ export default function BaiCao() {
         {/* Player */}
         <div className="flex flex-col items-center gap-2">
           {playerRevealed && (
-            <ScoreTag score={handScore(player)} cao={isCao(player)} />
+            <ScoreTag score={playerInfo.score} cao={playerInfo.cao} />
           )}
           <div className="flex gap-2 min-h-[80px]">
             {player.length === 0 ? (
@@ -398,12 +267,20 @@ export default function BaiCao() {
               onClick={newRound}
               className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#caa45a] to-[#948154] text-[#1a1208] text-[13px] font-bold tracking-wide active:scale-95 transition flex items-center gap-1.5"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> VÁN MỚI
+              VÁN MỚI
             </button>
           </motion.div>
         )}
         </div>
       </div>
+
+      {isMaintenance && (
+        <BankingDowntimeScreen
+          message={maintenanceMessage}
+          gameTitle="BÀI CÀO"
+          onRetry={() => window.location.reload()}
+        />
+      )}
     </main>
   );
 }

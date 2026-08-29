@@ -594,9 +594,10 @@ class LocalEntityClient {
     this.entityName = entityName;
   }
 
-  // Nguồn dữ liệu "sự thật" cho việc đọc: Supabase Postgres cho 9/10 entity
-  // (News vẫn dùng localStorage vì là nội dung tĩnh, không có bảng Postgres).
-  // Đọc từ đây thay vì localStorage riêng của từng thiết bị/tab để mọi nơi
+  // Nguồn dữ liệu "sự thật" cho việc đọc: Supabase Postgres cho mọi entity
+  // trong SUPABASE_READABLE_ENTITIES (bao gồm cả News - có bảng "news" thật,
+  // không còn chỉ localStorage). Đọc từ đây thay vì localStorage riêng của
+  // từng thiết bị/tab để mọi nơi
   // (admin lẫn người dùng, mọi thiết bị) luôn thấy cùng 1 dữ liệu thật -
   // localStorage vẫn được ghi lại làm cache cho các chỗ đọc thẳng key
   // "base44_entity_*" (Profile.jsx, MessagesTab.jsx, balanceSync.js...).

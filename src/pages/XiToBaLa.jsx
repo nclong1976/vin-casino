@@ -1,96 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance, adjustUserBalanceStrict } from "@/lib/balanceSync";
+import { startXiToBaLaRound, raiseXiToBaLaRound, revealXiToBaLaRound } from "@/lib/supabaseDb";
+import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
 import { toast } from "sonner";
 import WinAnimationOverlay from "@/components/casino/WinAnimationOverlay";
 import { User, Minus, Plus, Ban, Coins, ArrowLeft } from "lucide-react";
 
-// Card Definitions
-const SUITS = [
-  { symbol: "♠", name: "spades", isRed: false, icon: "spade" },
-  { symbol: "♥", name: "hearts", isRed: true, icon: "favorite" },
-  { symbol: "♦", name: "diamonds", isRed: true, icon: "diamond" },
-  { symbol: "♣", name: "clubs", isRed: false, icon: "eco" },
-];
-
-const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
-
-const RANK_VALUES = {
-  "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10,
-  "J": 11, "Q": 12, "K": 13, "A": 14
-};
-
-function buildDeck() {
-  const deck = [];
-  for (const suit of SUITS) {
-    for (const rank of RANKS) {
-      deck.push({ rank, suit, value: RANK_VALUES[rank] });
-    }
-  }
-  // Fisher-Yates Shuffle
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-  return deck;
-}
-
-// 3-Card Poker Hand Evaluation
-function evaluate3CardHand(cards) {
-  if (!cards || cards.length < 3) return { rankName: "Bài Thường", score: 0, multiplier: 1 };
-
-  const sorted = [...cards].sort((a, b) => b.value - a.value);
-  const isFlush = sorted.every((c) => c.suit.symbol === sorted[0].suit.symbol);
-  
-  // Check Straight
-  const v0 = sorted[0].value;
-  const v1 = sorted[1].value;
-  const v2 = sorted[2].value;
-  
-  const isNormalStraight = v0 - 1 === v1 && v1 - 1 === v2;
-  const isAceLowStraight = v0 === 14 && v1 === 3 && v2 === 2; // A-3-2
-  const isStraight = isNormalStraight || isAceLowStraight;
-
-  // Check 3 of a Kind
-  const isThreeOfAKind = v0 === v1 && v1 === v2;
-
-  // Check Pair
-  const isPair = v0 === v1 || v1 === v2 || v0 === v2;
-
-  if (isStraight && isFlush) {
-    return { rankName: "THÙNG PHÁ SẢNH", score: 6000 + v0, multiplier: 5, type: "straight_flush" };
-  }
-  if (isThreeOfAKind) {
-    return { rankName: "SÁM CỔ (BA CÂY)", score: 5000 + v0, multiplier: 4, type: "three_kind" };
-  }
-  if (isStraight) {
-    const straightHigh = isAceLowStraight ? 3 : v0;
-    return { rankName: "SẢNH", score: 4000 + straightHigh, multiplier: 3, type: "straight" };
-  }
-  if (isFlush) {
-    return { rankName: "THÙNG", score: 3000 + v0 * 10 + v1, multiplier: 2, type: "flush" };
-  }
-  if (isPair) {
-    const pairVal = v0 === v1 ? v0 : v1 === v2 ? v1 : v0;
-    return { rankName: "ĐÔI", score: 2000 + pairVal * 10, multiplier: 1.5, type: "pair" };
-  }
-
-  // High card / Point calculation % 10
-  const totalPoints = cards.reduce((sum, c) => {
-    if (["J", "Q", "K"].includes(c.rank)) return sum + 10;
-    if (c.rank === "A") return sum + 1;
-    return sum + parseInt(c.rank);
-  }, 0);
-  const pointScore = totalPoints % 10;
-
-  return {
-    rankName: pointScore === 0 ? "10 ĐIỂM" : `${pointScore} ĐIỂM`,
-    score: 1000 + pointScore * 100 + v0,
-    multiplier: 1,
-    type: "high_card"
-  };
+// Chuyển 1 lá bài server trả về ({rank,value,suit:"♠",is_red:false}) sang
+// đúng hình dạng client đang render ({rank,value,suit:{symbol,isRed}}).
+function transformServerCard(c) {
+  return { rank: c.rank, value: c.value, suit: { symbol: c.suit, isRed: c.is_red } };
 }
 
 const fmt = (n) => new Intl.NumberFormat("vi-VN").format(n) + " đ";
@@ -98,31 +19,22 @@ const fmt = (n) => new Intl.NumberFormat("vi-VN").format(n) + " đ";
 export default function XiToBaLa() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isMaintenance, maintenanceMessage } = useCasinoMaintenance("xi-to-ba-la");
 
   // Local balance state initialized with real user balance
-  const [balance, setBalance] = useState(() => {
-    if (user?.balance !== undefined) return Number(user.balance);
-    const localUserStr = localStorage.getItem("base44_local_user");
-    if (localUserStr) {
-      try {
-        const u = JSON.parse(localUserStr);
-        if (u && u.balance !== undefined) return Number(u.balance);
-      } catch (e) {}
-    }
-    const local = localStorage.getItem("vinclub_xito_balance");
-    return local ? parseInt(local) : 0;
-  });
+  const [balance, setBalance] = useState(() => Number(user?.balance || 0));
 
+  const [roundId, setRoundId] = useState(null);
   const [betAmount, setBetAmount] = useState(50000);
   const [pot, setPot] = useState(1450000);
   const [phase, setPhase] = useState("betting"); // 'betting' | 'dealt' | 'revealed'
   // Chặn đặt cược/tăng cược liên tiếp trong lúc đang đợi xác nhận trừ tiền từ Postgres
   const [isDealing, setIsDealing] = useState(false);
-  
-  // Hands
+
+  // Hands (dealer's cards are never rendered as faces, only its computed
+  // hand-rank label after reveal - see dealerHandLabel below)
   const [playerCards, setPlayerCards] = useState([]);
-  const [dealerCards, setDealerCards] = useState([]);
-  const [opponents, setOpponents] = useState([
+  const [opponents] = useState([
     { id: 1, name: "ANH_TUAN", avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&q=80", status: "active", bet: 150000 },
     { id: 2, name: "THÀNH_NAM", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&q=80", status: "folded", bet: 50000 },
     { id: 3, name: "MR_LONG", avatar: "https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=100&q=80", status: "active", bet: 210000 },
@@ -133,6 +45,10 @@ export default function XiToBaLa() {
   const [winPayout, setWinPayout] = useState(0);
   const [winHandLabel, setWinHandLabel] = useState("");
   const [prevBal, setPrevBal] = useState(0);
+  // Tên thế bài do server tính (RPC reveal_xitobala_round trả về) - không
+  // còn tự tính lại ở client sau khi mở bài.
+  const [dealerHandLabel, setDealerHandLabel] = useState("");
+  const [playerHandLabel, setPlayerHandLabel] = useState("");
 
   // Refs for particle canvas & audio
   const canvasRef = useRef(null);
@@ -140,84 +56,13 @@ export default function XiToBaLa() {
   const balanceTargetRef = useRef(null);
   const winMessageTargetRef = useRef(null);
 
-  // Sync user balance when auth or storage changes
-  useEffect(() => {
-    const handleSync = () => {
-      const localUserStr = localStorage.getItem("base44_local_user");
-      if (localUserStr) {
-        try {
-          const u = JSON.parse(localUserStr);
-          if (u && u.balance !== undefined) {
-            setBalance(Number(u.balance));
-            return;
-          }
-        } catch (e) {}
-      }
-      if (user?.balance !== undefined) {
-        setBalance(Number(user.balance));
-      }
-    };
-
-    handleSync();
-    window.addEventListener("vinclub:balance_updated", handleSync);
-    window.addEventListener("storage", handleSync);
-
-    return () => {
-      window.removeEventListener("vinclub:balance_updated", handleSync);
-      window.removeEventListener("storage", handleSync);
-    };
-  }, [user]);
-
-  // Nhận DELTA thay vì số dư tuyệt đối - ghi qua adjustUserBalance (RPC
-  // nguyên tử) để tránh 2 thao tác gần như đồng thời ghi đè mất tiền nhau.
-  const updateGlobalBalance = useCallback((delta) => {
-    const numDelta = Number(delta) || 0;
-    setBalance((prev) => {
-      const next = Math.max(0, Number(prev || 0) + numDelta);
-      localStorage.setItem("vinclub_xito_balance", String(next));
-      return next;
-    });
-
-    if (user?.id) {
-      adjustUserBalance(user.id, numDelta, 0).catch(() => {});
-    } else {
-      try {
-        const localUserStr = localStorage.getItem('base44_local_user');
-        if (localUserStr) {
-          const localUser = JSON.parse(localUserStr);
-          localUser.balance = Math.max(0, Number(localUser.balance || 0) + numDelta);
-          localStorage.setItem('base44_local_user', JSON.stringify(localUser));
-        }
-      } catch (e) {}
-      window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
-    }
-  }, [user]);
-
-  // Trừ tiền cược qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
-  // xác nhận thật từ Postgres) - dùng cho các hành động trừ tiền thật (đặt
-  // cược, tăng cược) cần biết CHẮC CHẮN đã ghi thành công trước khi cho
-  // phép chia bài/tăng pot tiếp. Trả về true khi chắc chắn đã trừ, false
-  // khi thất bại - bên gọi phải tự hoàn tác optimistic UI khi false.
-  const deductBalanceStrict = useCallback(async (amount) => {
-    if (user?.id) {
-      const result = await adjustUserBalanceStrict(user.id, -amount, 0);
-      if (!result) return false;
-      localStorage.setItem("vinclub_xito_balance", String(result.balance));
-      return true;
-    }
-    // Khách chưa đăng nhập: không có gì trên Postgres để xác nhận, chỉ cập
-    // nhật cache cục bộ như hành vi cũ (updateGlobalBalance ở trên).
-    try {
-      const localUserStr = localStorage.getItem('base44_local_user');
-      if (localUserStr) {
-        const localUser = JSON.parse(localUserStr);
-        localUser.balance = Math.max(0, Number(localUser.balance || 0) - amount);
-        localStorage.setItem('base44_local_user', JSON.stringify(localUser));
-      }
-    } catch (e) {}
+  // Đồng bộ số dư hiển thị từ số dư THẬT vừa nhận về từ 1 RPC ván chơi
+  // (start/raise/reveal) - không tự tính/ghi thêm gì, chỉ phản ánh lại.
+  const syncBalance = useCallback((numBalance) => {
+    const safe = Math.max(0, Number(numBalance) || 0);
+    setBalance(safe);
     window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
-    return true;
-  }, [user]);
+  }, []);
 
   // Web Audio Ching sound effect
   const initAudio = () => {
@@ -398,13 +243,12 @@ export default function XiToBaLa() {
     };
   }, [showWinOverlay]);
 
-  // Initial Deal
-  //
-  // Trừ tiền cược TRƯỚC và ĐỢI xác nhận thật từ Postgres, chỉ chia bài khi
-  // chắc chắn đã trừ thành công - trước đây gọi updateGlobalBalance() kiểu
-  // "bắn rồi quên" song song với việc chia bài ngay, nếu ghi thất bại người
-  // chơi vẫn được chia bài như đã trừ tiền dù Postgres chưa hề trừ.
+  // Cược + chia bài HOÀN TOÀN trên server (RPC start_xitobala_round) -
+  // client không còn tự rút bài/tự tính pot nữa. Trước đây tự tính bài bằng
+  // Math.random() rồi tự gọi RPC cộng tiền thắng với số tiền tự tính - ai đó
+  // gọi thẳng RPC cộng tiền qua devtools có thể tự thắng mà không cần chơi.
   const dealNewRound = useCallback(async () => {
+    if (!user?.id) return;
     if (user?.is_locked) {
       toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
       return;
@@ -416,35 +260,28 @@ export default function XiToBaLa() {
     }
 
     setIsDealing(true);
-    setBalance((prev) => Math.max(0, prev - betAmount));
-
-    const ok = await deductBalanceStrict(betAmount);
-    if (!ok) {
-      setBalance((prev) => prev + betAmount);
+    const data = await startXiToBaLaRound(betAmount);
+    if (!data) {
       setIsDealing(false);
-      toast.error("Không thể trừ tiền cược, vui lòng thử lại!");
+      toast.error("Không thể đặt cược, vui lòng thử lại!");
       return;
     }
 
-    const deck = buildDeck();
-    const pHand = [deck.pop(), deck.pop(), deck.pop()];
-    const dHand = [deck.pop(), deck.pop(), deck.pop()];
-
-    setPlayerCards(pHand);
-    setDealerCards(dHand);
+    syncBalance(data.balance);
+    setRoundId(data.round_id);
+    setPlayerCards((data.player_hand || []).map(transformServerCard));
     setIsRevealed(false);
     setShowWinOverlay(false);
     setPhase("dealt");
-
-    const currentPot = betAmount * 4 + 250000;
-    setPot(currentPot);
+    setPot(data.pot);
+    setBetAmount(data.bet_amount);
     setIsDealing(false);
-  }, [betAmount, balance, isDealing, deductBalanceStrict, user?.is_locked]);
+  }, [betAmount, balance, isDealing, user?.id, user?.is_locked, syncBalance]);
 
   // Auto deal on first mount
   useEffect(() => {
-    dealNewRound();
-  }, []);
+    if (user?.id) dealNewRound();
+  }, [user?.id]);
 
   // Handle Bet Stepper
   const handleIncreaseBet = () => {
@@ -461,33 +298,32 @@ export default function XiToBaLa() {
     dealNewRound();
   };
 
-  // Action: Bet / Tăng Cược
+  // Action: Bet / Tăng Cược - HOÀN TOÀN trên server (RPC raise_xitobala_round)
   const handleAddBet = async () => {
-    if (isDealing) return;
+    if (isDealing || !roundId) return;
     if (balance < 50000) {
       toast.error("Số dư không đủ để tăng cược!");
       return;
     }
 
     setIsDealing(true);
-    setBalance((prev) => Math.max(0, prev - 50000));
-
-    const ok = await deductBalanceStrict(50000);
-    if (!ok) {
-      setBalance((prev) => prev + 50000);
+    const data = await raiseXiToBaLaRound(roundId);
+    if (!data) {
       setIsDealing(false);
-      toast.error("Không thể trừ tiền, vui lòng thử lại!");
+      toast.error("Không thể tăng cược, vui lòng thử lại!");
       return;
     }
 
-    setBetAmount((prev) => prev + 50000);
-    setPot((prev) => prev + 150000);
+    syncBalance(data.balance);
+    setBetAmount(data.bet_amount);
+    setPot(data.pot);
     setIsDealing(false);
     toast.success("Đã tăng cược thêm 50.000 VNĐ vào Pot!");
   };
 
-  // Action: Reveal / Mở Bài
-  const handleReveal = () => {
+  // Action: Reveal / Mở Bài - mở bài + tính thắng thua + cộng tiền HOÀN
+  // TOÀN trên server (RPC reveal_xitobala_round)
+  const handleReveal = async () => {
     initAudio();
 
     if (isRevealed) {
@@ -495,38 +331,42 @@ export default function XiToBaLa() {
       dealNewRound();
       return;
     }
+    if (!roundId || isDealing) return;
 
+    setIsDealing(true);
+    const data = await revealXiToBaLaRound(roundId);
+    setIsDealing(false);
+    if (!data) {
+      toast.error("Không thể mở bài lúc này, vui lòng liên hệ CSKH nếu số dư không đúng.");
+      return;
+    }
+
+    setDealerHandLabel(data.dealer_eval?.rank_name || "");
+    setPlayerHandLabel(data.player_eval?.rank_name || "");
     setIsRevealed(true);
     setPhase("revealed");
 
-    const pEval = evaluate3CardHand(playerCards);
-    const dEval = evaluate3CardHand(dealerCards);
-
     setTimeout(() => {
-      if (pEval.score >= dEval.score) {
-        // Player Wins!
-        const winValue = Math.round(pot * pEval.multiplier);
-        setWinPayout(winValue);
-        setWinHandLabel(pEval.rankName);
+      if (data.player_wins) {
+        setWinPayout(data.payout);
+        setWinHandLabel(data.player_eval?.rank_name || "");
         setPrevBal(balance);
-        updateGlobalBalance(winValue);
+        syncBalance(data.balance);
         setShowWinOverlay(true);
         triggerFlyingChips();
 
-        // Create transaction history record
-        if (user?.id) {
+        if (user?.id && data.payout > 0) {
           base44.entities.WalletTransaction.create({
             user_id: user.id,
             type: "deposit",
-            amount: winValue,
-            note: `Thắng Xì Tố Ba Lá (${pEval.rankName})`,
+            amount: data.payout,
+            note: `Thắng Xì Tố Ba Lá (${data.player_eval?.rank_name || ""})`,
             category: "Thắng Casino",
             status: "approved"
           }).catch(() => null);
         }
       } else {
-        // Dealer Wins
-        toast.error(`Nhà cái thắng với bài: ${dEval.rankName}`);
+        toast.error(`Nhà cái thắng với bài: ${data.dealer_eval?.rank_name || ""}`);
       }
     }, 600);
   };
@@ -766,7 +606,7 @@ export default function XiToBaLa() {
             <div className="flex flex-col">
               <div className="bg-[#f2ca50] px-2 py-0.5 rounded shadow-md">
                 <span className="text-[9px] font-mono font-bold text-[#3c2f00]">
-                  {isRevealed ? evaluate3CardHand(dealerCards).rankName : "NHÀ CÁI"}
+                  {isRevealed ? dealerHandLabel : "NHÀ CÁI"}
                 </span>
               </div>
             </div>
@@ -845,7 +685,7 @@ export default function XiToBaLa() {
                 animate={{ opacity: 1, scale: 1 }}
                 className="bg-[#f2ca50] text-[#3c2f00] px-3 py-0.5 rounded-full font-mono text-[10px] font-extrabold shadow-md mb-2 border border-[#ffe088]"
               >
-                {evaluate3CardHand(playerCards).rankName}
+                {playerHandLabel}
               </motion.div>
             )}
           </div>
@@ -915,6 +755,14 @@ export default function XiToBaLa() {
           </div>
         </div>
       </main>
+
+      {isMaintenance && (
+        <BankingDowntimeScreen
+          message={maintenanceMessage}
+          gameTitle="XÌ TỐ BA LÁ"
+          onRetry={() => window.location.reload()}
+        />
+      )}
     </div>
   );
 }

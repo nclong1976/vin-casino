@@ -61,44 +61,17 @@ const io = new SocketIOServer(httpServer, {
   }
 });
 
-// Server-side state for Stocks simulation
-let stocksState = [
-  { symbol: "VIC", name: "Tập đoàn Vingroup", price: "45.200", change: 3.1, spark: [42, 42.5, 41.8, 43, 44, 43.5, 44.8, 45.2] },
-  { symbol: "VHM", name: "Vinhomes", price: "42.800", change: 2.4, spark: [41, 41.2, 40.8, 41.5, 42, 41.8, 42.5, 42.8] },
-  { symbol: "VRE", name: "Vincom Retail", price: "18.350", change: 1.6, spark: [17.8, 17.9, 18, 17.95, 18.1, 18.2, 18.3, 18.35] },
-  { symbol: "VPL", name: "Vinpearl", price: "71.500", change: 4.2, spark: [67, 68, 67.5, 69, 70, 69.5, 71, 71.5] },
-  { symbol: "VFS", name: "VinFast Auto (Nasdaq)", price: "3.480", change: -1.8, spark: [3.7, 3.65, 3.6, 3.55, 3.5, 3.52, 3.48, 3.48] }
-];
-
-// Helper to simulate slight stock fluctuation
-function tickStocks() {
-  stocksState = stocksState.map(s => {
-    const isVfs = s.symbol === "VFS";
-    const currentPrice = parseFloat(s.price.replace(".", ""));
-    const factor = isVfs ? 0.05 : 100;
-    const changePercent = (Math.random() - 0.48) * 1.5; // slight positive bias
-    let newPriceValue = currentPrice + changePercent * factor;
-    if (newPriceValue < 100 && !isVfs) newPriceValue = 100;
-    if (newPriceValue < 1 && isVfs) newPriceValue = 1;
-
-    let formattedPrice = "";
-    if (isVfs) {
-      formattedPrice = newPriceValue.toFixed(3);
-    } else {
-      formattedPrice = Math.round(newPriceValue).toLocaleString("vi-VN").replace(/,/g, ".");
-    }
-
-    const currentSpark = [...s.spark.slice(1), parseFloat(formattedPrice)];
-
-    return {
-      ...s,
-      price: formattedPrice,
-      change: parseFloat((s.change + changePercent * 0.5).toFixed(2)),
-      spark: currentSpark
-    };
-  });
-  io.emit("stock:update", stocksState);
-}
+// ĐÃ GỠ BỎ: bộ mô phỏng giá cổ phiếu ngẫu nhiên (tickStocks/stocksState).
+// Lý do: (1) lỗi parseFloat(price.replace(".", "")) chỉ xoá dấu "." ĐẦU
+// TIÊN - với giá VFS dạng thập phân thực ("3.480"), lần tick sau đọc
+// nhầm dấu chấm thập phân thành dấu phân cách nghìn ("3.480" -> 3480),
+// nhân dồn ~1000 lần mỗi tick 5 giây, chỉ sau ~3 phút giá VFS tràn số
+// thành Infinity vĩnh viễn cho tới khi restart server. (2) Quan trọng
+// hơn: dữ liệu này độc lập hoàn toàn với investment_projects trên
+// Supabase, nên cứ mỗi 5 giây sẽ ĐÈ lên giá/biến động mà Admin vừa
+// chỉnh trong ProjectsTab, khiến admin không thể thực sự kiểm soát số
+// liệu cổ phiếu hiển thị cho người dùng. Stocks.jsx giờ đọc thẳng
+// investment_projects (category "Đầu tư chứng khoán") làm nguồn duy nhất.
 
 // Simulated active community list
 const communityNames = [
@@ -316,9 +289,6 @@ async function startServer() {
   // Socket.io connection handlers
   io.on("connection", (socket) => {
     console.log(`[Socket.io] Client connected: ${socket.id}`);
-    
-    // Send initial stock prices on connect
-    socket.emit("stock:update", stocksState);
 
     socket.on("client:ping", (callback) => {
       if (typeof callback === "function") {
@@ -347,7 +317,6 @@ async function startServer() {
   });
 
   // Start background periodic update intervals
-  setInterval(tickStocks, 5000);
   setInterval(triggerCommunityActivity, 12000);
   setInterval(runDailyInterestBatch, 15 * 60 * 1000);
   runDailyInterestBatch(); // chạy ngay lúc khởi động, không đợi 15 phút đầu tiên

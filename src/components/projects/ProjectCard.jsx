@@ -1,5 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
+import { TERM_RATE_LABEL, TERM_PAYOUT_COPY, getProjectTermUnit, getProjectTermDurationDisplayValue } from "@/lib/investmentTerms";
 
 export default function ProjectCard({ project, index, onDeposit }) {
   return (
@@ -26,22 +27,21 @@ export default function ProjectCard({ project, index, onDeposit }) {
 
         {/* Metrics Grid */}
         {(() => {
-          const isMinute = project?.category === "Dự Án" || project?.rate?.includes("phút") || project?.duration?.includes("phút");
-          const isHourly = !isMinute && (project?.category === "Nghỉ dưỡng" || project?.category === "Đầu tư nghỉ dưỡng" || project?.rate?.includes("giờ") || project?.title?.includes("Vinpearl"));
-          const rateLabel = isMinute ? "Lãi suất theo phút" : isHourly ? "Lãi suất theo giờ" : "Lãi suất theo ngày";
-          const payoutLabel = isMinute ? "Hoàn lãi hàng phút, trả gốc khi đáo hạn" : isHourly ? "Hoàn lãi hàng giờ, trả gốc khi đáo hạn" : "Hoàn lãi hàng ngày, trả gốc khi đáo hạn";
+          const termUnit = getProjectTermUnit(project);
+          const durationVal = getProjectTermDurationDisplayValue(project);
+          const durationLabel = `${durationVal} ${termUnit}`;
 
           return (
             <>
               <div className="grid grid-cols-3 gap-1.5 pb-3 border-b border-gray-100">
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[12px] font-bold text-[#A51C30]">{project.rate}</span>
+                  <span className="text-[12px] font-bold text-[#A51C30]">{project.total_term_interest_rate}%</span>
                   <span className="text-[9px] text-gray-500 leading-tight">
-                    {rateLabel}
+                    {TERM_RATE_LABEL}
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[12px] font-bold text-[#A51C30]">{project.duration}</span>
+                  <span className="text-[12px] font-bold text-[#A51C30]">{durationLabel}</span>
                   <span className="text-[9px] text-gray-500 leading-tight">Thời hạn của dự án</span>
                 </div>
                 <div className="flex flex-col gap-0.5">
@@ -58,7 +58,7 @@ export default function ProjectCard({ project, index, onDeposit }) {
                   Quy mô dự án: <span className="font-medium text-black">{project.scale}</span>
                 </p>
                 <p className="text-[11px] text-gray-700">
-                  {payoutLabel}
+                  {TERM_PAYOUT_COPY}
                 </p>
               </div>
             </>

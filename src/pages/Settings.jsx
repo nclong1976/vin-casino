@@ -1,5 +1,4 @@
 import React, { useState, useRef } from "react";
-import { Link } from "react-router-dom";
 import { useConfig } from "@/lib/ConfigContext";
 import { 
   Sliders, 
@@ -15,13 +14,12 @@ import {
   RotateCcw, 
   Download, 
   Upload, 
-  ArrowLeft, 
   Sparkles,
   Server,
   Key
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 
 export default function Settings() {
   const { config, updateConfig, resetConfig, triggerSound, t, exportConfigJson, importConfigJson, locales } = useConfig();
@@ -33,8 +31,7 @@ export default function Settings() {
     navigator.clipboard.writeText(text);
     setCopiedKey(keyName);
     triggerSound("click");
-    toast({
-      title: "Đã sao chép",
+    toast.success("Đã sao chép", {
       description: `${keyName}: ${text}`,
     });
     setTimeout(() => setCopiedKey(null), 2000);
@@ -583,8 +580,7 @@ export default function Settings() {
               type="button"
               onClick={() => {
                 triggerSound("win");
-                toast({
-                  title: t("savedSuccess"),
+                toast.success(t("savedSuccess"), {
                   description: "Cấu hình đã áp dụng ngay trên thiết bị của bạn.",
                 });
               }}

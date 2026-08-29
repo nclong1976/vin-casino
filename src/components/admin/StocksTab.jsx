@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { TrendingUp, Plus, Search, Pencil, Check, X, RefreshCw, Building2, Loader2 } from "lucide-react";
+import { TrendingUp, Plus, Search, Check, X, RefreshCw, ArrowRight } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 
@@ -61,19 +61,15 @@ const DEFAULT_STOCKS = [
   },
 ];
 
-export default function StocksTab() {
-  const [subTab, setSubTab] = useState("holdings"); // 'holdings' | 'tickers'
+export default function StocksTab({ onNavigateToProjects }) {
   const [projects, setProjects] = useState([]);
   const [stockOrders, setStockOrders] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [togglingId, setTogglingId] = useState(null);
   const [processingOrderId, setProcessingOrderId] = useState(null);
 
-  // Modals
-  const [editingStock, setEditingStock] = useState(null);
-  const [showAddStock, setShowAddStock] = useState(false);
+  // Modal
   const [showCreateOrder, setShowCreateOrder] = useState(false);
 
   // Form for Manual Stock Order Assignment
@@ -95,12 +91,10 @@ export default function StocksTab() {
         base44.entities.User.list().catch(() => []),
       ]);
 
-      // Filter stock projects
-      const stockProjs = allProjects.filter((p) => {
-        const c = (p.category || "").toLowerCase();
-        const t = (p.title || p.name || "").toLowerCase();
-        return c.includes("chứng khoán") || c.includes("cổ phiếu") || t.includes("cổ phiếu") || t.includes("cp");
-      });
+      // Lọc CHỈ theo category (trước đây có thêm t.includes("cp") - dò theo
+      // tiêu đề chứa 2 ký tự "cp" bất kỳ đâu, dễ khớp nhầm dự án không phải
+      // cổ phiếu).
+      const stockProjs = allProjects.filter((p) => (p.category || "").trim() === "Đầu tư chứng khoán");
 
       setProjects(stockProjs.length > 0 ? stockProjs : DEFAULT_STOCKS);
       setUsers(allUsers);
@@ -126,98 +120,6 @@ export default function StocksTab() {
 
   const totalStockVolume = stockOrders.reduce((s, o) => s + (Number(o.amount) || 0), 0);
   const totalCompletedOrders = stockOrders.filter((o) => (o.status || o.contract_status) === "approved" || o.status === "completed").length;
-
-  const handleToggleStockStatus = async (proj) => {
-    const nextStatus = !proj.is_active;
-    setTogglingId(proj.id || proj.symbol);
-    // So khớp bằng reference (x === proj) trước - proj.id có thể undefined
-    // với mã mặc định (DEFAULT_STOCKS) và "x.id === proj.id" sẽ khớp NHẦM
-    // mọi mã mặc định khác (undefined === undefined) nếu dùng riêng.
-    const matches = (x) => x === proj || (!!proj.id && x.id === proj.id);
-    setProjects((prev) => prev.map((x) => (matches(x) ? { ...x, is_active: nextStatus } : x)));
-    try {
-      let result;
-      if (proj.id) {
-        result = await base44.entities.Project.update(proj.id, { is_active: nextStatus });
-      } else {
-        // Mã mặc định (DEFAULT_STOCKS) chưa từng có dòng Project thật trong
-        // Supabase - trước đây bấm khóa chỉ đổi state cục bộ, fetchData()
-        // sau đó không thấy dòng thật nào nên lại rơi về DEFAULT_STOCKS
-        // (luôn is_active:true), khiến nút "Tạm khóa" báo thành công nhưng
-        // vô tác dụng. Tạo luôn 1 dòng Project thật ngay lần đầu toggle để
-        // trạng thái khóa/mở thực sự được lưu lại.
-        result = await base44.entities.Project.create({
-          id: `p_stock_${proj.symbol.toLowerCase()}`,
-          title: `Quỹ Cổ Phiếu ${proj.name} (${proj.symbol})`,
-          name: proj.name,
-          category: proj.category || "Đầu tư chứng khoán",
-          price_per_m2: Number(proj.price) || 45000,
-          priceStr: `${new Intl.NumberFormat("vi-VN").format(proj.price || 0)} ₫/CP`,
-          rate: proj.yieldRate || "15%/năm",
-          minAmount: String(proj.minAmount || "10000000"),
-          is_active: nextStatus,
-          description: proj.description || "",
-        });
-      }
-      if (result?.__supabaseSynced === false) {
-        throw new Error("Ghi lên máy chủ thất bại");
-      }
-      toast.success(`Đã ${nextStatus ? "MỞ" : "KHÓA"} giao dịch cổ phiếu "${proj.title || proj.symbol}"`);
-      fetchData();
-    } catch (e) {
-      setProjects((prev) => prev.map((x) => (matches(x) ? { ...x, is_active: proj.is_active } : x)));
-      toast.error("Lỗi khi thay đổi trạng thái cổ phiếu");
-    } finally {
-      setTogglingId(null);
-    }
-  };
-
-  const handleSaveStockTicker = async (stockData) => {
-    // Chặn niêm yết trùng ký hiệu: id sinh cố định theo symbol
-    // (`p_stock_${symbol}`) nên tạo mới với symbol đã tồn tại sẽ ÂM THẦM
-    // GHI ĐÈ mã cũ (upsert onConflict:id) trong khi UI vẫn báo "niêm yết
-    // mã MỚI" - không phải cập nhật.
-    if (!editingStock?.id) {
-      const dup = projects.find(
-        (p) => (p.symbol || "").toUpperCase() === stockData.symbol.toUpperCase()
-      );
-      if (dup) {
-        toast.error(`Mã ${stockData.symbol} đã tồn tại - vui lòng bấm "Điều chỉnh" thay vì thêm mới.`);
-        return;
-      }
-    }
-
-    try {
-      const payload = {
-        title: `Quỹ Cổ Phiếu ${stockData.name} (${stockData.symbol})`,
-        name: stockData.name,
-        category: "Đầu tư chứng khoán",
-        price_per_m2: Number(stockData.price) || 45000,
-        priceStr: `${new Intl.NumberFormat("vi-VN").format(stockData.price)} ₫/CP`,
-        rate: stockData.yieldRate || "15%/năm",
-        minAmount: String(stockData.minAmount || "10000000"),
-        is_active: stockData.is_active ?? true,
-        description: stockData.description || "",
-      };
-
-      let result;
-      if (editingStock?.id) {
-        result = await base44.entities.Project.update(editingStock.id, payload);
-      } else {
-        result = await base44.entities.Project.create({ ...payload, id: `p_stock_${stockData.symbol.toLowerCase()}` });
-      }
-      if (result?.__supabaseSynced === false) {
-        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
-        return;
-      }
-      toast.success(editingStock?.id ? `Đã cập nhật cổ phiếu ${stockData.symbol}` : `Đã niêm yết cổ phiếu ${stockData.symbol} mới`);
-      setEditingStock(null);
-      setShowAddStock(false);
-      fetchData();
-    } catch (e) {
-      toast.error("Không thể lưu mã cổ phiếu");
-    }
-  };
 
   const handleCreateOrderSubmit = async () => {
     if (!orderForm.userId) {
@@ -343,31 +245,27 @@ export default function StocksTab() {
         </div>
       </div>
 
-      {/* Switcher Tab Header */}
-      <div className="flex bg-gray-100 p-1 rounded-xl gap-1">
+      {/* Sửa giá/tỉ giá/mô tả/trạng thái mã cổ phiếu giờ CHỈ làm ở tab "Dự
+          án" (mục Đầu tư chứng khoán) - trước đây tab này có 1 form CRUD
+          riêng (StockTickerModal) sửa CHUNG 1 bảng investment_projects với
+          form của ProjectsTab, 2 form có bộ field khác nhau (form ở đây
+          thiếu lịch tự mở/tắt) nên sửa ở tab này có thể vô tình làm mất dữ
+          liệu mà tab kia coi trọng. Giữ lại tab này chỉ để duyệt lệnh giao
+          dịch của người dùng - không còn 2 nơi cùng sửa 1 dữ liệu. */}
+      <div className="flex items-center justify-between gap-3 bg-white rounded-2xl p-3.5 border border-indigo-100">
+        <p className="text-[11px] text-gray-500">
+          Sửa giá, tỉ giá, mô tả, trạng thái của <b>{projects.length} mã cổ phiếu</b> đã niêm yết trong tab <b>"Dự án"</b> (mục Đầu tư chứng khoán) để tránh 2 nơi cùng sửa 1 dữ liệu.
+        </p>
         <button
-          onClick={() => setSubTab("holdings")}
-          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-            subTab === "holdings" ? "bg-white text-indigo-900 shadow-xs" : "text-gray-500 hover:text-black"
-          }`}
+          onClick={onNavigateToProjects}
+          className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
         >
-          <TrendingUp className="w-4 h-4 text-emerald-600" />
-          <span>Danh mục & Lệnh giao dịch của Người dùng ({stockOrders.length})</span>
-        </button>
-        <button
-          onClick={() => setSubTab("tickers")}
-          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-            subTab === "tickers" ? "bg-white text-indigo-900 shadow-xs" : "text-gray-500 hover:text-black"
-          }`}
-        >
-          <Building2 className="w-4 h-4 text-amber-600" />
-          <span>Quản lý Mã Cổ Phiếu & Tỉ Giá ({projects.length})</span>
+          Đi tới Dự án <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* Sub-tab 1: User Stock Holdings & Transactions */}
-      {subTab === "holdings" && (
-        <div className="space-y-3">
+      {/* Danh mục & Lệnh giao dịch chứng khoán của Người dùng */}
+      <div className="space-y-3">
           <div className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-gray-200">
             <div className="relative flex-1">
               <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -471,83 +369,6 @@ export default function StocksTab() {
             </div>
           )}
         </div>
-      )}
-
-      {/* Sub-tab 2: Stock Ticker Management */}
-      {subTab === "tickers" && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-gray-800">Danh Sách Mã Cổ Phiếu Niêm Yết</h3>
-            <button
-              onClick={() => {
-                setEditingStock(null);
-                setShowAddStock(true);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" /> Thêm Mã Cổ Phiếu
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {projects.map((p, idx) => {
-              const symbol = p.symbol || (p.title || p.name || "").match(/\(([^)]+)\)/)?.[1] || "VIC";
-              const price = p.price_per_m2 || p.price || 45200;
-              const isActive = p.is_active ?? true;
-
-              return (
-                <div
-                  key={p.id || idx}
-                  className={`bg-white rounded-2xl p-4 border transition-all shadow-xs ${
-                    isActive ? "border-gray-200" : "border-amber-200 bg-amber-50/20"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-black text-indigo-900 font-mono">{symbol}</span>
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${isActive ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                          {isActive ? "Đang giao dịch" : "Khóa giao dịch"}
-                        </span>
-                      </div>
-                      <p className="text-xs font-semibold text-gray-700 mt-0.5">{p.name || p.title}</p>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-sm font-black text-emerald-600 font-mono block">
-                        {new Intl.NumberFormat("vi-VN").format(price)} ₫
-                      </span>
-                      <span className="text-[10px] font-bold text-indigo-600">{p.rate || "15.5%/năm"}</span>
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-gray-500 mt-2 line-clamp-2">{p.description || "Tích sản cổ phiếu sinh lời"}</p>
-
-                  <div className="flex items-center justify-between border-t border-gray-100 mt-3 pt-2.5">
-                    <button
-                      onClick={() => setEditingStock(p)}
-                      className="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Pencil className="w-3 h-3 text-indigo-600" /> Điều chỉnh giá & thông số
-                    </button>
-
-                    <button
-                      onClick={() => handleToggleStockStatus(p)}
-                      disabled={togglingId === (p.id || p.symbol)}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 disabled:opacity-60 disabled:cursor-wait ${
-                        isActive ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
-                      }`}
-                    >
-                      {togglingId === (p.id || p.symbol) && <Loader2 className="w-3 h-3 animate-spin" />}
-                      {isActive ? "Tạm khóa" : "Mở lại"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Modal: Create Manual Stock Order */}
       {showCreateOrder && (
@@ -636,125 +457,6 @@ export default function StocksTab() {
         </div>
       )}
 
-      {/* Modal: Add/Edit Stock Ticker */}
-      {(editingStock || showAddStock) && (
-        <StockTickerModal
-          stock={editingStock}
-          onClose={() => {
-            setEditingStock(null);
-            setShowAddStock(false);
-          }}
-          onSave={handleSaveStockTicker}
-        />
-      )}
-    </div>
-  );
-}
-
-function StockTickerModal({ stock, onClose, onSave }) {
-  const [form, setForm] = useState({
-    symbol: stock?.symbol || (stock?.title || "").match(/\(([^)]+)\)/)?.[1] || "VIC",
-    name: stock?.name || stock?.title || "Tập đoàn Vingroup",
-    price: stock?.price_per_m2 || stock?.price || 45200,
-    yieldRate: stock?.rate || "15.5%/năm",
-    minAmount: stock?.minAmount || 10000000,
-    is_active: stock?.is_active ?? true,
-    description: stock?.description || "",
-  });
-
-  return (
-    <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3" onClick={onClose}>
-      <div className="w-full max-w-sm bg-white rounded-2xl p-4 space-y-3 border border-gray-200 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-          <h3 className="text-sm font-bold text-indigo-900">
-            {stock?.id ? "Điều Chỉnh Mã Cổ Phiếu" : "Niêm Yết Cổ Phiếu Mới"}
-          </h3>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100">
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
-
-        <div className="space-y-2.5 text-xs">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="font-bold text-gray-700 block mb-1">Mã CP (Symbol):</label>
-              <input
-                value={form.symbol}
-                onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })}
-                placeholder="VIC"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 uppercase font-mono font-bold"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-gray-700 block mb-1">Giá Khớp Lệnh (₫/CP):</label>
-              <input
-                type="number"
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 font-mono font-bold"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="font-bold text-gray-700 block mb-1">Tên Doanh Nghiệp / Tên Cổ Phiếu:</label>
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Tập đoàn Vingroup"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="font-bold text-gray-700 block mb-1">Mức Lợi Nhuận Kỳ Vọng:</label>
-              <input
-                value={form.yieldRate}
-                onChange={(e) => setForm({ ...form, yieldRate: e.target.value })}
-                placeholder="15.5%/năm"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-gray-700 block mb-1">Mức Đặt Tối Thiểu (₫):</label>
-              <input
-                type="number"
-                value={form.minAmount}
-                onChange={(e) => setForm({ ...form, minAmount: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 font-mono"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="font-bold text-gray-700 block mb-1">Mô Tả Mã Cổ Phiếu:</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={2}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 resize-none"
-            />
-          </div>
-
-          <div className="flex items-center justify-between p-2 rounded-xl bg-gray-50 border border-gray-200">
-            <span className="font-bold text-gray-800">Trạng Thái Giao Dịch:</span>
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-              className="w-4 h-4 accent-indigo-600 cursor-pointer"
-            />
-          </div>
-        </div>
-
-        <button
-          onClick={() => onSave(form)}
-          className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all mt-2 cursor-pointer"
-        >
-          Lưu Mã Cổ Phiếu
-        </button>
-      </div>
     </div>
   );
 }

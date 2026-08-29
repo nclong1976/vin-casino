@@ -1,4 +1,5 @@
 import React from "react";
+import { TERM_RATE_LABEL } from "@/lib/investmentTerms";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
@@ -20,8 +21,8 @@ export default function ContractDocument({
   const today = new Date().toLocaleDateString("vi-VN");
   const [dd, mm, yyyy] = today.split("/");
 
-  const rateLabel = isMinute ? "Lãi suất theo phút" : isHourly ? "Lãi suất theo giờ" : "Lãi suất theo ngày";
-  const rateValStr = project?.rate || (isMinute ? `${rate}%/phút` : isHourly ? `${rate}%/giờ` : `${rate}%/ngày`);
+  const rateLabel = TERM_RATE_LABEL;
+  const rateValStr = `${rate}%`;
   const durationLabel = isMinute ? `${durationVal || 60} phút` : isHourly ? `${durationVal || hours || 24} giờ` : `${durationVal || days || 30} ngày`;
 
   return (

@@ -37,6 +37,7 @@ const DEFAULT_GAMES_MAINTENANCE = {
   "xuc-xac": { name: "Xúc Xắc", isMaintenance: false },
   "slots": { name: "Slots", isMaintenance: false },
   "co-quay": { name: "Cò Quay", isMaintenance: false },
+  "lucky-wheel": { name: "Vòng Quay May Mắn", isMaintenance: false },
 };
 
 const DEFAULT_CONFIG = {

@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Receipt, Clock, CheckCircle2, XCircle, Hourglass, Landmark, ShieldCheck, RefreshCw, Layers } from "lucide-react";
-import { adjustUserBalanceStrict } from "@/lib/balanceSync";
-
 const fmt = (num) => new Intl.NumberFormat("vi-VN").format(Math.max(0, Math.floor(num || 0))) + " ₫";
 
 // Một vòng cược hiển thị "LIVE 4:59" (~5 phút). Quá mốc này mà vé vẫn
@@ -338,53 +336,40 @@ export function resolveLatestCasinoBet(gameSlug, totalPayout, outcomeResultText,
   }
 }
 
-// Tự động "quyết toán" các vé pending đã quá hạn (vòng cược ~5 phút đã trôi
-// qua từ lâu mà vẫn chưa được resolveLatestCasinoBet() xử lý) - xảy ra khi
-// người chơi đóng tab/tải lại trang/điều hướng đi TRƯỚC khi
-// triggerDealAndReveal() kịp chạy, vì toàn bộ logic mở bài + tính thưởng chỉ
-// tồn tại trong bộ nhớ JS phía trình duyệt (setTimeout), không có tiến trình
-// phía server nào theo dõi các vòng cược đã khoá. Không có cách nào biết lại
-// kết quả ván bài THẬT đã bị bỏ lỡ đó, nên xử lý công bằng nhất là HOÀN TRẢ
-// nguyên số tiền cược (không tính thắng/thua) qua đúng RPC nguyên tử đã xác
-// minh hoạt động đúng (adjustUserBalanceStrict), thay vì để tiền "biến mất"
-// (bị trừ lúc đặt cược nhưng không bao giờ được xử lý) hoặc kẹt "pending"
-// vĩnh viễn trên sổ lệnh. Gọi hàm này 1 lần khi trang game mount.
-export async function reconcileStalePendingBets(gameSlug, userId) {
-  if (!userId) return;
+// Đánh dấu các vé "pending" đã quá hạn trong sổ lệnh HIỂN THỊ CỤC BỘ này là
+// "không xác định được kết quả" - KHÔNG hoàn tiền dựa trên dữ liệu
+// localStorage (bet.totalBet) như trước đây: localStorage do trình duyệt
+// người chơi tự giữ, ai đó có thể tự ghi 1 "vé" khống với totalBet tuỳ ý rồi
+// gọi thẳng RPC hoàn tiền qua devtools để tự cộng tiền không giới hạn. Việc
+// đặt/quyết toán cược thật giờ đăng ký + đọc lại số tiền THẬT từ server
+// (bảng casino_rounds, xem reconcileMyStaleCasinoRound() trong
+// supabaseDb.js) nên vòng cược thật bị bỏ dở đã được hoàn tự động ở đó rồi -
+// hàm này chỉ còn dọn dẹp hiển thị của sổ lệnh cho khớp.
+export function reconcileStalePendingBets(gameSlug) {
   try {
     const raw = localStorage.getItem("vinclub_my_bets_v1");
     if (!raw) return;
     const existing = JSON.parse(raw);
     const now = Date.now();
+    let changed = false;
 
-    const staleBets = existing.filter(
-      (b) =>
+    existing.forEach((b) => {
+      if (
         b.status === "pending" &&
         (!gameSlug || b.gameSlug === gameSlug) &&
-        // Vé cũ ghi từ trước khi thêm createdAtMs (undefined) không rõ tuổi
-        // thật - coi là quá hạn luôn thay vì để kẹt vĩnh viễn không bao giờ
-        // được xử lý.
         (b.createdAtMs === undefined || now - b.createdAtMs > ROUND_STALE_MS)
-    );
-    if (staleBets.length === 0) return;
+      ) {
+        b.status = "resolved";
+        b.payout = 0;
+        b.resultText = "Không xác định được kết quả - phiên chơi trước đã hết hạn";
+        changed = true;
+      }
+    });
 
-    for (const bet of staleBets) {
-      const result = await adjustUserBalanceStrict(userId, bet.totalBet, 0);
-      if (!result) {
-        // Không xác nhận được đã hoàn tiền thành công (RPC lỗi) - KHÔNG
-        // đánh dấu resolved, để lần mount kế tiếp thử hoàn lại, tránh mất
-        // dấu vé mà không hề được hoàn tiền.
-        continue;
-      }
-      const idx = existing.findIndex((b) => b.id === bet.id);
-      if (idx !== -1) {
-        existing[idx].status = "resolved";
-        existing[idx].payout = bet.totalBet;
-        existing[idx].resultText = "Hoàn cược tự động - phiên chơi đã hết hạn không xác định được kết quả";
-      }
+    if (changed) {
+      localStorage.setItem("vinclub_my_bets_v1", JSON.stringify(existing));
+      window.dispatchEvent(new CustomEvent("vinclub:my_bets_updated"));
     }
-    localStorage.setItem("vinclub_my_bets_v1", JSON.stringify(existing));
-    window.dispatchEvent(new CustomEvent("vinclub:my_bets_updated"));
   } catch (e) {
     console.error("Failed to reconcile stale pending bets", e);
   }

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { locales } from "@/locales/localesData";
 import { playSound } from "@/lib/soundFx";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 
 const defaultConfig = {
   appId: "vinclub_prestige_v1",
@@ -66,8 +66,7 @@ export const ConfigProvider = ({ children }) => {
   const resetConfig = () => {
     setConfig(defaultConfig);
     localStorage.removeItem("vinclub_app_config");
-    toast({
-      title: "Đã khôi phục cài đặt mặc định",
+    toast.success("Đã khôi phục cài đặt mặc định", {
       description: "Tất cả thông số đã được đưa về cấu hình ban đầu.",
     });
     if (defaultConfig.soundEnabled) {
@@ -95,8 +94,7 @@ export const ConfigProvider = ({ children }) => {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
-    toast({
-      title: "Đã xuất tập tin cấu hình",
+    toast.success("Đã xuất tập tin cấu hình", {
       description: "File JSON đã được tải về thiết bị của bạn.",
     });
   };
@@ -105,16 +103,13 @@ export const ConfigProvider = ({ children }) => {
     try {
       const parsed = JSON.parse(jsonString);
       setConfig((prev) => ({ ...prev, ...parsed }));
-      toast({
-        title: "Nhập cấu hình thành công",
+      toast.success("Nhập cấu hình thành công", {
         description: "Các thông số đã được cập nhật.",
       });
       triggerSound("win");
     } catch (err) {
-      toast({
-        title: "Lỗi định dạng JSON",
+      toast.error("Lỗi định dạng JSON", {
         description: "Tập tin không hợp lệ, vui lòng kiểm tra lại.",
-        variant: "destructive"
       });
     }
   };
