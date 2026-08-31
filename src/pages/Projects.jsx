@@ -24,7 +24,7 @@ export default function Projects() {
     if (!Array.isArray(all)) return;
     setProjects(
       all
-        .filter((p) => isDuAnProject(p) && (p.is_active ?? true))
+        .filter((p) => isDuAnProject(p))
         // ProjectCard/DepositModal đọc "minAmount" (camelCase, quy ước lịch
         // sử của cả 2 component) trong khi cột Postgres thật là "min_amount"
         // - thiếu dòng map này khiến số tiền tối thiểu luôn bị đọc thành 0,

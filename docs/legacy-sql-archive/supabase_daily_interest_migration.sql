@@ -10,13 +10,17 @@
 -- chế cộng lãi theo % cấp thẻ VIP nhưng an toàn tận gốc:
 --   1. Toàn bộ tính toán + ghi tiền nằm trong 1 câu lệnh SQL set-based DUY
 --      NHẤT (không phải vòng lặp đọc-rồi-ghi phía JS) - điều kiện chống lặp
---      (last_interest_credited_date < CURRENT_DATE) nằm ngay trong WHERE của
---      chính câu UPDATE, nên dù hàm bị gọi trùng bao nhiêu lần trong ngày,
---      mỗi user chỉ được cộng đúng 1 lần.
+--      (last_interest_credited_date < ngày hôm nay theo giờ VN) nằm ngay
+--      trong WHERE của chính câu UPDATE, nên dù hàm bị gọi trùng bao nhiêu
+--      lần trong ngày, mỗi user chỉ được cộng đúng 1 lần.
 --   2. Hàm CHỈ được gọi bởi service_role (tiến trình server, không phải
 --      trình duyệt của bất kỳ ai) - REVOKE khỏi anon/authenticated.
 --   3. daily_interest_enabled mặc định FALSE cho mọi user - chỉ tài khoản
 --      admin tự tay bật (qua UserDetailModal.jsx) mới được cộng lãi.
+--   4. Chỉ thực sự cộng lãi từ 9h00 sáng giờ Việt Nam (Asia/Ho_Chi_Minh,
+--      UTC+7) trở đi mỗi ngày - trước mốc đó hàm tự thoát sớm, không cộng.
+--      server.ts vẫn gọi hàm này mỗi 15 phút như cũ; độ trễ thực tế cộng lãi
+--      sau 9h00 tối đa ~15 phút (theo chu kỳ poll), không cần cron riêng.
 -- ============================================================================
 
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS daily_interest_enabled boolean NOT NULL DEFAULT false;
@@ -28,7 +32,34 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_vn_date date;
+  v_vn_hour numeric;
 BEGIN
+  -- Mọi mốc "ngày" và "giờ" trong hàm này tính theo giờ Việt Nam
+  -- (Asia/Ho_Chi_Minh, UTC+7, không có DST) - KHÔNG dùng CURRENT_DATE/now()
+  -- mặc định vì Postgres server chạy theo UTC, lệch 7 tiếng so với giờ VN sẽ
+  -- khiến "ngày" đổi sai thời điểm và mốc 9h sáng bị tính nhầm.
+  v_vn_date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
+  v_vn_hour := EXTRACT(HOUR FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh'));
+
+  -- Trước 9h sáng giờ VN: chưa tới giờ cộng lãi hôm nay, không làm gì cả.
+  -- Hàm này được server gọi định kỳ (server.ts, mỗi 15 phút) nên tự thoát
+  -- sớm ở đây an toàn - không cần cron riêng theo giờ VN phía server.
+  IF v_vn_hour < 9 THEN
+    RETURN;
+  END IF;
+
+  -- Bắt buộc phải bật cờ này TRƯỚC khi UPDATE public.users, nếu không trigger
+  -- bảo vệ protect_privileged_user_fields() (thêm sau ở migration
+  -- restrict_set_user_balance_absolute) sẽ âm thầm revert balance/
+  -- balance_version về giá trị cũ với MỌI UPDATE không phải từ admin/RPC tin
+  -- cậy - đúng lỗi đã xảy ra khi tính năng này được kích hoạt lần đầu: hàm
+  -- báo cộng lãi thành công, tự ghi cả dòng lịch sử "bonus" vào
+  -- wallet_transactions, nhưng balance thật không hề đổi (đã phát hiện +
+  -- vá qua migration fix_credit_daily_interest_batch_trusted_rpc).
+  PERFORM set_config('app.trusted_balance_rpc', 'on', true);
+
   RETURN QUERY
   WITH eligible AS (
     SELECT u.id, u.balance,
@@ -41,7 +72,7 @@ BEGIN
     FROM public.users u
     WHERE u.daily_interest_enabled = true
       AND u.is_locked = false
-      AND (u.last_interest_credited_date IS NULL OR u.last_interest_credited_date < CURRENT_DATE)
+      AND (u.last_interest_credited_date IS NULL OR u.last_interest_credited_date < v_vn_date)
     FOR UPDATE OF u SKIP LOCKED
   ),
   computed AS (
@@ -53,7 +84,7 @@ BEGIN
     UPDATE public.users u
     SET balance = u.balance + c.amount,
         balance_version = u.balance_version + 1,
-        last_interest_credited_date = CURRENT_DATE
+        last_interest_credited_date = v_vn_date
     FROM computed c
     WHERE u.id = c.id
     RETURNING u.id, c.amount AS credited_amount, u.balance AS new_balance, c.rate AS tier_rate
@@ -61,14 +92,14 @@ BEGIN
   logged AS (
     INSERT INTO public.wallet_transactions (id, user_id, type, amount, status, category, note, code, created_date)
     SELECT
-      'wtx_int_' || up.id || '_' || to_char(CURRENT_DATE, 'YYYYMMDD'),
+      'wtx_int_' || up.id || '_' || to_char(v_vn_date, 'YYYYMMDD'),
       up.id,
       'bonus',
       up.credited_amount,
       'approved',
       'Lãi Hàng Ngày Theo Cấp VIP',
-      'Lãi ngày ' || to_char(CURRENT_DATE, 'DD/MM/YYYY') || ' (' || (up.tier_rate * 100) || '%/ngày) [ref:interest:' || up.id || ':' || to_char(CURRENT_DATE, 'YYYYMMDD') || ']',
-      'LAI' || to_char(CURRENT_DATE, 'YYYYMMDD') || upper(right(up.id, 6)),
+      'Lãi ngày ' || to_char(v_vn_date, 'DD/MM/YYYY') || ' (' || (up.tier_rate * 100) || '%/ngày, cộng lúc 9h sáng giờ VN) [ref:interest:' || up.id || ':' || to_char(v_vn_date, 'YYYYMMDD') || ']',
+      'LAI' || to_char(v_vn_date, 'YYYYMMDD') || upper(right(up.id, 6)),
       now()
     FROM updated up
     ON CONFLICT (id) DO NOTHING

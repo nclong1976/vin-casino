@@ -20,6 +20,7 @@ export async function notifyUser(userId, { title, content, type = "system" } = {
   return base44.entities.Message.create({
     sender: "admin",
     conversation_id: userId,
+    user_id: userId,
     content: title ? `[${title}]\n\n${content}` : content,
     attachments: [],
   });

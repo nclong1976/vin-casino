@@ -12,9 +12,34 @@ import { hydrateUserOnNewDevice } from '@/lib/syncEngine';
 
 const AuthContext = createContext(null);
 
+// Cờ "đang chờ xác thực OTP" - PHẢI tách riêng khỏi isAuthenticated. Trước
+// đây màn OTP ở Login.jsx chỉ là state cục bộ của component đó, trong khi
+// isAuthenticated (quyết định App.jsx có cho vào app hay không) đã bật ngay
+// khi supaSignIn() thành công - nghĩa là OTP không hề chặn được gì, chỉ là
+// UI hiện ra rồi bị App.jsx thay bằng Trang chủ trước khi kịp thấy. Cờ này
+// lưu cả vào localStorage để việc rời/mở lại tab giữa chừng bước OTP vẫn
+// giữ đúng trạng thái "chưa xác thực xong".
+const OTP_PENDING_KEY = 'vinclub_otp_pending';
+
+function readOtpPending() {
+  try {
+    return localStorage.getItem(OTP_PENDING_KEY) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function writeOtpPending(pending) {
+  try {
+    if (pending) localStorage.setItem(OTP_PENDING_KEY, '1');
+    else localStorage.removeItem(OTP_PENDING_KEY);
+  } catch (e) {}
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [otpPending, setOtpPendingState] = useState(readOtpPending);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -300,6 +325,19 @@ export const AuthProvider = ({ children }) => {
     setIsLoadingPublicSettings(false);
   };
 
+  /** Đánh dấu cần xác thực OTP trước khi được coi là đăng nhập xong - gọi
+   * ngay khi mật khẩu đúng (Login.jsx), TRƯỚC khi cho vào app. */
+  const requireOtpVerification = () => {
+    writeOtpPending(true);
+    setOtpPendingState(true);
+  };
+
+  /** Gọi khi người dùng nhập đúng mã OTP - gỡ cờ chặn để App.jsx cho vào app. */
+  const markOtpVerified = () => {
+    writeOtpPending(false);
+    setOtpPendingState(false);
+  };
+
   const logout = async () => {
     try {
       await supaSignOut();
@@ -308,6 +346,8 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('base44_local_token');
     localStorage.removeItem('vinclub_supabase_session');
     sessionStorage.setItem('vinclub_welcome_seen', 'true');
+    writeOtpPending(false);
+    setOtpPendingState(false);
     setUser(null);
     setIsAuthenticated(false);
     window.location.href = '/login';
@@ -322,6 +362,11 @@ export const AuthProvider = ({ children }) => {
   const switchAccount = async (userId) => {
     const ok = await switchToSavedAccount(userId);
     if (ok) {
+      // Chuyển giữa các tài khoản ĐÃ TỪNG đăng nhập (và qua OTP) trên cùng
+      // thiết bị này - không bắt xác thực OTP lại, đúng mục đích "chuyển
+      // nhanh không cần đăng nhập lại" của tính năng này.
+      writeOtpPending(false);
+      setOtpPendingState(false);
       window.location.href = '/';
     }
     return ok;
@@ -340,6 +385,9 @@ export const AuthProvider = ({ children }) => {
       authError,
       appPublicSettings,
       authChecked,
+      otpPending,
+      requireOtpVerification,
+      markOtpVerified,
       logout,
       switchAccount,
       navigateToLogin,

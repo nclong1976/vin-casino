@@ -1,176 +1,236 @@
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, X, Trash2 } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
+import confetti from "canvas-confetti";
+import { Target, Plus, Wallet } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
+import CircularProgress from "@/components/goals/CircularProgress";
+import GoalCard from "@/components/goals/GoalCard";
+import GoalFormModal from "@/components/goals/GoalFormModal";
+import GoalFundsModal from "@/components/goals/GoalFundsModal";
+import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
+import { refreshLocalUserFromSupabase } from "@/lib/balanceSync";
+import { contributeToSavingsGoal, withdrawFromSavingsGoal, deleteSavingsGoalWithRefund, getSupabaseUser } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
-const INITIAL_GOALS = [
-  { id: 1, title: "Quỹ hưu trí", target: 500000000, current: 125000000, color: "#948154" },
-  { id: 2, title: "Du lịch châu Âu", target: 80000000, current: 35000000, color: "#3B82F6" },
-  { id: 3, title: "Mua xe hơi", target: 600000000, current: 180000000, color: "#10B981" },
-];
+function fireConfetti() {
+  confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ["#948154", "#eddab3", "#10B981"] });
+  setTimeout(() => confetti({ particleCount: 60, spread: 100, origin: { y: 0.7 } }), 250);
+}
 
 export default function Goals() {
-  const [goals, setGoals] = useState(INITIAL_GOALS);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ title: "", target: "" });
+  const { user } = useAuth();
+  const [goals, setGoals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("active");
+  const [formTarget, setFormTarget] = useState(undefined); // undefined=closed, null=new, object=edit
+  const [fundsModal, setFundsModal] = useState(null); // { mode, goal }
 
-  const handleAdd = () => {
-    if (!form.title || !form.target) {
-      toast.error("Vui lòng nhập đầy đủ");
+  const loadGoals = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const list = await base44.entities.SavingsGoal.list("-created_date", 200);
+      setGoals(Array.isArray(list) ? list : []);
+    } catch (e) {
+      // quiet fallback - giữ danh sách đang có
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadGoals();
+    const unsub = base44.entities.SavingsGoal.subscribe(() => loadGoals());
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [loadGoals]);
+
+  const activeGoals = goals.filter((g) => g.status !== "completed");
+  const completedGoals = goals.filter((g) => g.status === "completed");
+  const visibleGoals = activeTab === "active" ? activeGoals : completedGoals;
+
+  const totalTarget = activeGoals.reduce((s, g) => s + Number(g.target_amount || 0), 0);
+  const totalCurrent = activeGoals.reduce((s, g) => s + Number(g.current_amount || 0), 0);
+  const overallPct = totalTarget > 0 ? (totalCurrent / totalTarget) * 100 : 0;
+
+  const handleSaveGoal = async (data) => {
+    try {
+      if (formTarget && formTarget.id) {
+        await base44.entities.SavingsGoal.update(formTarget.id, data);
+        toast.success("Đã cập nhật mục tiêu");
+      } else {
+        await base44.entities.SavingsGoal.create({ ...data, user_id: user.id, current_amount: 0, status: "active" });
+        toast.success("Đã tạo mục tiêu mới");
+      }
+      setFormTarget(undefined);
+      loadGoals();
+    } catch (e) {
+      toast.error("Không thể lưu mục tiêu, vui lòng thử lại");
+    }
+  };
+
+  /** Đọc lại balance thật từ Supabase (nguồn sự thật, vừa được RPC nguyên tử
+   * cập nhật) và áp ngay vào cache cục bộ + state để UI phản ánh tức thì,
+   * không phải đợi kênh Realtime. */
+  const refreshBalanceDisplay = async () => {
+    try {
+      const dbUser = await getSupabaseUser(user.id);
+      if (dbUser) refreshLocalUserFromSupabase(user.id, dbUser);
+    } catch (e) {}
+  };
+
+  const handleDeleteGoal = async (goal) => {
+    const current = Number(goal.current_amount || 0);
+    toast(`Xoá mục tiêu "${goal.title}"?`, {
+      description: current > 0 ? `${fmt(current)} VNĐ đang tiết kiệm sẽ được hoàn lại vào ví chính.` : undefined,
+      action: {
+        label: "Xoá",
+        onClick: async () => {
+          const ok = await deleteSavingsGoalWithRefund(goal.id);
+          if (!ok) {
+            toast.error("Không thể xoá mục tiêu, vui lòng thử lại");
+            return;
+          }
+          toast.success(current > 0 ? `Đã xoá mục tiêu và hoàn ${fmt(current)} VNĐ về ví` : "Đã xoá mục tiêu");
+          if (current > 0) await refreshBalanceDisplay();
+          loadGoals();
+        },
+      },
+      cancel: { label: "Huỷ" },
+    });
+  };
+
+  const handleConfirmFunds = async (amount) => {
+    const { mode, goal } = fundsModal;
+    const isContribute = mode === "contribute";
+    const wasCompleted = goal.status === "completed";
+
+    // RPC nguyên tử duy nhất cho mỗi chiều - trừ/cộng ví VÀ cập nhật mục
+    // tiêu cùng lúc trong 1 transaction Postgres, không còn rủi ro "1 vế
+    // thành công, 1 vế lỗi" như cách ghép 2 lệnh rời rạc trước đây.
+    const goalResult = isContribute
+      ? await contributeToSavingsGoal(goal.id, amount)
+      : await withdrawFromSavingsGoal(goal.id, amount);
+
+    if (!goalResult) {
+      toast.error(isContribute ? "Không thể nạp vào mục tiêu, vui lòng thử lại" : "Không thể rút từ mục tiêu, vui lòng thử lại");
       return;
     }
-    const colors = ["#948154", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
-    setGoals([
-      ...goals,
-      {
-        id: Date.now(),
-        title: form.title,
-        target: parseInt(form.target),
-        current: 0,
-        color: colors[goals.length % colors.length],
-      },
-    ]);
-    setForm({ title: "", target: "" });
-    setShowAdd(false);
-    toast.success("Đã tạo mục tiêu mới");
-  };
 
-  const handleDelete = (id) => {
-    setGoals(goals.filter((g) => g.id !== id));
-    toast.success("Đã xóa mục tiêu");
-  };
+    if (isContribute && !wasCompleted && goalResult.status === "completed") {
+      fireConfetti();
+      toast.success(`🎉 Chúc mừng! Đã hoàn thành mục tiêu "${goal.title}"`);
+    } else {
+      toast.success(isContribute ? `Đã nạp ${fmt(amount)} VNĐ vào "${goal.title}"` : `Đã rút ${fmt(amount)} VNĐ về ví chính`);
+    }
 
-  const totalTarget = goals.reduce((s, g) => s + g.target, 0);
-  const totalCurrent = goals.reduce((s, g) => s + g.current, 0);
+    setFundsModal(null);
+    await refreshBalanceDisplay();
+    loadGoals();
+  };
 
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
-      <PageHeader title="Mục tiêu" />
+      <PageHeader title="Mục tiêu tiết kiệm" />
       <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-[13px] font-bold text-black flex items-center gap-1.5">
-              <Target className="w-4 h-4 text-[#948154]" /> Tổng quan
-            </h2>
-          </div>
-          <div className="flex justify-between text-[11px] mb-1">
-            <span className="text-gray-400">Tiến độ chung</span>
-            <span className="font-bold text-[#948154]">
-              {((totalCurrent / totalTarget) * 100 || 0).toFixed(1)}%
-            </span>
-          </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-[#948154] to-[#6b5e3e] rounded-full transition-all duration-500"
-              style={{ width: `${(totalCurrent / totalTarget) * 100 || 0}%` }}
-            />
-          </div>
-          <div className="flex justify-between mt-2 text-[11px]">
-            <span className="text-gray-400">Đã tiết kiệm</span>
-            <span className="font-bold text-black">{fmt(totalCurrent)} VNĐ</span>
-          </div>
-          <div className="flex justify-between text-[11px]">
-            <span className="text-gray-400">Mục tiêu</span>
-            <span className="font-bold text-black">{fmt(totalTarget)} VNĐ</span>
+        {/* Tổng quan */}
+        <div className="bg-gradient-to-br from-[#1a1715] via-[#26211c] to-[#1a1715] rounded-2xl p-4 shadow-md text-white">
+          <div className="flex items-center gap-4">
+            <CircularProgress percent={overallPct} size={72} strokeWidth={7} color="#eddab3">
+              <span className="text-[13px] font-bold text-[#eddab3]">{overallPct.toFixed(0)}%</span>
+            </CircularProgress>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] text-white/60 flex items-center gap-1">
+                <Target className="w-3 h-3" /> Tổng tiến độ {activeGoals.length} mục tiêu
+              </p>
+              <p className="text-[16px] font-bold mt-0.5">{fmt(totalCurrent)} <span className="text-[11px] font-normal text-white/50">/ {fmt(totalTarget)} VNĐ</span></p>
+              {user && (
+                <p className="text-[10px] text-white/50 mt-1.5 flex items-center gap-1">
+                  <Wallet className="w-3 h-3" /> Số dư khả dụng: <span className="font-semibold text-white/80">{fmt(user.balance)} VNĐ</span>
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
-        {goals.map((g, i) => {
-          const pct = (g.current / g.target) * 100 || 0;
-          return (
-            <motion.div
+        {/* Tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab("active")}
+            className={`flex-1 py-2 rounded-xl text-[11.5px] font-semibold transition-all ${
+              activeTab === "active" ? "bg-[#948154] text-white" : "bg-white text-gray-500"
+            }`}
+          >
+            Đang thực hiện ({activeGoals.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("completed")}
+            className={`flex-1 py-2 rounded-xl text-[11.5px] font-semibold transition-all ${
+              activeTab === "completed" ? "bg-[#948154] text-white" : "bg-white text-gray-500"
+            }`}
+          >
+            Đã hoàn thành ({completedGoals.length})
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-[12px] text-gray-400">Đang tải mục tiêu...</div>
+        ) : visibleGoals.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-200 px-4 space-y-1.5"
+          >
+            <Target className="w-8 h-8 text-gray-200 mx-auto" />
+            <p className="text-[12px] font-semibold text-gray-500">
+              {activeTab === "active" ? "Chưa có mục tiêu nào đang thực hiện" : "Chưa hoàn thành mục tiêu nào"}
+            </p>
+            {activeTab === "active" && (
+              <p className="text-[10.5px] text-gray-400">Tạo mục tiêu đầu tiên để bắt đầu tiết kiệm có kế hoạch</p>
+            )}
+          </motion.div>
+        ) : (
+          visibleGoals.map((g, i) => (
+            <GoalCard
               key={g.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08 }}
-              className="bg-white rounded-xl p-3 shadow-sm"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: g.color }} />
-                  <p className="text-[12px] font-bold text-black">{g.title}</p>
-                </div>
-                <button onClick={() => handleDelete(g.id)} className="text-gray-300 hover:text-red-400">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="flex justify-between text-[10px] text-gray-400 mt-2 mb-1">
-                <span>{fmt(g.current)} VNĐ</span>
-                <span>{fmt(g.target)} VNĐ</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%`, background: g.color }}
-                />
-              </div>
-              <p className="text-[10px] font-bold text-right mt-1" style={{ color: g.color }}>
-                {pct.toFixed(1)}%
-              </p>
-            </motion.div>
-          );
-        })}
+              goal={g}
+              index={i}
+              onContribute={(goal) => setFundsModal({ mode: "contribute", goal })}
+              onWithdraw={(goal) => setFundsModal({ mode: "withdraw", goal })}
+              onEdit={(goal) => setFormTarget(goal)}
+              onDelete={handleDeleteGoal}
+            />
+          ))
+        )}
 
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => setFormTarget(null)}
           className="w-full py-2.5 rounded-xl border border-dashed border-[#948154]/30 text-[12px] font-medium text-[#948154] flex items-center justify-center gap-1.5 hover:bg-[#948154]/5"
         >
           <Plus className="w-4 h-4" /> Thêm mục tiêu
         </button>
       </div>
 
-      <AnimatePresence>
-        {showAdd && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50"
-            onClick={() => setShowAdd(false)}
-          >
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              className="w-full max-w-[331px] bg-white rounded-t-2xl p-4 space-y-3"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between">
-                <h2 className="text-[14px] font-bold text-black">Mục tiêu mới</h2>
-                <button onClick={() => setShowAdd(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">
-                  <X className="w-4 h-4 text-gray-500" />
-                </button>
-              </div>
-              <div>
-                <p className="text-[11px] font-medium text-gray-600 mb-1">Tên mục tiêu</p>
-                <input
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="VD: Quỹ giáo dục con cái"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-[12px] focus:outline-none focus:border-[#948154]"
-                />
-              </div>
-              <div>
-                <p className="text-[11px] font-medium text-gray-600 mb-1">Số tiền mục tiêu (VNĐ)</p>
-                <input
-                  type="number"
-                  value={form.target}
-                  onChange={(e) => setForm({ ...form, target: e.target.value })}
-                  placeholder="VD: 100000000"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-[12px] focus:outline-none focus:border-[#948154]"
-                />
-              </div>
-              <button onClick={handleAdd} className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[12px] font-semibold">
-                Tạo mục tiêu
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <GoalFormModal
+        open={formTarget !== undefined}
+        goal={formTarget}
+        onClose={() => setFormTarget(undefined)}
+        onSave={handleSaveGoal}
+      />
+
+      <GoalFundsModal
+        open={!!fundsModal}
+        mode={fundsModal?.mode}
+        goal={fundsModal?.goal}
+        walletBalance={user?.balance}
+        onClose={() => setFundsModal(null)}
+        onConfirm={handleConfirmFunds}
+      />
+
       <BottomNav />
     </main>
   );

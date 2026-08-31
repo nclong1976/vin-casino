@@ -163,6 +163,80 @@ export async function setUserBalanceAbsolute(userId, balance, totalDeposited) {
 }
 
 /**
+ * Nạp tiền từ ví chính vào 1 mục tiêu tiết kiệm - nguyên tử 100% (trừ ví +
+ * cộng mục tiêu trong CÙNG 1 transaction Postgres, tự chuyển active/completed).
+ * KHÔNG dùng increment_user_balance() cho vế trừ ví vì RPC đó vẫn đủ (self
+ * debit luôn được phép), nhưng viết gộp ở đây để đảm bảo tính nguyên tử thật
+ * sự thay vì 2 lệnh rời rạc phía client (tránh trạng thái nửa vời nếu 1 vế
+ * lỗi giữa chừng). Trả về bản ghi mục tiêu mới nhất, hoặc null nếu lỗi (số
+ * dư không đủ, tài khoản khoá, không sở hữu mục tiêu...).
+ */
+export async function contributeToSavingsGoal(goalId, amount) {
+  if (!goalId) return null;
+  try {
+    const { data, error } = await supabase.rpc('contribute_to_savings_goal', {
+      p_goal_id: goalId,
+      p_amount: Math.trunc(Number(amount) || 0),
+    });
+    if (error) {
+      console.warn('[SupabaseDb] contributeToSavingsGoal error:', error.message);
+      return null;
+    }
+    return Array.isArray(data) ? data[0] : data;
+  } catch (e) {
+    console.warn('[SupabaseDb] contributeToSavingsGoal exception:', e);
+    return null;
+  }
+}
+
+/**
+ * Rút tiền từ 1 mục tiêu tiết kiệm về lại ví chính - nguyên tử 100%. Tiền
+ * không hề được "tạo mới": chỉ chuyển từ savings_goals.current_amount (đã
+ * thuộc về chính user này) sang users.balance của CHÍNH họ, nên bỏ qua được
+ * giới hạn "user thường không tự cộng dương vào ví" của increment_user_balance()
+ * - RPC riêng này tự xác thực bằng quyền sở hữu mục tiêu (WHERE user_id =
+ * auth.uid()) thay vì is_admin().
+ */
+export async function withdrawFromSavingsGoal(goalId, amount) {
+  if (!goalId) return null;
+  try {
+    const { data, error } = await supabase.rpc('withdraw_from_savings_goal', {
+      p_goal_id: goalId,
+      p_amount: Math.trunc(Number(amount) || 0),
+    });
+    if (error) {
+      console.warn('[SupabaseDb] withdrawFromSavingsGoal error:', error.message);
+      return null;
+    }
+    return Array.isArray(data) ? data[0] : data;
+  } catch (e) {
+    console.warn('[SupabaseDb] withdrawFromSavingsGoal exception:', e);
+    return null;
+  }
+}
+
+/**
+ * Xoá 1 mục tiêu tiết kiệm - nếu còn tiền đang tiết kiệm (current_amount > 0)
+ * thì tự hoàn về ví chính TRƯỚC khi xoá, cùng 1 transaction nguyên tử (không
+ * thể xảy ra trường hợp xoá xong mà tiền "biến mất" do bước hoàn tiền lỗi
+ * giữa chừng). Trả về true nếu thành công, false/null nếu lỗi (không sở hữu...).
+ */
+export async function deleteSavingsGoalWithRefund(goalId) {
+  if (!goalId) return null;
+  try {
+    const { data, error } = await supabase.rpc('delete_savings_goal', { p_goal_id: goalId });
+    if (error) {
+      console.warn('[SupabaseDb] deleteSavingsGoalWithRefund error:', error.message);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[SupabaseDb] deleteSavingsGoalWithRefund exception:', e);
+    return null;
+  }
+}
+
+/**
  * Admin duyệt/từ chối 1 lệnh rút tiền qua RPC process_withdrawal() - đổi
  * status + hoàn tiền (nếu từ chối) + ghi audit log/notification trong CÙNG
  * 1 transaction Postgres, khoá đúng dòng (FOR UPDATE + status='pending')
@@ -725,6 +799,7 @@ const ENTITY_TABLE_MAP = {
   Transaction: 'transactions',
   AuditLog: 'audit_logs',
   News: 'news',
+  SavingsGoal: 'savings_goals',
 };
 
 // Whitelist cột thật của từng bảng - field nào không nằm trong danh sách
@@ -739,6 +814,7 @@ const ENTITY_COLUMNS = {
   Transaction: ['id', 'user_id', 'user_email', 'user_name', 'project_id', 'project_name', 'project_title', 'category', 'amount', 'shares', 'method', 'rate', 'duration_days', 'profit', 'total', 'status', 'payout_status', 'contract_status', 'signature_type', 'signature_content', 'note', 'created_date'],
   AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
   News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date'],
+  SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
 };
 
 /** Tách một object thành {cột thật theo whitelist..., extra: {phần còn lại}} */

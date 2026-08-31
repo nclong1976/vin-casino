@@ -217,14 +217,8 @@ export default function AppRulesModal({ open, onClose }) {
                   </div>
 
                   <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-1.5 text-[10.5px]">
-                    <p className="font-bold text-black">• Mã giới thiệu độc quyền:</p>
-                    <p className="pl-2 text-gray-700">Mã kích hoạt đăng ký tài khoản bắt buộc: <span className="font-mono font-bold text-[#948154]">E-CUV</span>.</p>
-
-                    <p className="font-bold text-black pt-1">• Mã PIN giao dịch 6 chữ số:</p>
+                    <p className="font-bold text-black">• Mã PIN giao dịch 6 chữ số:</p>
                     <p className="pl-2 text-gray-700">Thiết lập mã PIN cá nhân bắt buộc khi tạo lệnh rút tiền hoặc duyệt đầu tư lớn.</p>
-
-                    <p className="font-bold text-black pt-1">• Cập nhật số dư thời gian thực:</p>
-                    <p className="pl-2 text-gray-700">Toàn bộ biến động số dư và thông báo hệ thống được đồng bộ tức thì qua Firebase Sync.</p>
                   </div>
                 </div>
               )}

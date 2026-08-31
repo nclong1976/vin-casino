@@ -1,10 +1,11 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { ResponsiveContainer, AreaChart, Area } from "recharts";
-import { ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Lock } from "lucide-react";
 
 export default function StockCard({ stock, index, onTrade }) {
   const up = stock.change >= 0;
+  const isActive = stock.is_active ?? true;
   const color = up ? "#10b981" : "#ef4444";
   const data = stock.spark.map((v) => ({ v }));
 
@@ -13,8 +14,15 @@ export default function StockCard({ stock, index, onTrade }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.08, type: "spring", stiffness: 260, damping: 22 }}
-      className="rounded-2xl p-3.5 bg-[#151b24] border border-[#222c38]"
+      className={`rounded-2xl p-3.5 bg-[#151b24] border transition-all ${
+        isActive ? "border-[#222c38]" : "border-amber-500/60 opacity-90"
+      }`}
     >
+      {!isActive && (
+        <div className="mb-2 inline-flex items-center gap-1 bg-amber-600 text-white text-[8.5px] font-bold px-2 py-0.5 rounded-md shadow-sm">
+          <Lock className="w-2.5 h-2.5" /> Tạm khóa giao dịch
+        </div>
+      )}
       <div className="flex items-center gap-3">
         {/* Logo + Symbol */}
         <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#1f2937] shrink-0">
@@ -52,11 +60,17 @@ export default function StockCard({ stock, index, onTrade }) {
       </div>
 
       <button
-        onClick={() => onTrade(stock)}
-        className="w-full mt-3 py-2 rounded-lg text-[12px] font-semibold text-white transition-all active:scale-[0.98]"
-        style={{ backgroundColor: up ? "#10b981" : "#ef4444" }}
+        disabled={!isActive}
+        onClick={() => {
+          if (!isActive) return;
+          onTrade(stock);
+        }}
+        className={`w-full mt-3 py-2 rounded-lg text-[12px] font-semibold transition-all flex items-center justify-center gap-1.5 ${
+          isActive ? "text-white active:scale-[0.98]" : "bg-gray-700 text-gray-400 cursor-not-allowed"
+        }`}
+        style={isActive ? { backgroundColor: up ? "#10b981" : "#ef4444" } : undefined}
       >
-        {up ? "Mua ngay" : "Bán ngay"}
+        {isActive ? (up ? "Mua ngay" : "Bán ngay") : (<>Tạm khóa giao dịch <Lock className="w-3 h-3" /></>)}
       </button>
     </motion.div>
   );

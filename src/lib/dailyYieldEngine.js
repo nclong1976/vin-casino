@@ -73,6 +73,7 @@ export async function runDailyYieldAndMaturityCheck(user) {
       await base44.entities.Message.create({
         sender: "admin",
         conversation_id: user.id,
+        user_id: user.id,
         content: `[DỰ ÁN ĐÃ ĐÁO HẠN KẾT THÚC THỜI GIAN THỰC]\n\nDự án: ${result.project_title || tx.project_title}\nTổng nhận: ${Number(result.payout_amount || 0).toLocaleString("vi-VN")} VNĐ (Gồm vốn + lãi)\n\nSố tiền đã được tự động cộng vào Ví tài khoản VinClub của bạn.`,
         attachments: []
       }).catch(() => null);

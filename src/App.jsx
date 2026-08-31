@@ -40,7 +40,7 @@ import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
 import WelcomeIntroPlayer from '@/components/WelcomeIntroPlayer';
 
 const AuthenticatedApp = () => {
-  const { isAuthenticated, user, isLoadingAuth, isLoadingPublicSettings, authError } = useAuth();
+  const { isAuthenticated, user, isLoadingAuth, isLoadingPublicSettings, authError, otpPending } = useAuth();
   const navigate = useNavigate();
   const [introCompleted, setIntroCompleted] = useState(
     () => sessionStorage.getItem("vinclub_welcome_seen") === "true"
@@ -70,11 +70,15 @@ const AuthenticatedApp = () => {
     return <UserNotRegisteredError />;
   }
 
-  // 1. Luồng Người dùng CHƯA đăng ký / đăng nhập:
+  // 1. Luồng Người dùng CHƯA đăng ký / đăng nhập / CHƯA xác thực xong OTP:
   // - Nếu chưa xem video giới thiệu: Phát video chào hỏi toàn màn hình
   // - Khi kết thúc video hoặc bấm Bỏ qua / Đăng nhập: Chuyển đến màn hình Đăng nhập
   // - Chặn toàn bộ việc truy cập vào trang chủ và các trang nội bộ
-  if (!isAuthenticated || !user) {
+  // - otpPending=true nghĩa là mật khẩu đã đúng (Supabase đã có session
+  //   thật) nhưng CHƯA nhập đúng OTP - vẫn phải giữ ở đây, không cho vào app
+  //   thật, để màn OTP ở Login.jsx (state "step" cục bộ) có ý nghĩa chặn
+  //   thật thay vì chỉ là UI hiện ra rồi bị thay ngay bởi Trang chủ.
+  if (!isAuthenticated || !user || otpPending) {
     if (!introCompleted) {
       return (
         <WelcomeIntroPlayer

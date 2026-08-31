@@ -43,13 +43,14 @@ function mapProjectToStock(p) {
     price: price.toLocaleString("vi-VN"),
     change,
     spark: synthesizeSpark(price, change),
+    is_active: p.is_active ?? true,
   };
 }
 
 async function fetchStocks() {
   const allProjects = await base44.entities.Project.list().catch(() => []);
   const stockProjects = allProjects.filter(
-    (p) => p.is_active !== false && (p.category || "").trim() === "Đầu tư chứng khoán"
+    (p) => (p.category || "").trim() === "Đầu tư chứng khoán"
   );
   return stockProjects.length > 0 ? stockProjects.map(mapProjectToStock) : FALLBACK_STOCKS;
 }

@@ -223,6 +223,7 @@ export default function DepositModal({ project, onClose }) {
         await base44.entities.Message.create({
           sender: "admin",
           conversation_id: user.id,
+          user_id: user.id,
           content: `Giao dịch đầu tư đã được xác nhận.\n\nDự án: ${project.title}\nSố tiền: ${fmt(amount)} VNĐ\nPhương thức: ${selectedMethod.label}\nLãi dự kiến: ${fmt(profit)} VNĐ\nTổng nhận: ${fmt(total)} VNĐ\n\nHợp đồng đã được ký và lưu. Cảm ơn bạn đã đầu tư cùng VinClub.`,
           attachments: [],
         });

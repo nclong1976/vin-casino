@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Plus, Check, Lock } from "lucide-react";
+import { X, Plus, Check, Lock, KeyRound } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
@@ -14,6 +14,16 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
   const [isDefault, setIsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Mật khẩu rút tiền (mã PIN 6 số) - dùng chung 1 key "vinclub_user_pin"
+  // với SecurityModal.jsx (Cài đặt > Bảo mật) và WithdrawModal.jsx (bước
+  // xác nhận trước khi rút tiền) để 3 nơi luôn khớp cùng 1 mã PIN. Liên kết
+  // ngân hàng là bước tự nhiên để bắt buộc thiết lập PIN lần đầu, vì đây
+  // chính là tài khoản nhận tiền khi rút - nếu user đã có PIN rồi thì không
+  // bắt nhập lại, chỉ hiển thị xác nhận đã thiết lập.
+  const [hasPin, setHasPin] = useState(true);
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+
   // Auto-fill account holder name from registered user name whenever modal opens
   useEffect(() => {
     if (open) {
@@ -21,6 +31,9 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
       if (registeredName) {
         setAccountHolder(registeredName);
       }
+      setHasPin(!!localStorage.getItem("vinclub_user_pin"));
+      setPin("");
+      setConfirmPin("");
     }
   }, [open, user]);
 
@@ -28,6 +41,10 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
     if (!bank) return toast.error("Vui lòng chọn ngân hàng");
     if (!accountNumber.trim()) return toast.error("Vui lòng nhập số tài khoản");
     if (!accountHolder.trim()) return toast.error("Vui lòng nhập tên chủ tài khoản");
+    if (!hasPin) {
+      if (pin.length !== 6) return toast.error("Mật khẩu rút tiền phải bao gồm đúng 6 chữ số");
+      if (pin !== confirmPin) return toast.error("Mật khẩu rút tiền xác nhận không trùng khớp");
+    }
 
     setSaving(true);
     try {
@@ -76,16 +93,26 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
         } catch (err) {}
       }
 
+      if (!hasPin) {
+        localStorage.setItem("vinclub_user_pin", pin);
+      }
+
       // Fire global events for instant UI synchronization in both User & Admin flows
       window.dispatchEvent(new CustomEvent("vinclub:bank_updated", { detail: created }));
       window.dispatchEvent(new CustomEvent("vinclub:balance_updated"));
 
-      toast.success("Đã liên kết tài khoản ngân hàng thành công!");
+      toast.success(
+        hasPin
+          ? "Đã liên kết tài khoản ngân hàng thành công!"
+          : "Đã liên kết ngân hàng và thiết lập mật khẩu rút tiền thành công!"
+      );
       if (onSaved) onSaved(created);
       onClose();
       setBank(null);
       setAccountNumber("");
       setIsDefault(false);
+      setPin("");
+      setConfirmPin("");
     } catch (e) {
       console.error(e);
       toast.error("Không thể liên kết tài khoản. Vui lòng thử lại!");
@@ -189,6 +216,46 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
                 </p>
               </div>
 
+              {hasPin ? (
+                <div className="flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+                  <KeyRound className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <p className="text-[10.5px] text-emerald-700">
+                    Đã thiết lập mật khẩu rút tiền cho tài khoản này. Đổi mã PIN trong <span className="font-semibold">Bảo mật & Mã PIN</span>.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl bg-[#948154]/5 border border-[#948154]/15 p-3 space-y-2.5">
+                  <p className="text-[11px] font-medium text-gray-600 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-[#948154]" /> Thiết lập mật khẩu rút tiền (mã PIN 6 số)
+                  </p>
+                  <p className="text-[9px] text-gray-400 -mt-1.5">
+                    Bắt buộc để bảo vệ mọi lệnh rút tiền về tài khoản ngân hàng vừa liên kết.
+                  </p>
+                  <div>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                      placeholder="• • • • • •"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-[16px] font-bold tracking-widest text-center focus:outline-none focus:border-[#948154]"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={confirmPin}
+                      onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
+                      placeholder="Xác nhận mã PIN"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-[16px] font-bold tracking-widest text-center focus:outline-none focus:border-[#948154]"
+                    />
+                  </div>
+                </div>
+              )}
+
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -201,7 +268,7 @@ export default function BankAccountModal({ open, onClose, onSaved }) {
 
               <button
                 onClick={handleSubmit}
-                disabled={saving}
+                disabled={saving || (!hasPin && (pin.length !== 6 || pin !== confirmPin))}
                 className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] disabled:opacity-50 text-white text-[12px] font-semibold flex items-center justify-center gap-1.5"
               >
                 <Plus className="w-4 h-4" /> {saving ? "Đang liên kết..." : "Liên kết tài khoản"}

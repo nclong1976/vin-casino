@@ -733,7 +733,7 @@ function ProjectEditModal({ project, onClose, onSave }) {
           <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between">
             <div>
               <p className="text-[11px] font-bold text-black">Mở nhận vốn đầu tư (Bật)</p>
-              <p className="text-[9px] text-gray-500">Cho phép hiển thị & ký hợp đồng trên ứng dụng</p>
+              <p className="text-[9px] text-gray-500">Dự án luôn hiển thị với người dùng; tắt = vẫn hiện nhưng khóa gửi tiền/ký hợp đồng mới</p>
             </div>
             <input
               type="checkbox"

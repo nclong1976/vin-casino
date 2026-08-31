@@ -42,6 +42,7 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
       await base44.entities.Message.create({
         sender: "user",
         conversation_id: user.id,
+        user_id: user.id,
         content,
         attachments: [],
       });
