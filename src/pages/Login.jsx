@@ -19,7 +19,6 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [generatedOtp, setGeneratedOtp] = useState("");
-  const [otpRevealed, setOtpRevealed] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [countdown, setCountdown] = useState(30);
   const [error, setError] = useState("");
@@ -134,7 +133,6 @@ export default function Login() {
         // Generate a new random 6-digit OTP
         const newOtp = generateRandomOtp();
         setGeneratedOtp(newOtp);
-        setOtpRevealed(false);
         setStep("otp");
         setCountdown(30);
         setOtpCode("");
@@ -212,7 +210,6 @@ export default function Login() {
       await base44.auth.resendOtp(email);
       const newOtp = generateRandomOtp();
       setGeneratedOtp(newOtp);
-      setOtpRevealed(false);
       setOtpCode("");
       setCountdown(30);
       setShowPushNotification(true);
@@ -279,30 +276,8 @@ export default function Login() {
                   <p className="text-[13px] font-semibold text-[#3a3a3c] leading-tight">
                     Mã xác thực OTP
                   </p>
-                  {/* Mã KHÔNG tự hiện ra ngay - bắt buộc người dùng chủ động
-                      bấm "Xem mã" mới lộ số, tránh cảm giác hệ thống "tự
-                      động" gõ hộ (chỉ mang tính mô phỏng luồng OTP, chưa gửi
-                      qua kênh thật nào). */}
                   <p className="text-[13px] text-[#2c2c2e] leading-snug mt-0.5">
-                    {otpRevealed ? (
-                      <>
-                        Mã xác thực OTP của bạn là: <span className="font-bold text-[#000000] bg-white/80 px-1.5 py-0.5 rounded border border-black/10 font-mono text-[14px]">{generatedOtp}</span> (Có hiệu lực trong 5 phút).
-                      </>
-                    ) : (
-                      <>
-                        Bạn có 1 mã xác thực OTP mới (có hiệu lực trong 5 phút).{" "}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOtpRevealed(true);
-                          }}
-                          className="font-bold text-[#28844b] underline underline-offset-2 cursor-pointer"
-                        >
-                          Xem mã
-                        </button>
-                      </>
-                    )}
+                    Mã xác thực OTP của bạn là: <span className="font-bold text-[#000000] bg-white/80 px-1.5 py-0.5 rounded border border-black/10 font-mono text-[14px]">{generatedOtp}</span> (Có hiệu lực trong 5 phút).
                   </p>
                 </div>
 

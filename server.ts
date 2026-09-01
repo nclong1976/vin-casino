@@ -50,6 +50,128 @@ async function runDailyInterestBatch() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Cầu nối CSKH <-> Telegram: tin nhắn user gửi trong app (khung "Hỗ trợ &
+// Chăm sóc KH") được chuyển tiếp real-time vào 1 nhóm Telegram; Admin
+// "Reply" đúng tin nhắn đó trên Telegram thì trả lời được ghi ngược lại vào
+// đúng hội thoại của user đó trong app - không cần mở Admin Panel để trả
+// lời CSKH. Toàn bộ chạy ở server (KHÔNG lộ TELEGRAM_BOT_TOKEN ra trình
+// duyệt) - tự tắt nếu chưa cấu hình đủ biến môi trường, không chặn server
+// khởi động.
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_API = TELEGRAM_BOT_TOKEN ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}` : null;
+
+if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) {
+  console.warn(
+    "[Telegram] TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID chưa được cấu hình - cầu nối CSKH <-> Telegram đang TẮT."
+  );
+}
+
+async function sendTelegramMessage(text: string, replyToMessageId?: number): Promise<number | null> {
+  if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) return null;
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: "HTML",
+    };
+    if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
+
+    const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) {
+      console.error("[Telegram] sendMessage lỗi:", data.description);
+      return null;
+    }
+    return data.result?.message_id ?? null;
+  } catch (err: any) {
+    console.error("[Telegram] sendMessage exception:", err?.message || err);
+    return null;
+  }
+}
+
+/** Thoát các ký tự đặc biệt của HTML parse_mode (Telegram) để nội dung user gõ không phá format tin nhắn. */
+function escapeHtml(s: string): string {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Lắng nghe tin nhắn MỚI từ user (Supabase Realtime) và chuyển tiếp sang nhóm Telegram CSKH. */
+function startTelegramForwarding() {
+  if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
+
+  supabaseAdmin
+    .channel("telegram-cskh-forward")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      async (payload: any) => {
+        const row = payload.new;
+        if (!row || row.sender !== "user" || !row.conversation_id) return;
+
+        let userName = row.conversation_id;
+        try {
+          const { data: userRow } = await supabaseAdmin!
+            .from("users")
+            .select("full_name, name, username, email")
+            .eq("id", row.conversation_id)
+            .maybeSingle();
+          if (userRow) {
+            userName = userRow.full_name || userRow.name || userRow.username || userRow.email || row.conversation_id;
+          }
+        } catch (e) {}
+
+        const content = row.content || row.text || "(tệp đính kèm)";
+        const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này trên Telegram để phản hồi trực tiếp cho khách hàng.</i>`;
+
+        const telegramMessageId = await sendTelegramMessage(text);
+        if (telegramMessageId) {
+          try {
+            await supabaseAdmin!.from("telegram_message_links").insert({
+              telegram_message_id: telegramMessageId,
+              conversation_id: row.conversation_id,
+              user_name: userName,
+            });
+          } catch (e) {
+            console.error("[Telegram] Không lưu được link tin nhắn:", e);
+          }
+        }
+      }
+    )
+    .subscribe((status: string) => {
+      console.log(`[Telegram] Kênh forward CSKH: ${status}`);
+    });
+}
+
+/** Đăng ký webhook Telegram trỏ về đúng server này (bỏ qua nếu thiếu URL công khai - Render tự cấp RENDER_EXTERNAL_URL). */
+async function registerTelegramWebhook() {
+  if (!TELEGRAM_API) return;
+  const publicUrl = process.env.TELEGRAM_WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL;
+  if (!publicUrl) {
+    console.warn("[Telegram] Chưa có URL công khai (RENDER_EXTERNAL_URL/TELEGRAM_WEBHOOK_URL) - bỏ qua đăng ký webhook.");
+    return;
+  }
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: `${publicUrl.replace(/\/$/, "")}/api/telegram-webhook` }),
+    });
+    const data: any = await resp.json();
+    if (data.ok) {
+      console.log(`[Telegram] Webhook đã đăng ký: ${publicUrl}/api/telegram-webhook`);
+    } else {
+      console.error("[Telegram] Đăng ký webhook lỗi:", data.description);
+    }
+  } catch (err: any) {
+    console.error("[Telegram] Đăng ký webhook exception:", err?.message || err);
+  }
+}
+
 // Create HTTP server
 const httpServer = http.createServer(app);
 
@@ -271,6 +393,59 @@ function getFallbackMarketResponse(query: string) {
   };
 }
 
+// Webhook nhận update từ Telegram (Admin trả lời trong nhóm CSKH). CHỈ xử
+// lý tin nhắn là REPLY trực tiếp tới 1 tin đã forward trước đó (khớp qua
+// telegram_message_links) - tin nhắn thường/chat chit trong nhóm bị bỏ qua,
+// tránh ghi nhầm nội dung không liên quan vào hội thoại của user.
+app.post("/api/telegram-webhook", async (req, res) => {
+  res.sendStatus(200); // luôn trả 200 ngay để Telegram không retry/timeout
+
+  if (!supabaseAdmin) return;
+  try {
+    const message = req.body?.message;
+    const replyToId = message?.reply_to_message?.message_id;
+    const text = message?.text;
+    if (!replyToId || !text) return;
+    // Bỏ qua tin nhắn của chính bot (tránh vòng lặp nếu bot tự phản hồi gì đó)
+    if (message.from?.is_bot) return;
+
+    const { data: link } = await supabaseAdmin
+      .from("telegram_message_links")
+      .select("conversation_id, user_name")
+      .eq("telegram_message_id", replyToId)
+      .maybeSingle();
+
+    if (!link) {
+      await sendTelegramMessage(
+        "⚠️ Không tìm thấy hội thoại gốc cho tin nhắn này (có thể đã quá cũ). Vui lòng trả lời trực tiếp trong Admin Panel.",
+        message.message_id
+      );
+      return;
+    }
+
+    const adminName = message.from?.username || message.from?.first_name || "Admin";
+    const { error } = await supabaseAdmin.from("messages").insert({
+      id: "id_tg_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      sender: "admin",
+      user_id: link.conversation_id,
+      conversation_id: link.conversation_id,
+      content: text,
+      attachments: [],
+      created_date: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error("[Telegram] Không ghi được tin nhắn trả lời:", error.message);
+      await sendTelegramMessage(`⚠️ Gửi thất bại: ${error.message}`, message.message_id);
+      return;
+    }
+
+    console.log(`[Telegram] Admin ${adminName} đã trả lời hội thoại ${link.conversation_id}`);
+  } catch (err: any) {
+    console.error("[Telegram] Lỗi xử lý webhook:", err?.message || err);
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -320,6 +495,9 @@ async function startServer() {
   setInterval(triggerCommunityActivity, 12000);
   setInterval(runDailyInterestBatch, 15 * 60 * 1000);
   runDailyInterestBatch(); // chạy ngay lúc khởi động, không đợi 15 phút đầu tiên
+
+  startTelegramForwarding();
+  registerTelegramWebhook();
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
