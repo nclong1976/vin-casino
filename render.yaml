@@ -25,7 +25,9 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      # Tùy chọn - cầu nối CSKH <-> Telegram (server.ts). Tạo bot qua
+      # Tùy chọn - cầu nối CSKH + Nạp/Rút tiền <-> Telegram (server.ts): chat
+      # CSKH hai chiều, và lệnh nạp/rút mới forward vào nhóm kèm nút Phê
+      # duyệt/Từ chối để Admin xử lý ngay trên Telegram. Tạo bot qua
       # @BotFather, lấy CHAT_ID bằng cách thêm bot vào nhóm CSKH rồi gọi
       # https://api.telegram.org/bot<TOKEN>/getUpdates. Không cấu hình thì
       # tính năng tự tắt. RENDER_EXTERNAL_URL đã tự có sẵn trên Render nên

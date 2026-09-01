@@ -68,7 +68,11 @@ if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) {
   );
 }
 
-async function sendTelegramMessage(text: string, replyToMessageId?: number): Promise<number | null> {
+async function sendTelegramMessage(
+  text: string,
+  replyToMessageId?: number,
+  replyMarkup?: unknown
+): Promise<number | null> {
   if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) return null;
   try {
     const body: Record<string, unknown> = {
@@ -77,6 +81,7 @@ async function sendTelegramMessage(text: string, replyToMessageId?: number): Pro
       parse_mode: "HTML",
     };
     if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
+    if (replyMarkup) body.reply_markup = replyMarkup;
 
     const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: "POST",
@@ -95,9 +100,63 @@ async function sendTelegramMessage(text: string, replyToMessageId?: number): Pro
   }
 }
 
+/** Sửa nội dung + reply_markup của 1 tin nhắn Telegram đã gửi (dùng để cập nhật trạng thái/nút bấm sau khi Admin xử lý). */
+async function editTelegramMessage(messageId: number, text: string, replyMarkup?: unknown) {
+  if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        message_id: messageId,
+        text,
+        parse_mode: "HTML",
+        reply_markup: replyMarkup ?? { inline_keyboard: [] },
+      }),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) console.error("[Telegram] editMessageText lỗi:", data.description);
+  } catch (err: any) {
+    console.error("[Telegram] editMessageText exception:", err?.message || err);
+  }
+}
+
+/** Trả lời 1 callback_query (bấm nút inline) - bắt buộc gọi để Telegram tắt icon loading trên nút, có thể kèm toast nhỏ. */
+async function answerCallbackQuery(callbackQueryId: string, text?: string, showAlert = false) {
+  if (!TELEGRAM_API) return;
+  try {
+    await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: showAlert }),
+    });
+  } catch (err: any) {
+    console.error("[Telegram] answerCallbackQuery exception:", err?.message || err);
+  }
+}
+
 /** Thoát các ký tự đặc biệt của HTML parse_mode (Telegram) để nội dung user gõ không phá format tin nhắn. */
 function escapeHtml(s: string): string {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Tra tên hiển thị của 1 user từ bảng users (dùng chung cho cả forward CSKH lẫn forward nạp/rút). */
+async function getUserDisplayName(userId: string): Promise<string> {
+  if (!supabaseAdmin || !userId) return userId;
+  try {
+    const { data: userRow } = await supabaseAdmin
+      .from("users")
+      .select("full_name, name, username, email")
+      .eq("id", userId)
+      .maybeSingle();
+    if (userRow) return userRow.full_name || userRow.name || userRow.username || userRow.email || userId;
+  } catch (e) {}
+  return userId;
+}
+
+function fmtVnd(n: number): string {
+  return (Number(n) || 0).toLocaleString("vi-VN");
 }
 
 /** Lắng nghe tin nhắn MỚI từ user (Supabase Realtime) và chuyển tiếp sang nhóm Telegram CSKH. */
@@ -113,18 +172,7 @@ function startTelegramForwarding() {
         const row = payload.new;
         if (!row || row.sender !== "user" || !row.conversation_id) return;
 
-        let userName = row.conversation_id;
-        try {
-          const { data: userRow } = await supabaseAdmin!
-            .from("users")
-            .select("full_name, name, username, email")
-            .eq("id", row.conversation_id)
-            .maybeSingle();
-          if (userRow) {
-            userName = userRow.full_name || userRow.name || userRow.username || userRow.email || row.conversation_id;
-          }
-        } catch (e) {}
-
+        const userName = await getUserDisplayName(row.conversation_id);
         const content = row.content || row.text || "(tệp đính kèm)";
         const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này trên Telegram để phản hồi trực tiếp cho khách hàng.</i>`;
 
@@ -144,6 +192,209 @@ function startTelegramForwarding() {
     )
     .subscribe((status: string) => {
       console.log(`[Telegram] Kênh forward CSKH: ${status}`);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cầu nối Nạp/Rút tiền <-> Telegram: mỗi lệnh nạp/rút mới (status="pending")
+// được forward vào nhóm Telegram kèm nút "Phê duyệt"/"Từ chối" - Admin xử lý
+// ngay trên Telegram, không cần mở Admin Panel. LƯU Ý: 2 danh sách lý do từ
+// chối dưới đây phải khớp với DEPOSIT_REJECT_REASONS/WITHDRAW_REJECT_REASONS
+// trong src/components/admin/TransactionsTab.jsx - sửa 1 nơi thì sửa cả 2.
+const WALLET_REJECT_REASONS: Record<"deposit" | "withdraw", string[]> = {
+  deposit: [
+    "Không xác minh được nguồn tiền hợp pháp",
+    "Chưa nhận được xác nhận chuyển khoản từ ngân hàng đối tác",
+    "Yêu cầu trùng lặp với 1 lệnh nạp khác đã xử lý",
+  ],
+  withdraw: [
+    "Số dư ví không đủ để thực hiện rút tiền",
+    "Thông tin tài khoản ngân hàng không hợp lệ hoặc chưa xác minh",
+    "Yêu cầu rút trùng lặp với lệnh khác đang xử lý",
+    "Tài khoản đang trong thời gian kiểm tra bảo mật",
+  ],
+};
+
+function buildWalletApproveKeyboard(txId: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Phê duyệt", callback_data: `wtx:a:${txId}` },
+        { text: "❌ Từ chối", callback_data: `wtx:r:${txId}` },
+      ],
+    ],
+  };
+}
+
+function buildWalletRejectReasonKeyboard(txType: "deposit" | "withdraw", txId: string) {
+  const reasons = WALLET_REJECT_REASONS[txType] || WALLET_REJECT_REASONS.withdraw;
+  const rows = reasons.map((reason, idx) => [
+    { text: `${idx + 1}. ${reason}`, callback_data: `wtx:rr:${txId}:${idx}` },
+  ]);
+  rows.push([{ text: "✏️ Lý do khác (nhập tay)", callback_data: `wtx:rc:${txId}` }]);
+  rows.push([{ text: "‹ Quay lại", callback_data: `wtx:back:${txId}` }]);
+  return { inline_keyboard: rows };
+}
+
+/** Gọi RPC telegram_process_wallet_transaction() - toàn bộ logic duyệt/từ chối chạy nguyên tử trong Postgres (xem migration telegram_wallet_approvals). */
+async function callTelegramProcessWalletTransaction(
+  txId: string,
+  action: "approve" | "reject",
+  adminLabel: string,
+  reason?: string
+): Promise<{ ok: true; tx: any } | { ok: false; message: string }> {
+  if (!supabaseAdmin) return { ok: false, message: "Server chưa cấu hình Supabase." };
+  const { data, error } = await supabaseAdmin.rpc("telegram_process_wallet_transaction", {
+    p_tx_id: txId,
+    p_action: action,
+    p_reason: reason ?? null,
+    p_admin_label: `${adminLabel} (Telegram)`,
+  });
+  if (error) {
+    if (error.message?.includes("ALREADY_PROCESSED")) {
+      return { ok: false, message: "Giao dịch này đã được xử lý trước đó (ở Telegram hoặc trong Admin Panel)." };
+    }
+    console.error("[Telegram] telegram_process_wallet_transaction lỗi:", error.message);
+    return { ok: false, message: `Lỗi xử lý: ${error.message}` };
+  }
+  return { ok: true, tx: Array.isArray(data) ? data[0] : data };
+}
+
+function walletFinalStatusText(tx: any, action: "approve" | "reject", adminName: string, reason?: string): string {
+  const isDeposit = tx.type === "deposit";
+  const label = isDeposit ? "NẠP TIỀN" : "RÚT TIỀN";
+  const header = action === "approve" ? `✅ <b>ĐÃ PHÊ DUYỆT — ${label}</b>` : `❌ <b>ĐÃ TỪ CHỐI — ${label}</b>`;
+  let text = `${header}\nMã GD: <code>${escapeHtml(tx.code || tx.id)}</code>\nSố tiền: <b>${fmtVnd(tx.amount)} VNĐ</b>\nXử lý bởi: ${escapeHtml(adminName)} (Telegram)`;
+  if (action === "reject" && reason) text += `\nLý do: ${escapeHtml(reason)}`;
+  return text;
+}
+
+/** Xử lý 1 lượt bấm nút inline (callback_query) trên tin forward nạp/rút. */
+async function handleTelegramWalletCallback(cq: any) {
+  const data: string = cq.data || "";
+  const parts = data.split(":");
+  if (parts[0] !== "wtx" || !supabaseAdmin) return;
+  const kind = parts[1];
+  const txId = parts[2];
+  const extra = parts[3];
+  const adminName = cq.from?.username || cq.from?.first_name || "Admin";
+  const messageId = cq.message?.message_id;
+  const originalText: string = (cq.message?.text || "").split("\n\nChọn lý do từ chối:")[0];
+
+  if (kind === "a") {
+    const result = await callTelegramProcessWalletTransaction(txId, "approve", adminName);
+    if (!result.ok) {
+      await answerCallbackQuery(cq.id, result.message, true);
+      return;
+    }
+    await answerCallbackQuery(cq.id, "✅ Đã phê duyệt");
+    if (messageId) await editTelegramMessage(messageId, walletFinalStatusText(result.tx, "approve", adminName));
+    return;
+  }
+
+  if (kind === "r") {
+    const { data: tx } = await supabaseAdmin.from("wallet_transactions").select("status, type").eq("id", txId).maybeSingle();
+    if (!tx || tx.status !== "pending") {
+      await answerCallbackQuery(cq.id, "Giao dịch đã được xử lý trước đó.", true);
+      return;
+    }
+    await answerCallbackQuery(cq.id);
+    if (messageId) {
+      await editTelegramMessage(
+        messageId,
+        `${originalText}\n\nChọn lý do từ chối:`,
+        buildWalletRejectReasonKeyboard(tx.type, txId)
+      );
+    }
+    return;
+  }
+
+  if (kind === "back") {
+    const { data: tx } = await supabaseAdmin.from("wallet_transactions").select("status").eq("id", txId).maybeSingle();
+    if (!tx || tx.status !== "pending") {
+      await answerCallbackQuery(cq.id, "Giao dịch đã được xử lý trước đó.", true);
+      return;
+    }
+    await answerCallbackQuery(cq.id);
+    if (messageId) await editTelegramMessage(messageId, originalText, buildWalletApproveKeyboard(txId));
+    return;
+  }
+
+  if (kind === "rr") {
+    const { data: tx } = await supabaseAdmin.from("wallet_transactions").select("type").eq("id", txId).maybeSingle();
+    const txType: "deposit" | "withdraw" = tx?.type === "deposit" ? "deposit" : "withdraw";
+    const reason = WALLET_REJECT_REASONS[txType][Number(extra)] || "Không đạt điều kiện phê duyệt";
+    const result = await callTelegramProcessWalletTransaction(txId, "reject", adminName, reason);
+    if (!result.ok) {
+      await answerCallbackQuery(cq.id, result.message, true);
+      return;
+    }
+    await answerCallbackQuery(cq.id, "❌ Đã từ chối");
+    if (messageId) await editTelegramMessage(messageId, walletFinalStatusText(result.tx, "reject", adminName, reason));
+    return;
+  }
+
+  if (kind === "rc") {
+    if (!messageId) return;
+    const { data: tx } = await supabaseAdmin.from("wallet_transactions").select("status").eq("id", txId).maybeSingle();
+    if (!tx || tx.status !== "pending") {
+      await answerCallbackQuery(cq.id, "Giao dịch đã được xử lý trước đó.", true);
+      return;
+    }
+    await answerCallbackQuery(cq.id);
+    try {
+      await supabaseAdmin.from("telegram_wallet_links").update({ awaiting_custom_reason: true }).eq("telegram_message_id", messageId);
+    } catch (e) {
+      console.error("[Telegram] Không đánh dấu awaiting_custom_reason:", e);
+    }
+    await editTelegramMessage(
+      messageId,
+      `${originalText}\n\n✏️ <i>Vui lòng REPLY (trả lời) tin nhắn này với nội dung lý do từ chối.</i>`
+    );
+    return;
+  }
+}
+
+/** Lắng nghe lệnh nạp/rút MỚI (status="pending") và forward vào nhóm Telegram kèm nút Phê duyệt/Từ chối. */
+function startTelegramWalletForwarding() {
+  if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
+
+  supabaseAdmin
+    .channel("telegram-wallet-forward")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "wallet_transactions" },
+      async (payload: any) => {
+        const row = payload.new;
+        if (!row || row.status !== "pending" || !["deposit", "withdraw"].includes(row.type)) return;
+
+        const userName = await getUserDisplayName(row.user_id);
+        const isDeposit = row.type === "deposit";
+        const icon = isDeposit ? "🟢" : "🔴";
+        const label = isDeposit ? "YÊU CẦU NẠP TIỀN" : "YÊU CẦU RÚT TIỀN";
+        let text = `${icon} <b>${label}</b>\nMã GD: <code>${escapeHtml(row.code || row.id)}</code>\nHội viên: ${escapeHtml(userName)}\nSố tiền: <b>${fmtVnd(row.amount)} VNĐ</b>`;
+        if (!isDeposit && row.bank_name) {
+          text += `\nNgân hàng nhận: ${escapeHtml(row.bank_name)} — ${escapeHtml(row.account_number || "")}`;
+          if (row.account_holder) text += ` (${escapeHtml(row.account_holder)})`;
+        }
+        text += `\n\nChọn hành động bên dưới:`;
+
+        const telegramMessageId = await sendTelegramMessage(text, undefined, buildWalletApproveKeyboard(row.id));
+        if (telegramMessageId) {
+          try {
+            await supabaseAdmin!.from("telegram_wallet_links").insert({
+              telegram_message_id: telegramMessageId,
+              tx_id: row.id,
+              tx_type: row.type,
+            });
+          } catch (e) {
+            console.error("[Telegram] Không lưu được link giao dịch ví:", e);
+          }
+        }
+      }
+    )
+    .subscribe((status: string) => {
+      console.log(`[Telegram] Kênh forward Nạp/Rút: ${status}`);
     });
 }
 
@@ -393,21 +644,50 @@ function getFallbackMarketResponse(query: string) {
   };
 }
 
-// Webhook nhận update từ Telegram (Admin trả lời trong nhóm CSKH). CHỈ xử
-// lý tin nhắn là REPLY trực tiếp tới 1 tin đã forward trước đó (khớp qua
-// telegram_message_links) - tin nhắn thường/chat chit trong nhóm bị bỏ qua,
-// tránh ghi nhầm nội dung không liên quan vào hội thoại của user.
+// Webhook nhận update từ Telegram. 2 loại update được xử lý:
+// 1) callback_query - Admin bấm nút "Phê duyệt"/"Từ chối" trên tin forward
+//    nạp/rút (xem handleTelegramWalletCallback).
+// 2) message là REPLY trực tiếp tới 1 tin đã forward trước đó - khớp qua
+//    telegram_wallet_links (REPLY nhập tay lý do từ chối nạp/rút) hoặc
+//    telegram_message_links (REPLY trả lời CSKH). Tin nhắn thường/chat chit
+//    trong nhóm không khớp REPLY nào thì bị bỏ qua.
 app.post("/api/telegram-webhook", async (req, res) => {
   res.sendStatus(200); // luôn trả 200 ngay để Telegram không retry/timeout
 
   if (!supabaseAdmin) return;
   try {
+    if (req.body?.callback_query) {
+      await handleTelegramWalletCallback(req.body.callback_query);
+      return;
+    }
+
     const message = req.body?.message;
     const replyToId = message?.reply_to_message?.message_id;
     const text = message?.text;
     if (!replyToId || !text) return;
     // Bỏ qua tin nhắn của chính bot (tránh vòng lặp nếu bot tự phản hồi gì đó)
     if (message.from?.is_bot) return;
+
+    const adminName = message.from?.username || message.from?.first_name || "Admin";
+
+    // Ưu tiên kiểm tra REPLY nhập tay lý do từ chối nạp/rút trước
+    const { data: walletLink } = await supabaseAdmin
+      .from("telegram_wallet_links")
+      .select("tx_id, awaiting_custom_reason")
+      .eq("telegram_message_id", replyToId)
+      .maybeSingle();
+
+    if (walletLink) {
+      if (!walletLink.awaiting_custom_reason) return; // reply vào tin đã xử lý xong, bỏ qua
+      const result = await callTelegramProcessWalletTransaction(walletLink.tx_id, "reject", adminName, text);
+      if (!result.ok) {
+        await sendTelegramMessage(`⚠️ ${result.message}`, message.message_id);
+        return;
+      }
+      await editTelegramMessage(replyToId, walletFinalStatusText(result.tx, "reject", adminName, text));
+      console.log(`[Telegram] Admin ${adminName} đã từ chối giao dịch ví ${walletLink.tx_id} (lý do nhập tay)`);
+      return;
+    }
 
     const { data: link } = await supabaseAdmin
       .from("telegram_message_links")
@@ -423,7 +703,6 @@ app.post("/api/telegram-webhook", async (req, res) => {
       return;
     }
 
-    const adminName = message.from?.username || message.from?.first_name || "Admin";
     // Dùng ĐÚNG "message.date" mà Telegram gắn cho tin nhắn (Unix giây, thời
     // điểm admin thật sự bấm gửi trên Telegram) làm created_date, KHÔNG dùng
     // giờ server xử lý xong webhook (new Date()) - nếu có độ trễ xử lý (mạng,
@@ -503,6 +782,7 @@ async function startServer() {
   runDailyInterestBatch(); // chạy ngay lúc khởi động, không đợi 15 phút đầu tiên
 
   startTelegramForwarding();
+  startTelegramWalletForwarding();
   registerTelegramWebhook();
 
   httpServer.listen(PORT, "0.0.0.0", () => {
