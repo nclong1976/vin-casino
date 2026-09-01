@@ -424,6 +424,12 @@ app.post("/api/telegram-webhook", async (req, res) => {
     }
 
     const adminName = message.from?.username || message.from?.first_name || "Admin";
+    // Dùng ĐÚNG "message.date" mà Telegram gắn cho tin nhắn (Unix giây, thời
+    // điểm admin thật sự bấm gửi trên Telegram) làm created_date, KHÔNG dùng
+    // giờ server xử lý xong webhook (new Date()) - nếu có độ trễ xử lý (mạng,
+    // cold-start Render free-tier...), giờ hiển thị trong app vẫn khớp đúng
+    // thời điểm thật admin trả lời, không bị lùi theo độ trễ xử lý.
+    const sentAt = message.date ? new Date(message.date * 1000).toISOString() : new Date().toISOString();
     const { error } = await supabaseAdmin.from("messages").insert({
       id: "id_tg_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       sender: "admin",
@@ -431,7 +437,7 @@ app.post("/api/telegram-webhook", async (req, res) => {
       conversation_id: link.conversation_id,
       content: text,
       attachments: [],
-      created_date: new Date().toISOString(),
+      created_date: sentAt,
     });
 
     if (error) {
