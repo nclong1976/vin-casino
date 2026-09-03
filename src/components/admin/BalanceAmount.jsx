@@ -3,7 +3,7 @@ import React from "react";
 /**
  * Hiển thị số dư VNĐ an toàn cho các khu vực chật hẹp (danh sách, hàng bảng):
  * - `loading`: hiện Skeleton thay vì chớp nháy "0 VNĐ" trong lúc dữ liệu
- *   ground-truth từ nhiều nguồn (Supabase/local/RTDB) chưa hợp nhất xong.
+ *   thật từ Supabase chưa tải xong.
  * - Số lớn không làm vỡ layout: cắt gọn 1 dòng (`truncate`) thay vì tràn ra
  *   ngoài, kèm `title` để xem đầy đủ khi hover/chạm giữ.
  */

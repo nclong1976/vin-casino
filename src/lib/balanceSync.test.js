@@ -1,21 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock mọi phụ thuộc bên ngoài (RTDB/Supabase thật, two-way sync) để test
-// chỉ kiểm tra đúng LOGIC của balanceSync.js, không gọi mạng thật.
-vi.mock("@/lib/rtdbSync", () => ({
-  pushUserToRTDB: vi.fn(),
-}));
-vi.mock("@/lib/twoWaySync", () => ({
-  syncUserToSupabase: vi.fn(),
-}));
-
+// Mock mọi phụ thuộc bên ngoài (Supabase thật) để test chỉ kiểm tra đúng
+// LOGIC của balanceSync.js, không gọi mạng thật.
 const incrementUserBalance = vi.fn();
 const setUserBalanceAbsolute = vi.fn();
 const getSupabaseUser = vi.fn();
+const upsertSupabaseUser = vi.fn();
 vi.mock("@/lib/supabaseDb", () => ({
   incrementUserBalance: (...args) => incrementUserBalance(...args),
   setUserBalanceAbsolute: (...args) => setUserBalanceAbsolute(...args),
   getSupabaseUser: (...args) => getSupabaseUser(...args),
+  upsertSupabaseUser: (...args) => upsertSupabaseUser(...args),
 }));
 
 // Import SAU khi mock đã khai báo (Vitest hoist vi.mock lên đầu file tự động).
@@ -29,6 +24,7 @@ beforeEach(() => {
   incrementUserBalance.mockReset();
   setUserBalanceAbsolute.mockReset();
   getSupabaseUser.mockReset();
+  upsertSupabaseUser.mockReset();
 });
 
 describe("adjustUserBalance — đường an toàn (RPC increment_user_balance)", () => {

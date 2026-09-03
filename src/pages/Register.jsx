@@ -1,10 +1,8 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
 import { signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
-import { isIdentifierTaken } from "@/lib/supabaseDb";
+import { isIdentifierTaken, isReferralCodeValid } from "@/lib/supabaseDb";
 import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier";
-import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "sonner";
@@ -40,7 +38,11 @@ export default function Register() {
       return;
     }
 
-    if (cleanRefCode !== "E-CUV") {
+    // Kiểm tra qua RPC server (validate_referral_code) thay vì so sánh cứng
+    // ngay trong mã nguồn trình duyệt - trước đây bất kỳ ai xem View
+    // Source/DevTools cũng thấy được giá trị thật, khiến việc bắt buộc mã
+    // giới thiệu không còn ý nghĩa chặn.
+    if (!(await isReferralCodeValid(cleanRefCode))) {
       setError("Mã giới thiệu không hợp lệ hoặc đã hết hạn. Vui lòng liên hệ Admin để nhận mã.");
       return;
     }
@@ -64,7 +66,7 @@ export default function Register() {
     setError("");
 
     const cleanRefCode = referralCode.trim().toUpperCase();
-    if (cleanRefCode !== "E-CUV") {
+    if (!(await isReferralCodeValid(cleanRefCode))) {
       setError("Mã giới thiệu không hợp lệ hoặc đã hết hạn. Vui lòng liên hệ Admin để nhận mã.");
       setShowTermsModal(false);
       return;
@@ -75,54 +77,28 @@ export default function Register() {
       const rawIdentifier = email.trim();
       const authEmail = normalizeIdentifierToAuthEmail(rawIdentifier);
 
-      // (Ưu tiên) Đăng ký qua Supabase Auth - dùng email đã chuẩn hóa để
-      // tài khoản luôn được tạo thật trên Supabase (đăng nhập được từ mọi
-      // thiết bị) kể cả khi người dùng nhập số điện thoại/tên đăng nhập
-      let supaData = null;
-      try {
-        supaData = await supaSignUp(authEmail, password, {
-          full_name: fullName,
-          name: fullName,
-          role: "user",
-          balance: 0,
-          membership_tier: "Member",
-          vip_level: "VIP 0",
-          referral_code: referralCode,
-          identifier: rawIdentifier,
-          phone: isPhoneNumber(rawIdentifier) ? rawIdentifier : "",
-        });
-      } catch (supaErr) {
-        console.warn("[Register] Supabase signUp warning:", supaErr.message);
-      }
+      // Đăng ký qua Supabase Auth - dùng email đã chuẩn hóa để tài khoản
+      // luôn được tạo thật trên Supabase (đăng nhập được từ mọi thiết bị)
+      // kể cả khi người dùng nhập số điện thoại/tên đăng nhập.
+      //
+      // ĐÃ GỠ BỎ: fallback "base44 legacy" từng chạy khi supaSignUp() lỗi -
+      // tạo 1 tài khoản HOÀN TOÀN cục bộ (mật khẩu plaintext trong
+      // localStorage, không phải user Supabase Auth thật). Lỗi đăng ký giờ
+      // báo thẳng cho người dùng thay vì âm thầm tạo tài khoản giả.
+      const supaData = await supaSignUp(authEmail, password, {
+        full_name: fullName,
+        name: fullName,
+        role: "user",
+        balance: 0,
+        membership_tier: "Member",
+        vip_level: "VIP 0",
+        referral_code: referralCode,
+        identifier: rawIdentifier,
+        phone: isPhoneNumber(rawIdentifier) ? rawIdentifier : "",
+      });
 
-      // Chỉ đăng ký qua base44 legacy khi Supabase THẤT BẠI (dự phòng).
-      // Trước đây cả hai luôn chạy song song, mỗi bên tự sinh một id khác
-      // nhau ('u_...' vs UUID Supabase) cho CÙNG một người - tạo ra 2 bản
-      // ghi "ma" trùng lặp trên Admin panel. Khi admin cộng/trừ tiền vào
-      // đúng bản người dùng không thực sự đăng nhập bằng, số dư không bao
-      // giờ khớp giữa 2 bên dù cùng 1 tài khoản.
-      if (!supaData?.user) {
-        try {
-          const result = await base44.auth.register({
-            email,
-            password,
-            name: fullName,
-            referral_code: referralCode
-          });
-          if (result?.access_token) {
-            base44.auth.setToken(result.access_token);
-          }
-        } catch (legacyErr) {
-          // Nếu tài khoản đã tồn tại (lớp kiểm tra dự phòng, độc lập với
-          // isIdentifierTaken phía trên) thì chặn lại thay vì âm thầm bỏ qua
-          if ((legacyErr.message || "").includes("đã tồn tại")) {
-            throw legacyErr;
-          }
-          console.warn("[Register] base44 register warning:", legacyErr.message);
-        }
-      }
-
-      // Đẩy user lên Firebase RTDB để Admin thấy ngay lập tức
+      // Admin thấy user mới ngay lập tức qua Supabase Realtime
+      // (subscribeSupabaseUsersTable trong UsersTab.jsx) - không cần đẩy đi đâu nữa.
       if (supaData?.user) {
         const vinUser = mapSupabaseUser(supaData.user, {
           full_name: fullName,
@@ -130,7 +106,6 @@ export default function Register() {
           membership_tier: "Member",
           vip_level: "VIP 0",
         });
-        pushUserToRTDB(vinUser);
         localStorage.setItem("base44_local_user", JSON.stringify(vinUser));
       }
 

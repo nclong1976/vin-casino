@@ -125,7 +125,7 @@ export async function updatePassword(newPassword) {
  * Chuyển đổi Supabase user object → định dạng VinClub user
  * để tương thích với toàn bộ UI hiện tại
  * @param {object} supaUser - Supabase User object
- * @param {object} extraData - dữ liệu bổ sung từ DB hoặc RTDB
+ * @param {object} extraData - dữ liệu bổ sung từ Supabase
  */
 export function mapSupabaseUser(supaUser, extraData = {}) {
   if (!supaUser) return null;

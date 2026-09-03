@@ -1,5 +1,4 @@
 import { appParams } from '@/lib/app-params';
-import { pushUserToRTDB } from '@/lib/rtdbSync';
 import { NEWS_DATA } from '@/constants/newsData';
 import {
   upsertSupabaseUser,
@@ -647,7 +646,7 @@ class LocalEntityClient {
     setLocalStore(this.entityName, items);
     this.notifySubscribers();
 
-    // Đẩy thay đổi lên Supabase Database, Firestore & Realtime Database
+    // Đẩy thay đổi lên Supabase Database
     //
     // QUAN TRỌNG (vá lỗi cộng lãi/số dư lặp không kiểm soát): với các entity
     // đọc thẳng từ Supabase (SUPABASE_READABLE_ENTITIES), ghi Supabase PHẢI
@@ -663,37 +662,18 @@ class LocalEntityClient {
     try {
       if (this.entityName === 'User') {
         await upsertSupabaseUser(newItem).catch(() => null);
-        import('@/lib/rtdbSync').then(({ pushUserToRTDB }) => {
-          pushUserToRTDB(newItem);
-        });
       } else if (this.entityName === 'WalletTransaction') {
         await createSupabaseWalletTransaction(newItem).catch(() => null);
-        import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
-          pushWalletTransactionToRTDB(newItem);
-        });
-      } else if (this.entityName === 'Message') {
-        import('@/lib/rtdbSync').then(({ pushMessageToRTDB }) => {
-          pushMessageToRTDB(newItem);
-        });
-      } else if (this.entityName === 'Notification') {
-        import('@/lib/rtdbSync').then(({ pushNotificationToRTDB }) => {
-          pushNotificationToRTDB(newItem);
-        });
-      } else if (this.entityName === 'Project') {
-        import('@/lib/rtdbSync').then(({ pushProjectToRTDB }) => {
-          pushProjectToRTDB(newItem);
-        });
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
         const supaResult = await upsertSupabaseEntity(this.entityName, newItem).catch(() => null);
         supabaseSynced = !!supaResult;
       }
-      // Firestore (pushEntityToFirestore) & RTDB tổng quát (pushGenericEntityToRTDB)
-      // đã GỠ BỎ khỏi đây - Firestore không còn listener nào lắng nghe (đã gỡ
-      // startFirebaseSync() khỏi AuthContext.jsx), và pushGenericEntityToRTDB
-      // chưa từng có nơi nào đọc lại. Supabase Realtime (ensureSupabaseRealtime
-      // trong _sourceItems()) đã thay thế hoàn toàn 2 đường ghi này.
+      // Firestore/RTDB (pushEntityToFirestore, pushGenericEntityToRTDB,
+      // per-entity RTDB push) đã GỠ BỎ khỏi đây - không còn listener nào
+      // (Firebase/RTDB) lắng nghe những đường ghi đó nữa. Supabase Realtime
+      // (ensureSupabaseRealtime trong _sourceItems()) đã thay thế hoàn toàn.
     } catch (e) {
       console.error("Lỗi đồng bộ Supabase (create):", e);
     }
@@ -719,14 +699,12 @@ class LocalEntityClient {
     });
 
     // Bản ghi có thể không có trong cache cục bộ của THIẾT BỊ NÀY dù vẫn
-    // tồn tại thật trên Supabase/Firestore/RTDB (ví dụ: Admin duyệt một
-    // giao dịch mà Firestore listener của máy đó vừa lọc/ghi đè cache -
-    // xem firebaseSync.js). Trước đây update() im lặng bỏ qua toàn bộ đồng
+    // tồn tại thật trên Supabase (ví dụ: Admin duyệt một giao dịch trên
+    // thiết bị khác). Trước đây update() im lặng bỏ qua toàn bộ đồng
     // bộ trong trường hợp này: Admin thấy toast "thành công", tiền đã được
     // cộng/trừ qua adjustUserBalance, nhưng trạng thái giao dịch không được
     // ghi ở đâu cả. Vẫn đẩy đi một bản vá (partial patch) thay vì bỏ qua -
     // các hàm upsert/merge phía dưới đều an toàn với dữ liệu thiếu field.
-    const foundInCache = !!updated;
     if (!updated) {
       updated = { id, ...data };
     }
@@ -742,29 +720,8 @@ class LocalEntityClient {
     try {
       if (this.entityName === 'User') {
         await updateSupabaseUser(id, updated).catch(() => null);
-        import('@/lib/rtdbSync').then(({ pushUserToRTDB, safeWriteRTDB }) => {
-          if (foundInCache) {
-            // `updated` là bản ghi ĐẦY ĐỦ (đã merge với cache cục bộ) nên
-            // pushUserToRTDB() (luôn ghi "set" toàn bộ field, tự điền mặc
-            // định cho field thiếu) là an toàn.
-            pushUserToRTDB(updated);
-          } else {
-            // Bản ghi KHÔNG có trong cache cục bộ - `updated` chỉ là bản vá
-            // 1 PHẦN (id + đúng field vừa sửa). Gọi thẳng pushUserToRTDB()
-            // ở đây sẽ ghi "set" cả bản ghi RTDB với field thiếu bị tự điền
-            // mặc định "" / 0 - XOÁ SẠCH balance/full_name/email/phone...
-            // thật của user đó trên RTDB (đã gây sự cố dữ liệu thật: tài
-            // khoản bị reset về "Hội viên VinClub", balance 0). Phải ghi
-            // kiểu MERGE THẬT (chỉ đúng field trong `data`, không dựng lại
-            // nguyên bản ghi) để không đụng tới field không liên quan.
-            safeWriteRTDB(`users/${id}`, data, 'update');
-          }
-        });
       } else if (this.entityName === 'WalletTransaction') {
         await updateSupabaseWalletTransaction(id, updated).catch(() => null);
-        import('@/lib/rtdbSync').then(({ pushWalletTransactionToRTDB }) => {
-          pushWalletTransactionToRTDB(updated);
-        });
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
@@ -792,15 +749,8 @@ class LocalEntityClient {
     // đang có, không có nơi nào so sánh === true).
     let supabaseSynced = true;
     try {
-      if (this.entityName === 'Message') {
-        import('@/lib/rtdbSync').then(({ deleteMessageFromRTDB }) => {
-          deleteMessageFromRTDB(id);
-        });
-      } else if (this.entityName === 'WalletTransaction') {
+      if (this.entityName === 'WalletTransaction') {
         deleteSupabaseWalletTransaction(id).catch(() => null);
-        import('@/lib/rtdbSync').then(({ deleteWalletTransactionFromRTDB }) => {
-          deleteWalletTransactionFromRTDB(id);
-        });
       }
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
         // Await (thay vì "bắn rồi quên" như trước) để nơi gọi cần chắc chắn
@@ -1042,12 +992,11 @@ class FallbackBase44Client {
         registeredUsers.push(newUser);
         localStorage.setItem('base44_registered_users', JSON.stringify(registeredUsers));
 
-        // Đẩy user lên Supabase Database (PostgreSQL) và Firebase RTDB
+        // Đẩy user lên Supabase Database (PostgreSQL)
         try {
-          upsertSupabaseUser(newUser).catch(() => null);
-          await pushUserToRTDB(newUser);
+          await upsertSupabaseUser(newUser).catch(() => null);
         } catch (e) {
-          console.warn("pushUserToRTDB registration error:", e);
+          console.warn("upsertSupabaseUser registration error:", e);
         }
 
         // Create welcome notification in bell inbox for the new user

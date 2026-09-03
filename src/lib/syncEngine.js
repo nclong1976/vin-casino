@@ -8,12 +8,11 @@
  *   1. Số dư tài khoản & tổng nạp được khôi phục chính xác 100%.
  *   2. Toàn bộ Lịch sử Nạp/Rút, Đầu tư, Hợp đồng đã ký, Tin nhắn CSKH được tải về đầy đủ.
  *   3. Trạng thái hoạt động, cấp bậc VIP, thông tin tài khoản ngân hàng được giữ nguyên.
- *   4. Tự động đồng bộ hai chiều thời gian thực giữa Supabase DB (PostgreSQL) và Firebase RTDB.
+ *   4. Supabase Postgres là nguồn sự thật duy nhất, đồng bộ thời gian thực qua Supabase Realtime.
  */
 import { base44 } from "@/api/base44Client";
 import { refreshLocalUserFromSupabase } from "@/lib/balanceSync";
 import { getSupabaseUser, listSupabaseUsers, upsertSupabaseUser } from "@/lib/supabaseDb";
-import { pushUserToRTDB, trackPresenceInRTDB, fetchUserFromRTDB } from "@/lib/rtdbSync";
 import { computeWalletNet } from "@/lib/transactionHistory";
 
 let isSyncing = false;
@@ -36,8 +35,8 @@ export function sanitizeDeviceCache(targetUserId = null) {
         // sử của MỌI người dùng từ chính các key này), KHÔNG phải cache riêng
         // của 1 phiên đăng nhập - xoá sạch toàn bộ store sẽ làm "biến mất"
         // dữ liệu của những người dùng KHÁC (không liên quan gì đến việc đổi
-        // tài khoản trên thiết bị này) cho đến khi RTDB merge lại, khiến admin
-        // tưởng nhầm là dữ liệu bị mất. Chỉ lọc bỏ đúng các bản ghi THUỘC VỀ
+        // tài khoản trên thiết bị này) cho đến khi tải lại từ Supabase, khiến
+        // admin tưởng nhầm là dữ liệu bị mất. Chỉ lọc bỏ đúng các bản ghi THUỘC VỀ
         // người dùng cũ (người vừa đăng xuất/bị thay thế trên thiết bị này).
         const prevId = parsed.id;
         const prevEmail = parsed.email;
@@ -83,10 +82,9 @@ export async function hydrateUserOnNewDevice(authUser) {
     // ─────────────────────────────────────────────────────────────
     // BƯỚC 1 (P0): TẢI PROFILE, SỐ DƯ ĐA NGUỒN & THÔNG TIN NGÂN HÀNG
     // ─────────────────────────────────────────────────────────────
-    const [dbUser, supaUserList, rtdbUser, walletTxs] = await Promise.all([
+    const [dbUser, supaUserList, walletTxs] = await Promise.all([
       getSupabaseUser(uid).catch(() => null),
       listSupabaseUsers().catch(() => []),
-      fetchUserFromRTDB(uid).catch(() => null),
       // Không giới hạn số lượng - nếu phải fallback tính từ lịch sử ví (tài
       // khoản chưa từng đồng bộ lên Supabase) thì phải dùng TOÀN BỘ lịch sử,
       // giới hạn cũ (200) có thể bỏ sót giao dịch cũ và tính sai số dư.
@@ -99,9 +97,9 @@ export async function hydrateUserOnNewDevice(authUser) {
       (u) => (u.id && u.id === uid) || (u.email && uemail && u.email.toLowerCase() === uemail.toLowerCase())
     ) || {};
 
-    // Supabase Postgres là nguồn sự thật DUY NHẤT cho balance/total_deposited
-    // (xem whimsical-napping-floyd.md Bước 4) - KHÔNG còn lấy Math.max qua
-    // nhiều nguồn (RTDB/localStorage/lịch sử ví/authUser) như trước, vì số dư
+    // Supabase Postgres là nguồn sự thật DUY NHẤT cho balance/total_deposited -
+    // KHÔNG còn lấy Math.max qua nhiều nguồn (localStorage/lịch sử ví/authUser)
+    // như trước, vì số dư
     // có thể giảm THẬT (rút tiền, thua cược, đầu tư): một giá trị cao bất
     // thường dù chỉ xuất hiện thoáng qua do lỗi đồng bộ sẽ bị "kẹt" vĩnh viễn
     // làm mốc sàn nếu dùng Math.max. Chỉ khi tài khoản CHƯA TỪNG tồn tại trên
@@ -133,37 +131,35 @@ export async function hydrateUserOnNewDevice(authUser) {
       ...authUser,
       ...matchedSupa,
       ...(dbUser || {}),
-      ...(rtdbUser || {}),
       id: uid,
       // BẢO MẬT: role/is_super_admin CHỈ được tin từ Postgres (dbUser, tra
       // đúng theo uid hiện tại) hoặc claim JWT tươi (authUser) - KHÔNG được
-      // lấy từ matchedSupa (dò theo danh sách, có thể khớp nhầm bản ghi) hay
-      // rtdbUser (bản sao RTDB, có thể còn dữ liệu cũ của tài khoản khác đã
-      // dùng chung thiết bị này). Nếu không chốt cứng 2 field này, một tài
-      // khoản thường có thể bị "thừa hưởng" nhầm quyền admin của phiên trước.
+      // lấy từ matchedSupa (dò theo danh sách, có thể khớp nhầm bản ghi). Nếu
+      // không chốt cứng 2 field này, một tài khoản thường có thể bị "thừa
+      // hưởng" nhầm quyền admin của phiên trước.
       role: dbUser?.role || authUser.role || "user",
       is_super_admin: !!(dbUser?.is_super_admin ?? authUser.is_super_admin ?? false),
-      email: uemail || dbUser?.email || matchedSupa?.email || rtdbUser?.email || authUser.email,
-      name: dbUser?.name || dbUser?.full_name || matchedSupa?.name || matchedSupa?.full_name || rtdbUser?.name || authUser.name || authUser.full_name || "Hội viên VinClub",
-      full_name: dbUser?.full_name || dbUser?.name || matchedSupa?.full_name || matchedSupa?.name || rtdbUser?.full_name || authUser.full_name || authUser.name || "Hội viên VinClub",
-      phone: dbUser?.phone || matchedSupa?.phone || rtdbUser?.phone || authUser.phone || "",
-      id_card_number: dbUser?.id_card_number || matchedSupa?.id_card_number || rtdbUser?.id_card_number || "",
+      email: uemail || dbUser?.email || matchedSupa?.email || authUser.email,
+      name: dbUser?.name || dbUser?.full_name || matchedSupa?.name || matchedSupa?.full_name || authUser.name || authUser.full_name || "Hội viên VinClub",
+      full_name: dbUser?.full_name || dbUser?.name || matchedSupa?.full_name || matchedSupa?.name || authUser.full_name || authUser.name || "Hội viên VinClub",
+      phone: dbUser?.phone || matchedSupa?.phone || authUser.phone || "",
+      id_card_number: dbUser?.id_card_number || matchedSupa?.id_card_number || "",
       // authUser.identifier (tên đăng nhập gốc, từ user_metadata lúc đăng ký)
       // ưu tiên trước - cột users.identifier trên Postgres ở một số tài
       // khoản đang bị ghi nhầm thành email tổng hợp (xem normalizeIdentifier
       // ToAuthEmail) thay vì tên đăng nhập gốc người dùng đã nhập. Không đặt
       // field này trong khối override thì spread ...(dbUser||{}) phía trên sẽ
       // âm thầm ghi đè giá trị đúng của authUser bằng giá trị sai đó.
-      identifier: authUser.identifier || dbUser?.identifier || matchedSupa?.identifier || rtdbUser?.identifier || "",
+      identifier: authUser.identifier || dbUser?.identifier || matchedSupa?.identifier || "",
       balance: finalBalance,
       total_deposited: finalTotalDeposited,
       balance_version: finalBalanceVersion,
-      membership_tier: dbUser?.membership_tier || matchedSupa?.membership_tier || rtdbUser?.membership_tier || authUser.membership_tier || "Member",
-      vip_level: dbUser?.vip_level || matchedSupa?.vip_level || rtdbUser?.vip_level || authUser.vip_level || "VIP 0",
-      is_locked: !!(dbUser?.is_locked ?? matchedSupa?.is_locked ?? rtdbUser?.is_locked ?? authUser.is_locked),
-      bank_name: dbUser?.bank_name || matchedSupa?.bank_name || rtdbUser?.bank_name || authUser.bank_name || "",
-      account_number: dbUser?.account_number || matchedSupa?.account_number || rtdbUser?.account_number || authUser.account_number || "",
-      account_holder: dbUser?.account_holder || matchedSupa?.account_holder || rtdbUser?.account_holder || authUser.account_holder || "",
+      membership_tier: dbUser?.membership_tier || matchedSupa?.membership_tier || authUser.membership_tier || "Member",
+      vip_level: dbUser?.vip_level || matchedSupa?.vip_level || authUser.vip_level || "VIP 0",
+      is_locked: !!(dbUser?.is_locked ?? matchedSupa?.is_locked ?? authUser.is_locked),
+      bank_name: dbUser?.bank_name || matchedSupa?.bank_name || authUser.bank_name || "",
+      account_number: dbUser?.account_number || matchedSupa?.account_number || authUser.account_number || "",
+      account_holder: dbUser?.account_holder || matchedSupa?.account_holder || authUser.account_holder || "",
       last_synced_device_at: new Date().toISOString(),
     };
 
@@ -198,11 +194,11 @@ export async function hydrateUserOnNewDevice(authUser) {
       })
     );
 
-    // 3. Tự động phục hồi & đồng bộ ngược về Supabase & RTDB nếu có sự chênh lệch
+    // 3. Tự động phục hồi & đồng bộ ngược về Supabase nếu có sự chênh lệch
+    // ("đang online" được AuthContext.jsx tự khởi động riêng qua
+    // src/lib/presence.js, không cần lặp lại ở đây).
     try {
       upsertSupabaseUser(mergedUser);
-      pushUserToRTDB(mergedUser);
-      trackPresenceInRTDB(mergedUser);
     } catch (pushErr) {
       console.warn("[SyncEngine] Auto-heal push error:", pushErr);
     }
@@ -254,9 +250,9 @@ export async function syncBackgroundData(userId, userEmail = "") {
     if (msgs.status === "fulfilled" && Array.isArray(msgs.value)) {
       // Hợp nhất thay vì ghi đè: msgs.value chỉ là một lần lọc lại CHÍNH
       // cache cục bộ hiện có (không tải gì mới từ máy chủ), nên nếu chạy
-      // song song với kênh RTDB real-time (đang phát tin nhắn mới vào đúng
-      // cùng key localStorage này ở Support.jsx khi hydrate thiết bị mới),
-      // ghi đè thẳng có thể xoá mất tin nhắn RTDB vừa đưa vào.
+      // song song với kênh Supabase Realtime (đang phát tin nhắn mới vào
+      // đúng cùng key localStorage này ở Support.jsx khi hydrate thiết bị
+      // mới), ghi đè thẳng có thể xoá mất tin nhắn vừa đưa vào.
       try {
         const raw = localStorage.getItem("base44_entity_Message");
         const local = raw ? JSON.parse(raw) : [];
@@ -294,7 +290,7 @@ function bindResumableSyncListener(userId, userEmail = "") {
     getSupabaseUser(userId).then((dbUser) => {
       if (dbUser && typeof dbUser.balance === "number") {
         // dbUser đến THẲNG từ Supabase (nguồn sự thật) nên chỉ cần nạp lại
-        // cache cục bộ (local + RTDB) cho khớp - KHÔNG ghi ngược lại Supabase
+        // cache cục bộ cho khớp - KHÔNG ghi ngược lại Supabase
         // (sẽ thừa vì vừa đọc từ chính nó ra) và không tăng balance_version
         // (không có gì thực sự thay đổi, tránh làm phiên khác nhận nhầm tín
         // hiệu "có cập nhật mới" mỗi lần thiết bị này online/focus lại).

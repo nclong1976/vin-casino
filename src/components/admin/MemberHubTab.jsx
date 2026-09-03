@@ -43,11 +43,8 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
     fetchHubStats();
 
     // Listen to real-time sync events
-    let unsubRTDBMsg, unsubRTDBTx;
-    import("@/lib/rtdbSync").then((rtdb) => {
-      if (rtdb.subscribeMessagesFromRTDB) unsubRTDBMsg = rtdb.subscribeMessagesFromRTDB(() => fetchHubStats());
-      if (rtdb.subscribeWalletTransactionsFromRTDB) unsubRTDBTx = rtdb.subscribeWalletTransactionsFromRTDB(() => fetchHubStats());
-    }).catch(() => null);
+    const unsubMsg = base44.entities.Message.subscribe(() => fetchHubStats());
+    const unsubTx = base44.entities.WalletTransaction.subscribe(() => fetchHubStats());
 
     const handleMsgUpdate = () => fetchHubStats();
     const handleBalUpdate = () => fetchHubStats();
@@ -66,8 +63,8 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
     window.addEventListener("storage", handleMsgUpdate);
 
     return () => {
-      if (typeof unsubRTDBMsg === "function") unsubRTDBMsg();
-      if (typeof unsubRTDBTx === "function") unsubRTDBTx();
+      if (typeof unsubMsg === "function") unsubMsg();
+      if (typeof unsubTx === "function") unsubTx();
       window.removeEventListener("vinclub:msg_update", handleMsgUpdate);
       window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
       window.removeEventListener("storage", handleMsgUpdate);

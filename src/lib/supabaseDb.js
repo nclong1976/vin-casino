@@ -491,6 +491,60 @@ export async function updateCasinoSecureConfig(gameSlug, patch) {
   }
 }
 
+/** Cấu hình bảo trì/hiển thị casino (banner bảo trì, tỷ lệ hiển thị...) -
+ * KHÔNG phải casino_secure_config (bảng đó chỉ Admin đọc được, dùng để
+ * tính tiền thắng thật). Bảng này mọi user đã đăng nhập đọc được. */
+export async function getCasinoMaintenanceConfig() {
+  try {
+    const { data, error } = await supabase
+      .from('casino_maintenance_config')
+      .select('config')
+      .eq('id', 'default')
+      .maybeSingle();
+    if (error) {
+      console.warn('[SupabaseDb] getCasinoMaintenanceConfig error:', error.message);
+      return null;
+    }
+    return data?.config || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] getCasinoMaintenanceConfig exception:', e);
+    return null;
+  }
+}
+
+export async function saveCasinoMaintenanceConfig(config) {
+  try {
+    const { error } = await supabase
+      .from('casino_maintenance_config')
+      .upsert({ id: 'default', config, updated_at: new Date().toISOString() });
+    if (error) {
+      console.warn('[SupabaseDb] saveCasinoMaintenanceConfig error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[SupabaseDb] saveCasinoMaintenanceConfig exception:', e);
+    return false;
+  }
+}
+
+export function subscribeCasinoMaintenanceConfig(callback) {
+  const channel = supabase
+    .channel(nextChannelName('public:casino_maintenance_config'))
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'casino_maintenance_config', filter: `id=eq.default` },
+      (payload) => {
+        if (typeof callback === 'function') callback(payload?.new?.config || null);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 /**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu
@@ -513,6 +567,23 @@ export async function isIdentifierTaken(identifier) {
     return Array.isArray(data) && data.length > 0;
   } catch (e) {
     console.warn('[SupabaseDb] isIdentifierTaken exception:', e);
+    return false;
+  }
+}
+
+/** Kiểm tra mã giới thiệu qua RPC server (validate_referral_code) thay vì so
+ * sánh cứng trong mã nguồn trình duyệt - xem migration
+ * add_validate_referral_code_rpc để biết lý do. */
+export async function isReferralCodeValid(code) {
+  try {
+    const { data, error } = await supabase.rpc('validate_referral_code', { p_code: code });
+    if (error) {
+      console.warn('[SupabaseDb] isReferralCodeValid error:', error.message);
+      return false;
+    }
+    return data === true;
+  } catch (e) {
+    console.warn('[SupabaseDb] isReferralCodeValid exception:', e);
     return false;
   }
 }
@@ -687,7 +758,7 @@ export async function deleteSupabaseWalletTransaction(id) {
 // cùng 1 tên sẽ trả về/khớp lại đúng channel đã subscribe() trước đó, và
 // .on() thêm vào một channel ĐÃ subscribe() sẽ ném lỗi "cannot add
 // postgres_changes callbacks... after subscribe()". Nhiều nơi độc lập cùng
-// gọi các hàm subscribe dưới đây (vd. twoWaySync.js chạy nền toàn app +
+// gọi các hàm subscribe dưới đây (vd. AuthContext.jsx chạy nền toàn app +
 // UsersTab.jsx của Admin) nên mỗi lần gọi phải tạo 1 tên channel RIÊNG,
 // không dùng chung 1 tên cố định.
 let channelSeq = 0;
@@ -786,9 +857,9 @@ export function subscribeSupabaseWalletTransactionsForUser(userId, callback) {
 // liệu vĩnh viễn nếu người dùng/Admin xóa cache trình duyệt hoặc đổi
 // thiết bị). Các hàm dưới đây ghi (write-through) mọi thay đổi của các
 // thực thể này xuống Postgres như một lớp lưu trữ bền vững bổ sung -
-// KHÔNG thay thế luồng đọc/localStorage/Firebase hiện có, chỉ cộng thêm
-// một bản sao đáng tin cậy ở phía sau. Lỗi ghi Supabase ở đây luôn được
-// nuốt (catch) và không bao giờ chặn luồng chính của ứng dụng.
+// KHÔNG thay thế luồng đọc/localStorage hiện có, chỉ cộng thêm một bản
+// sao đáng tin cậy ở phía sau. Lỗi ghi Supabase ở đây luôn được nuốt
+// (catch) và không bao giờ chặn luồng chính của ứng dụng.
 
 const ENTITY_TABLE_MAP = {
   Message: 'messages',

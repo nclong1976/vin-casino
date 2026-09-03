@@ -44,11 +44,6 @@ export default function Projects() {
 
     fetch();
 
-    // KHÔNG subscribe RTDB ở đây nữa - snapshot RTDB là bản mirror phụ,
-    // bắn ngay 1 lần khi vừa subscribe bất kể mới/cũ; nếu mirror đó chưa
-    // kịp đồng bộ category mới nhất (vd sau khi sửa trực tiếp trên
-    // Postgres), nó ĐÈ NGAY lên kết quả fetch Supabase đúng ở trên, làm
-    // trang trông như "không còn dự án nào" dù dữ liệu thật vẫn đủ.
     const unsubscribe = base44.entities.Project.subscribe((updatedItems) => {
       if (Array.isArray(updatedItems) && updatedItems.length > 0) applyList(updatedItems);
     });

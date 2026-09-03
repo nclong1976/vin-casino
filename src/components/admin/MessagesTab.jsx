@@ -241,9 +241,8 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     loadUsers();
   }, []);
 
-  // ── Realtime messages via RTDB (no polling, push-only) ──────────
+  // ── Realtime messages via Supabase Realtime (no polling, push-only) ──
   useEffect(() => {
-    let unsubRTDB;
     let unsubBase44;
 
     const applyMessages = (msgList) => {
@@ -253,23 +252,9 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       setLoading(false);
     };
 
-    // Primary: Firebase RTDB push (instant, true realtime)
-    import("@/lib/rtdbSync")
-      .then(({ subscribeMessagesFromRTDB }) => {
-        unsubRTDB = subscribeMessagesFromRTDB((rtdbMsgList) => {
-          if (Array.isArray(rtdbMsgList) && rtdbMsgList.length > 0) {
-            applyMessages(rtdbMsgList);
-          } else {
-            // RTDB empty → fall back to base44 cache
-            const raw = localStorage.getItem("base44_entity_Message");
-            const cached = raw ? JSON.parse(raw) : [];
-            applyMessages(cached);
-          }
-        });
-      })
-      .catch(() => null);
-
-    // Fallback: base44 entity subscription for non-RTDB environments
+    // base44.entities.Message.subscribe() chạy trên Supabase Realtime
+    // (ensureSupabaseRealtime trong base44Client.js) - đủ nhanh cho chat,
+    // không cần kênh Firebase RTDB riêng nữa.
     unsubBase44 = base44.entities.Message.subscribe(() => {
       const raw = localStorage.getItem("base44_entity_Message");
       const cached = raw ? JSON.parse(raw) : [];
@@ -303,7 +288,6 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     window.addEventListener("storage", handleStorage);
 
     return () => {
-      if (typeof unsubRTDB === "function") unsubRTDB();
       if (typeof unsubBase44 === "function") unsubBase44();
       window.removeEventListener("storage", handleStorage);
     };
@@ -392,8 +376,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           prev.map((m) => (unreadMsgs.some((u) => u.id === m.id) ? { ...m, is_read: true } : m))
         );
         // Báo cho MemberHubTab (badge tổng "chưa đọc" ở tab cha) biết ngay
-        // trong CÙNG tab - bulkUpdate() không tự đẩy RTDB cho Message nên
-        // không có tín hiệu nào khác đến được đó khi đánh dấu đã đọc.
+        // trong CÙNG tab, không cần đợi round-trip qua Supabase Realtime.
         window.dispatchEvent(new CustomEvent("vinclub:msg_update"));
       } catch {}
     },
@@ -461,16 +444,10 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     setEditText("");
     setMessages((prev) => prev.map((msg) => (msg.id === m.id ? { ...msg, content: newContent } : msg)));
     try {
-      const updated = await base44.entities.Message.update(m.id, { content: newContent });
-      // Đẩy thêm qua RTDB để phía user nhận thay đổi tức thời, giống hệt
-      // handleReply() ở dưới - update() trong base44Client.js chỉ ghi
-      // Supabase, không tự đẩy RTDB cho entity Message.
-      try {
-        const { pushMessageToRTDB } = await import("@/lib/rtdbSync");
-        await pushMessageToRTDB({ ...m, ...updated, content: newContent });
-      } catch (pushErr) {
-        console.warn("[MessagesTab] RTDB push warning (edit):", pushErr);
-      }
+      // update() ghi Supabase, và Supabase Realtime (base44.entities.Message.
+      // subscribe() ở trên) tự đẩy thay đổi tới mọi phiên đang mở, kể cả
+      // phía user - không cần đẩy tay đi đâu nữa.
+      await base44.entities.Message.update(m.id, { content: newContent });
     } catch {
       setMessages((prev) => prev.map((msg) => (msg.id === m.id ? { ...msg, content: m.content } : msg)));
       toast.error("Không thể sửa tin nhắn");
@@ -529,6 +506,9 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         }
       }
 
+      // create() ghi Supabase, và Supabase Realtime (base44.entities.Message.
+      // subscribe() ở trên) tự đẩy tin nhắn mới tới mọi phiên đang mở, kể cả
+      // phía user - không cần đẩy tay đi đâu nữa.
       const created = await base44.entities.Message.create({
         sender: "admin",
         conversation_id: selectedUser,
@@ -536,20 +516,6 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         content: optimisticMsg.content,
         attachments,
       });
-
-      // Push instantly to Firebase RTDB for sub-second user delivery
-      try {
-        const { pushMessageToRTDB } = await import("@/lib/rtdbSync");
-        await pushMessageToRTDB({
-          ...created,
-          sender: "admin",
-          conversation_id: selectedUser,
-          user_id: selectedUser,
-          attachments,
-        });
-      } catch (pushErr) {
-        console.warn("[MessagesTab] RTDB push warning:", pushErr);
-      }
 
       // Replace optimistic with real
       setMessages((prev) =>

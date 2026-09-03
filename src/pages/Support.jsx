@@ -20,7 +20,7 @@ export default function Support() {
     if (!userId) return;
     // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
     // loadMessages() được gọi từ nhiều nơi gần như đồng thời lúc mount (gọi
-    // trực tiếp, fallback RTDB rỗng, Message.subscribe()...) - nếu chỉ đặt
+    // trực tiếp, Message.subscribe(), polling...) - nếu chỉ đặt
     // cờ SAU khi await base44.entities.Message.filter() xong (như code cũ),
     // nhiều lời gọi có thể cùng thấy "chưa có ai tạo tin chào" tại thời điểm
     // check và tạo trùng nhiều tin chào. Đặt cờ đồng bộ (synchronous) ở đây
@@ -67,7 +67,7 @@ export default function Support() {
 
       // Hợp nhất với state hiện tại thay vì ghi đè toàn bộ mù quáng: loadMessages()
       // đọc từ cache cục bộ (có thể tạm thời chưa cập nhật kịp), nên ghi đè
-      // thẳng có thể xoá mất một tin nhắn mà kênh RTDB real-time vừa phát
+      // thẳng có thể xoá mất một tin nhắn mà kênh Supabase Realtime vừa phát
       // tới state trước đó (race condition giữa 2 nguồn cập nhật state).
       // NHƯNG vẫn phải tôn trọng việc XÓA: nếu Super Admin xóa 1 tin nhắn ở
       // phía quản trị, tin đó biến mất khỏi "incoming" - chỉ giữ lại tin cũ
@@ -105,29 +105,14 @@ export default function Support() {
     // 1. Initial Load with Greeting Generation
     loadMessages(user.id, user);
 
-    // 2. Real-time Subscription via Firebase Realtime Database
-    let unsubRTDB;
-    import("@/lib/rtdbSync").then(({ subscribeConversationFromRTDB }) => {
-      unsubRTDB = subscribeConversationFromRTDB(user.id, (rtdbMsgs) => {
-        if (Array.isArray(rtdbMsgs) && rtdbMsgs.length > 0) {
-          const sorted = [...rtdbMsgs].sort(
-            (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
-          );
-          setMessages(sorted);
-          setLoading(false);
-        } else {
-          loadMessages(user.id, user);
-        }
-      });
-    }).catch(() => null);
-
+    // 2. Real-time Subscription via Supabase Realtime
     const unsub = base44.entities.Message.subscribe(() => {
       loadMessages(user.id, user);
     });
 
-    // 3. Polling fallback for non-RTDB environments - chỉ là lưới an toàn dự
-    // phòng (RTDB + Message.subscribe() đã xử lý real-time chính), nên giãn
-    // ra 8s thay vì 2s để tránh ép re-render/cuộn liên tục gây giật khi vuốt.
+    // 3. Polling fallback - chỉ là lưới an toàn dự phòng (Message.subscribe()
+    // đã xử lý real-time chính), nên giãn ra 8s thay vì 2s để tránh ép
+    // re-render/cuộn liên tục gây giật khi vuốt.
     const pollInterval = setInterval(() => {
       loadMessages(user.id, user);
     }, 8000);
@@ -141,7 +126,6 @@ export default function Support() {
     window.addEventListener("storage", handleStorageChange);
 
     return () => {
-      if (typeof unsubRTDB === "function") unsubRTDB();
       if (typeof unsub === "function") unsub();
       clearInterval(pollInterval);
       window.removeEventListener("storage", handleStorageChange);
