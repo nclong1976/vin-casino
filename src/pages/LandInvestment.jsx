@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MapPin,
@@ -134,6 +135,9 @@ export default function LandInvestment() {
   const [properties, setProperties] = useState(DEFAULT_PROPERTIES);
   const [selectedProject, setSelectedProject] = useState(null);
   const [activeTab, setActiveTab] = useState("PROJECTS"); // "PROJECTS" | "REASONS" | "TOOLS"
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get("highlight");
+  const [highlightActive, setHighlightActive] = useState(!!highlightId);
 
   // Load & subscribe real-time projects from base44 entity
   useEffect(() => {
@@ -178,6 +182,16 @@ export default function LandInvestment() {
       if (typeof unsubscribe === "function") unsubscribe();
     };
   }, []);
+
+  // Tới đây từ 1 thông báo "dự án mới mở" (NotificationBell.jsx) - cuộn tới
+  // đúng thẻ dự án đó và nổi bật tạm thời vài giây rồi tự tắt.
+  useEffect(() => {
+    if (!highlightId || properties.length === 0) return;
+    const el = document.getElementById(`project-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlightActive(false), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightId, properties]);
 
   // Valuation Tool State
   const [valProjectIndex, setValProjectIndex] = useState(0);
@@ -295,12 +309,13 @@ export default function LandInvestment() {
               return (
                 <motion.div
                   key={p.id}
+                  id={p.id ? `project-${p.id}` : undefined}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.06 }}
                   className={`bg-white rounded-2xl overflow-hidden shadow-xs border transition-all ${
                     isActive ? "border-gray-100" : "border-amber-300 opacity-90 bg-amber-50/20"
-                  }`}
+                  } ${highlightActive && highlightId === String(p.id) ? "ring-2 ring-amber-400" : ""}`}
                 >
                   <div className="relative w-full h-[120px] overflow-hidden">
                     <img src={p.image} alt={p.name} className="w-full h-full object-cover" loading="lazy" />

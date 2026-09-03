@@ -1,14 +1,27 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
+import { getProjectTermUnit, getProjectTermDurationDisplayValue } from "@/lib/investmentTerms";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
   contract: { label: "Hợp đồng", color: "text-[#948154]", bg: "bg-[#948154]/10" },
   wallet: { label: "Ví", color: "text-blue-500", bg: "bg-blue-50" },
   admin: { label: "Thông báo", color: "text-orange-500", bg: "bg-orange-50" },
+  project: { label: "Dự án", color: "text-blue-500", bg: "bg-blue-50" },
+};
+
+// Khớp đúng route từng category trong src/App.jsx - xác nhận qua filter
+// category thật trong từng trang (Projects.jsx="Dự Án", LandInvestment.jsx=
+// "VinHomes", Resort.jsx="Đầu tư nghỉ dưỡng", Stocks.jsx="Đầu tư chứng khoán").
+const CATEGORY_ROUTES = {
+  "Dự Án": "/projects",
+  "VinHomes": "/land",
+  "Đầu tư nghỉ dưỡng": "/resort",
+  "Đầu tư chứng khoán": "/stocks",
 };
 
 function timeAgo(dateStr) {
@@ -47,6 +60,7 @@ function saveReadSet(userId, set) {
 
 export default function NotificationBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -115,6 +129,15 @@ export default function NotificationBell() {
     fetchNotifs();
   };
 
+  const handleNotifClick = (n) => {
+    markRead(n);
+    if (n.type === "project" && n.extra?.project_id) {
+      const route = CATEGORY_ROUTES[n.extra.project_category] || "/projects";
+      setOpen(false);
+      navigate(`${route}?highlight=${n.extra.project_id}`);
+    }
+  };
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -179,10 +202,57 @@ export default function NotificationBell() {
               ) : (
                 notifs.map((n) => {
                   const tc = TYPE_LABELS[n.type] || TYPE_LABELS.admin;
+                  const isProjectCard = n.type === "project" && n.extra?.project_id;
+
+                  if (isProjectCard) {
+                    const termUnit = getProjectTermUnit({ category: n.extra.project_category });
+                    const termValue = getProjectTermDurationDisplayValue({
+                      category: n.extra.project_category,
+                      term_duration_minutes: n.extra.project_duration_minutes,
+                    });
+                    const minAmount = Number(n.extra.project_min_amount) || 0;
+                    return (
+                      <button
+                        key={n.id}
+                        onClick={() => handleNotifClick(n)}
+                        className={`w-full text-left px-3 py-2.5 border-b border-gray-50 hover:bg-gray-50 transition ${
+                          !n.is_read ? "bg-[#948154]/5" : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className={`text-[8px] font-semibold ${tc.color}`}>{tc.label}</span>
+                          <span className="text-[8px] text-gray-300">·</span>
+                          <span className="text-[8px] text-gray-400">{timeAgo(n.created_date)}</span>
+                          {!n.is_read && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 ml-auto shrink-0" />
+                          )}
+                        </div>
+                        {n.image && (
+                          <img src={n.image} alt="" className="w-full h-20 rounded-lg object-cover mb-1.5" />
+                        )}
+                        <p className="text-[11px] font-semibold text-black leading-tight mb-1">{n.title}</p>
+                        <div className="grid grid-cols-3 gap-1 bg-gray-50 rounded-lg p-1.5">
+                          <div className="text-center">
+                            <p className="text-[10px] font-black text-[#948154]">{n.extra.project_rate ? `${n.extra.project_rate}%` : "-"}</p>
+                            <p className="text-[7px] text-gray-400">Lãi suất</p>
+                          </div>
+                          <div className="text-center border-x border-gray-200">
+                            <p className="text-[10px] font-black text-[#948154]">{termValue} {termUnit}</p>
+                            <p className="text-[7px] text-gray-400">Kỳ hạn</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] font-black text-[#948154]">{minAmount ? minAmount.toLocaleString("vi-VN") : "-"}</p>
+                            <p className="text-[7px] text-gray-400">Tối thiểu</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  }
+
                   return (
                     <button
                       key={n.id}
-                      onClick={() => markRead(n)}
+                      onClick={() => handleNotifClick(n)}
                       className={`w-full text-left flex gap-2.5 px-3 py-2.5 border-b border-gray-50 hover:bg-gray-50 transition ${
                         !n.is_read ? "bg-[#948154]/5" : ""
                       }`}

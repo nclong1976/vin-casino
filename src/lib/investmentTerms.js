@@ -59,3 +59,38 @@ export function getMaturityDate(startDate, termDurationMinutes) {
   const minutes = Number(termDurationMinutes) || 0;
   return new Date(start.getTime() + minutes * 60 * 1000);
 }
+
+/**
+ * Dựng sẵn {title, content} cho thông báo "dự án mới mở" từ dữ liệu THẬT của
+ * 1 dự án (đầu tư/casino admin chọn trong NotificationsTab.jsx) - tránh admin
+ * phải tự gõ tay số liệu (dễ gõ sai lãi suất/kỳ hạn/số tiền tối thiểu so với
+ * dữ liệu thật). Chỉ liệt kê field nào THỰC SỰ có giá trị - không phải
+ * category nào cũng có đủ total_term_interest_rate/term_duration_minutes/
+ * minAmount (vd cổ phiếu dùng annual_yield, không dùng lãi suất toàn kỳ).
+ */
+export function buildProjectAnnouncementDraft(project) {
+  if (!project) return { title: "", content: "" };
+  const title = `🎉 Dự án mới mở: ${project.title || project.name || ""}`;
+
+  const lines = [];
+  if (project.category) lines.push(`Danh mục: ${project.category}`);
+  if (project.location) lines.push(`Vị trí: ${project.location}`);
+  if (project.total_term_interest_rate) {
+    lines.push(`${TERM_RATE_LABEL}: ${project.total_term_interest_rate}%`);
+  }
+  if (Number(project.term_duration_minutes) > 0) {
+    const unit = getProjectTermUnit(project);
+    lines.push(`Kỳ hạn: ${getProjectTermDurationDisplayValue(project)} ${unit}`);
+  }
+  const minAmount = Number(project.minAmount || project.min_amount) || 0;
+  if (minAmount > 0) {
+    lines.push(`Đầu tư tối thiểu: ${minAmount.toLocaleString("vi-VN")}đ`);
+  }
+  if (project.scale) lines.push(`Quy mô: ${project.scale}`);
+  if (project.description) {
+    const desc = String(project.description).trim();
+    lines.push(desc.length > 150 ? `${desc.slice(0, 150)}…` : desc);
+  }
+
+  return { title, content: lines.join("\n") };
+}
