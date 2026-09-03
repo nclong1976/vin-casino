@@ -1,5 +1,5 @@
 {
-  "name": "base44-app",
+  "name": "vin-casino",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -14,8 +14,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@base44/sdk": "^0.8.41",
-    "@base44/vite-plugin": "^1.0.30",
     "@google/genai": "^2.16.0",
     "@hello-pangea/dnd": "^17.0.0",
     "@hookform/resolvers": "^4.1.2",

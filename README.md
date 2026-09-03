@@ -1,39 +1,19 @@
-**Welcome to your Base44 project** 
+**VinClub — Vin Investment & Portfolio Platform**
 
-**About**
+Ứng dụng đầu tư/ví điện tử/casino, chạy trên Vite + React, dùng Supabase làm backend (Postgres, Auth, Realtime) và Render để deploy.
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+**Chạy ở máy local**
 
-This project contains everything you need to run your app locally.
+1. Cài đặt: `npm install`
+2. Tạo file `.env.local` (xem `.env.example` để biết đầy đủ biến môi trường cần thiết — Supabase là bắt buộc, Firebase/Telegram là tuỳ chọn)
+3. Chạy: `npm run dev`
 
-**Edit the code in your local development environment**
+**Build & deploy**
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+- `npm run build` — build frontend (Vite) và server (esbuild)
+- `npm start` — chạy bản đã build
+- Production hiện đang deploy trên Render (xem `render.yaml`)
 
-**Prerequisites:** 
+**Cơ sở dữ liệu**
 
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
-
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
-
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
-```
-
-Run the app: `npm run dev`
-
-**Publish your changes**
-
-Open [Base44.com](http://Base44.com) and click on Publish.
-
-**Docs & Support**
-
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
-
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+Schema và các thay đổi Postgres nằm trong `supabase/migrations/` — đây là nguồn sự thật duy nhất cho cấu trúc database trên Supabase.
