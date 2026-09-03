@@ -879,7 +879,7 @@ const ENTITY_TABLE_MAP = {
 const ENTITY_COLUMNS = {
   Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'is_read', 'created_date'],
   Notification: ['id', 'user_id', 'title', 'content', 'image', 'type', 'is_read', 'created_date'],
-  Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'total_term_interest_rate', 'term_duration_minutes', 'scale', 'is_active', 'description', 'created_date', 'stock_symbol', 'daily_change_percent', 'legal_status', 'growth_history', 'monthly_transactions', 'tag'],
+  Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'total_term_interest_rate', 'term_duration_minutes', 'scale', 'is_active', 'description', 'created_date', 'stock_symbol', 'daily_change_percent', 'legal_status', 'growth_history', 'monthly_transactions', 'tag', 'scheduled_open_at', 'scheduled_close_at'],
   BankAccount: ['id', 'user_id', 'bank_name', 'bank_code', 'account_number', 'account_holder', 'is_default', 'created_date'],
   Signature: ['id', 'user_id', 'type', 'content', 'label', 'created_date'],
   Transaction: ['id', 'user_id', 'user_email', 'user_name', 'project_id', 'project_name', 'project_title', 'category', 'amount', 'shares', 'method', 'rate', 'duration_days', 'profit', 'total', 'status', 'payout_status', 'contract_status', 'signature_type', 'signature_content', 'note', 'created_date'],
@@ -888,14 +888,24 @@ const ENTITY_COLUMNS = {
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
 };
 
+// Cột kiểu timestamptz thật (không phải text) - Postgres từ chối chuỗi rỗng
+// "" cho kiểu này ("invalid input syntax for type timestamp with time zone"),
+// trong khi UI (nút "Hủy hẹn giờ" trong ProjectsTab.jsx, và projectScheduler.js
+// tự xoá hẹn giờ sau khi đã áp dụng) đều gửi lên đúng chuỗi rỗng để biểu thị
+// "không hẹn giờ" - phải đổi thành null trước khi ghi.
+const TIMESTAMPTZ_FIELDS = new Set(['scheduled_open_at', 'scheduled_close_at']);
+
 /** Tách một object thành {cột thật theo whitelist..., extra: {phần còn lại}} */
 function shapeRowForTable(entityName, row) {
   const columns = ENTITY_COLUMNS[entityName] || [];
   const shaped = {};
   const extra = {};
   Object.entries(row || {}).forEach(([key, value]) => {
-    if (columns.includes(key)) shaped[key] = value;
-    else extra[key] = value;
+    if (columns.includes(key)) {
+      shaped[key] = (TIMESTAMPTZ_FIELDS.has(key) && value === '') ? null : value;
+    } else {
+      extra[key] = value;
+    }
   });
   if (Object.keys(extra).length > 0) shaped.extra = extra;
   return shaped;
