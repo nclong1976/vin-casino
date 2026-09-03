@@ -68,8 +68,8 @@ export function getMaturityDate(startDate, termDurationMinutes) {
  * category nào cũng có đủ total_term_interest_rate/term_duration_minutes/
  * minAmount (vd cổ phiếu dùng annual_yield, không dùng lãi suất toàn kỳ).
  */
-/** Định dạng ngắn gọn ngày giờ hẹn Mở/Tắt (scheduled_open_at/scheduled_close_at)
- * - cùng kiểu hiển thị với fmtSchedule() trong ProjectsTab.jsx. */
+/** Định dạng ngắn gọn ngày giờ hẹn Mở/Tắt (scheduled_open_at/scheduled_close_at/
+ * opened_at) - cùng kiểu hiển thị với fmtSchedule() trong ProjectsTab.jsx. */
 function formatScheduleDate(iso) {
   if (!iso) return "";
   try {
@@ -79,6 +79,13 @@ function formatScheduleDate(iso) {
   }
 }
 
+/** Mọi dự án đều tự động khóa đầu tư sau đúng 30 phút kể từ khi mở (xem
+ * migration 20260903230000_auto_lock_investment_30min_after_open.sql) - hầu
+ * hết dự án sẽ không có scheduled_close_at (admin không cần tự đặt giờ đóng
+ * nữa), nên nếu thiếu, suy ra giờ đóng = giờ mở + 30 phút để nội dung thông
+ * báo vẫn hiển thị đúng khung giờ đầu tư thực tế. */
+const AUTO_LOCK_MINUTES = 30;
+
 export function buildProjectAnnouncementDraft(project) {
   if (!project) return { title: "", content: "" };
   const title = `🎉 Dự án mới mở: ${project.title || project.name || ""}`;
@@ -86,14 +93,20 @@ export function buildProjectAnnouncementDraft(project) {
   const lines = [];
   if (project.category) lines.push(`Danh mục: ${project.category}`);
   if (project.location) lines.push(`Vị trí: ${project.location}`);
-  const openAt = formatScheduleDate(project.scheduled_open_at);
-  const closeAt = formatScheduleDate(project.scheduled_close_at);
+  const openIso = project.scheduled_open_at || project.opened_at || null;
+  const openAt = formatScheduleDate(openIso);
+  let closeAt = formatScheduleDate(project.scheduled_close_at);
+  let closeIsAutoLock = false;
+  if (!closeAt && openIso) {
+    closeAt = formatScheduleDate(new Date(new Date(openIso).getTime() + AUTO_LOCK_MINUTES * 60 * 1000).toISOString());
+    closeIsAutoLock = true;
+  }
   if (openAt && closeAt) {
-    lines.push(`Thời gian mở: ${openAt} - ${closeAt}`);
+    lines.push(`Thời gian mở đầu tư: ${openAt} - ${closeAt}${closeIsAutoLock ? ` (tự động khóa sau ${AUTO_LOCK_MINUTES} phút)` : ""}`);
   } else if (openAt) {
-    lines.push(`Mở lúc: ${openAt}`);
+    lines.push(`Mở đầu tư lúc: ${openAt}`);
   } else if (closeAt) {
-    lines.push(`Đóng lúc: ${closeAt}`);
+    lines.push(`Đóng đầu tư lúc: ${closeAt}`);
   }
   if (project.total_term_interest_rate) {
     lines.push(`${TERM_RATE_LABEL}: ${project.total_term_interest_rate}%`);
