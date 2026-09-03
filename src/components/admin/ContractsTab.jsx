@@ -36,14 +36,9 @@ export default function ContractsTab() {
     // subscribe nào nên hợp đồng mới từ thiết bị khác không hiện ra cho tới
     // khi Admin tự tải lại trang
     const unsub = base44.entities.Transaction.subscribe(() => fetch());
-    let unsubRTDB;
-    import('@/lib/rtdbSync').then(({ subscribeTransactionsFromRTDB }) => {
-      unsubRTDB = subscribeTransactionsFromRTDB(() => fetch());
-    }).catch(() => null);
 
     return () => {
       unsub();
-      if (typeof unsubRTDB === "function") unsubRTDB();
     };
   }, []);
 

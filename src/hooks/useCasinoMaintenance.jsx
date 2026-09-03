@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Landmark, ShieldAlert, Clock, ArrowLeft, Headphones, FileText, CheckCircle2, RefreshCw } from "lucide-react";
-import { getCasinoConfig } from "@/lib/casinoConfig";
+import { getCasinoConfig, refreshCasinoConfig } from "@/lib/casinoConfig";
+import { subscribeCasinoMaintenanceConfig } from "@/lib/supabaseDb";
 
 export function useCasinoMaintenance(gameSlug = "") {
   const [config, setConfig] = useState(() => getCasinoConfig());
@@ -12,19 +13,17 @@ export function useCasinoMaintenance(gameSlug = "") {
 
   useEffect(() => {
     syncConfig();
+    refreshCasinoConfig();
 
-    let unsubRTDB;
-    import('@/lib/rtdbSync').then(({ subscribeCasinoConfigFromRTDB }) => {
-      unsubRTDB = subscribeCasinoConfigFromRTDB((rtdbConfig) => {
-        if (rtdbConfig) setConfig(rtdbConfig);
-      });
-    }).catch(() => null);
+    const unsubRealtime = subscribeCasinoMaintenanceConfig(() => {
+      refreshCasinoConfig();
+    });
 
     const handleUpdate = () => syncConfig();
     window.addEventListener("vinclub:casino_config_updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
-      if (typeof unsubRTDB === "function") unsubRTDB();
+      if (typeof unsubRealtime === "function") unsubRealtime();
       window.removeEventListener("vinclub:casino_config_updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };

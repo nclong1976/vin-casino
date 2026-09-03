@@ -491,6 +491,60 @@ export async function updateCasinoSecureConfig(gameSlug, patch) {
   }
 }
 
+/** Cấu hình bảo trì/hiển thị casino (banner bảo trì, tỷ lệ hiển thị...) -
+ * KHÔNG phải casino_secure_config (bảng đó chỉ Admin đọc được, dùng để
+ * tính tiền thắng thật). Bảng này mọi user đã đăng nhập đọc được. */
+export async function getCasinoMaintenanceConfig() {
+  try {
+    const { data, error } = await supabase
+      .from('casino_maintenance_config')
+      .select('config')
+      .eq('id', 'default')
+      .maybeSingle();
+    if (error) {
+      console.warn('[SupabaseDb] getCasinoMaintenanceConfig error:', error.message);
+      return null;
+    }
+    return data?.config || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] getCasinoMaintenanceConfig exception:', e);
+    return null;
+  }
+}
+
+export async function saveCasinoMaintenanceConfig(config) {
+  try {
+    const { error } = await supabase
+      .from('casino_maintenance_config')
+      .upsert({ id: 'default', config, updated_at: new Date().toISOString() });
+    if (error) {
+      console.warn('[SupabaseDb] saveCasinoMaintenanceConfig error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[SupabaseDb] saveCasinoMaintenanceConfig exception:', e);
+    return false;
+  }
+}
+
+export function subscribeCasinoMaintenanceConfig(callback) {
+  const channel = supabase
+    .channel(nextChannelName('public:casino_maintenance_config'))
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'casino_maintenance_config', filter: `id=eq.default` },
+      (payload) => {
+        if (typeof callback === 'function') callback(payload?.new?.config || null);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 /**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu

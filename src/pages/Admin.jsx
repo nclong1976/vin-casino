@@ -92,15 +92,14 @@ export default function Admin() {
   useEffect(() => {
     fetchStats();
 
-    let unsubs = [];
-    import("@/lib/rtdbSync").then((rtdb) => {
-      if (rtdb.subscribeAllUsersFromRTDB) unsubs.push(rtdb.subscribeAllUsersFromRTDB(() => fetchStats()));
-      if (rtdb.subscribeWalletTransactionsFromRTDB) unsubs.push(rtdb.subscribeWalletTransactionsFromRTDB(() => fetchStats()));
-      if (rtdb.subscribeMessagesFromRTDB) unsubs.push(rtdb.subscribeMessagesFromRTDB(() => fetchStats()));
-      if (rtdb.subscribeSignaturesFromRTDB) unsubs.push(rtdb.subscribeSignaturesFromRTDB(() => fetchStats()));
-      if (rtdb.subscribeNotificationsFromRTDB) unsubs.push(rtdb.subscribeNotificationsFromRTDB(() => fetchStats()));
-      if (rtdb.subscribeTransactionsFromRTDB) unsubs.push(rtdb.subscribeTransactionsFromRTDB(() => fetchStats()));
-    }).catch(() => null);
+    const unsubs = [
+      base44.entities.User.subscribe(() => fetchStats()),
+      base44.entities.WalletTransaction.subscribe(() => fetchStats()),
+      base44.entities.Message.subscribe(() => fetchStats()),
+      base44.entities.Signature.subscribe(() => fetchStats()),
+      base44.entities.Notification.subscribe(() => fetchStats()),
+      base44.entities.Transaction.subscribe(() => fetchStats()),
+    ];
 
     return () => {
       unsubs.forEach((u) => typeof u === "function" && u());

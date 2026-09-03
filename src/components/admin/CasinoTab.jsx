@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Wrench, ShieldAlert, Sliders, Dices, Flame, RefreshCw, Power, Award, Sparkles } from "lucide-react";
-import { getCasinoConfig, saveCasinoConfig } from "@/lib/casinoConfig";
-import { getCasinoSecureConfig, updateCasinoSecureConfig } from "@/lib/supabaseDb";
+import { getCasinoConfig, saveCasinoConfig, refreshCasinoConfig } from "@/lib/casinoConfig";
+import { getCasinoSecureConfig, updateCasinoSecureConfig, subscribeCasinoMaintenanceConfig } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 
 const SPECIAL_GAMES = ["tiger-baccarat", "baccarat-long-ho"];
@@ -33,22 +33,19 @@ export default function CasinoTab() {
       setConfig(e?.detail || getCasinoConfig());
     };
 
-    // Lắng nghe cả RTDB (đổi từ ván chơi thật của người dùng - vd tự động
-    // reset "forcedOutcome" về "auto" sau khi áp dụng xong 1 ván) lẫn sự
-    // kiện cùng tab và "storage" (đổi từ tab admin khác) - trước đây chỉ
-    // nghe CustomEvent cùng tab nên 2 tab admin mở song song có thể ghi đè
-    // ngược lại thay đổi của nhau mà không hay biết.
-    let unsubRTDB;
-    import('@/lib/rtdbSync').then(({ subscribeCasinoConfigFromRTDB }) => {
-      unsubRTDB = subscribeCasinoConfigFromRTDB((rtdbConfig) => {
-        if (rtdbConfig) setConfig(rtdbConfig);
-      });
-    }).catch(() => null);
+    // Lắng nghe cả Supabase Realtime (đổi từ ván chơi thật của người dùng -
+    // vd tự động reset "forcedOutcome" về "auto" sau khi áp dụng xong 1
+    // ván, hoặc từ tab admin khác) lẫn sự kiện cùng tab và "storage" -
+    // trước đây chỉ nghe CustomEvent cùng tab nên 2 tab admin mở song song
+    // có thể ghi đè ngược lại thay đổi của nhau mà không hay biết.
+    const unsubRealtime = subscribeCasinoMaintenanceConfig(() => {
+      refreshCasinoConfig();
+    });
 
     window.addEventListener("vinclub:casino_config_updated", handleUpdate);
     window.addEventListener("storage", handleUpdate);
     return () => {
-      if (typeof unsubRTDB === "function") unsubRTDB();
+      if (typeof unsubRealtime === "function") unsubRealtime();
       window.removeEventListener("vinclub:casino_config_updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
@@ -101,8 +98,9 @@ export default function CasinoTab() {
 
   // Ép kết quả giờ ghi thẳng vào casino_secure_config trên Postgres - đây
   // là bảng RPC resolve_tiger_baccarat_round thật sự đọc để tính tiền
-  // thắng, KHÔNG còn ghi vào localStorage/RTDB cũ nữa (client người chơi
-  // không cần và không nên đọc được field này trước khi ván bài diễn ra).
+  // thắng, KHÔNG còn ghi vào casino_maintenance_config/localStorage cũ nữa
+  // (client người chơi không cần và không nên đọc được field này trước
+  // khi ván bài diễn ra).
   // Vẫn bắt buộc xác nhận vì tác động trực tiếp tới tiền thật ngay ván tiếp
   // theo (đặc biệt mức "Ép TIGER" trả 40:1).
   const handleUpdateForcedOutcome = async (gameKey, value) => {
@@ -155,7 +153,7 @@ export default function CasinoTab() {
     }
     setSecureConfig((prev) => ({ ...prev, [gameKey]: secureResult }));
 
-    // Vẫn ghi vào hệ thống cũ (localStorage/RTDB) CHỈ để bảng cược của
+    // Vẫn ghi vào casino_maintenance_config CHỈ để bảng cược của
     // người chơi hiển thị đúng tỷ lệ "1.1x" đang áp dụng - không còn dùng
     // để tính tiền thắng nữa (đã chuyển hẳn sang casino_secure_config).
     const updatedGames = {
