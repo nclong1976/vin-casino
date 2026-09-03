@@ -70,6 +70,9 @@ export default function ProjectCard({ project, index, onDeposit }) {
                   {TERM_PAYOUT_COPY}
                 </p>
               </div>
+              {project.description && (
+                <p className="text-[11px] text-gray-500 leading-tight py-2 border-b border-gray-100">{project.description}</p>
+              )}
             </>
           );
         })()}

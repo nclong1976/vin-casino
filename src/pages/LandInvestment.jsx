@@ -354,6 +354,10 @@ export default function LandInvestment() {
                       </div>
                     </div>
 
+                    {p.description && (
+                      <p className="text-[10.5px] text-gray-500 leading-tight">{p.description}</p>
+                    )}
+
                     {/* Completion Progress */}
                     <div className="flex items-center gap-2 pt-0.5">
                       <span className="text-[9.5px] text-gray-500 shrink-0 font-medium">Tiến độ hoàn thiện:</span>
