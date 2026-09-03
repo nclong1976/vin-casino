@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { MapPin, TrendingUp, ArrowRight, Check, Lock } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
@@ -80,6 +81,19 @@ const FEATURES = ["Cam kết lợi nhuận", "Sổ đỏ vĩnh viễn", "Quản 
 export default function Resort() {
   const [resorts, setResorts] = useState(DEFAULT_RESORTS);
   const [selected, setSelected] = useState(null);
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get("highlight");
+  const [highlightActive, setHighlightActive] = useState(!!highlightId);
+
+  // Tới đây từ 1 thông báo "dự án mới mở" (NotificationBell.jsx) - cuộn tới
+  // đúng thẻ resort đó và nổi bật tạm thời vài giây rồi tự tắt.
+  useEffect(() => {
+    if (!highlightId || resorts.length === 0) return;
+    const el = document.getElementById(`project-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlightActive(false), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightId, resorts]);
 
   useEffect(() => {
     const processItems = (all) => {
@@ -143,12 +157,13 @@ export default function Resort() {
           return (
             <motion.div
               key={r.name || r.id}
+              id={r.id ? `project-${r.id}` : undefined}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.08 }}
               className={`bg-white rounded-2xl overflow-hidden shadow-md border transition-all ${
                 isActive ? "border-gray-100" : "border-amber-300 opacity-90 bg-amber-50/20"
-              }`}
+              } ${highlightActive && highlightId === String(r.id) ? "ring-2 ring-amber-400" : ""}`}
             >
               <div className="relative w-full h-[150px] overflow-hidden">
                 <img src={r.image} alt={r.name} className="w-full h-full object-cover" loading="lazy" />

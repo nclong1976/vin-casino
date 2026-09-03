@@ -21,7 +21,15 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
+import { buildProjectAnnouncementDraft } from "@/lib/investmentTerms";
 import { toast } from "sonner";
+
+function getCategoryBadgeStyle(category = "") {
+  if (category === "VinHomes") return "bg-amber-50 text-[#837046] border-amber-200";
+  if (category === "Đầu tư nghỉ dưỡng") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (category === "Đầu tư chứng khoán") return "bg-indigo-50 text-indigo-700 border-indigo-200";
+  return "bg-blue-50 text-blue-700 border-blue-200";
+}
 
 const NOTIF_TYPES = [
   { id: "admin", label: "Hệ thống", icon: Megaphone, color: "bg-amber-100 text-amber-800 border-amber-200" },
@@ -45,6 +53,13 @@ export default function NotificationsTab() {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [sending, setSending] = useState(false);
+
+  // Chọn dự án có sẵn để tự điền tiêu đề/nội dung/ảnh (chỉ áp dụng khi
+  // notifType === 'project') - xem buildProjectAnnouncementDraft trong
+  // investmentTerms.js.
+  const [projects, setProjects] = useState([]);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [selectedProject, setSelectedProject] = useState(null);
 
   // History & Filter State
   const [history, setHistory] = useState([]);
@@ -81,9 +96,19 @@ export default function NotificationsTab() {
     }
   };
 
+  const fetchProjects = async () => {
+    try {
+      const list = await base44.entities.Project.list("-created_date", 100);
+      setProjects(Array.isArray(list) ? list : []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
     fetchHistory();
+    fetchProjects();
 
     const unsub = base44.entities.Notification.subscribe(() => {
       fetchHistory();
@@ -103,6 +128,16 @@ export default function NotificationsTab() {
     });
     return map;
   }, [users]);
+
+  const handleSelectProject = (project) => {
+    setSelectedProject(project);
+    const draft = buildProjectAnnouncementDraft(project);
+    setTitle(draft.title);
+    setContent(draft.content);
+    setImageUrl(project.image || "");
+    setImagePreview(project.image || "");
+    setImageFile(null);
+  };
 
   const handleImageFile = (e) => {
     const file = e.target.files?.[0];
@@ -133,6 +168,22 @@ export default function NotificationsTab() {
         }
       }
 
+      // Snapshot số liệu dự án lúc gửi (không phải tham chiếu sống) - dự án
+      // có thể bị admin sửa/khoá sau này nhưng thông báo cũ vẫn phải hiển
+      // thị đúng số liệu tại thời điểm gửi. Các field này không nằm trong
+      // whitelist cột Notification (xem ENTITY_COLUMNS trong supabaseDb.js)
+      // nên tự động rơi vào cột "extra" jsonb, không cần đổi schema.
+      const projectSnapshot = selectedProject
+        ? {
+            project_id: selectedProject.id,
+            project_category: selectedProject.category,
+            project_rate: selectedProject.total_term_interest_rate,
+            project_duration_minutes: selectedProject.term_duration_minutes,
+            project_min_amount: selectedProject.minAmount ?? selectedProject.min_amount,
+            project_scale: selectedProject.scale,
+          }
+        : {};
+
       let targetLabel = "";
       let created;
 
@@ -156,6 +207,7 @@ export default function NotificationsTab() {
           user_id: null,
           is_read: false,
           created_date: new Date().toISOString(),
+          ...projectSnapshot,
         });
         targetLabel = "tất cả hội viên toàn ứng dụng";
       } else if (targetType === "admins") {
@@ -167,6 +219,7 @@ export default function NotificationsTab() {
           user_id: "admin",
           is_read: false,
           created_date: new Date().toISOString(),
+          ...projectSnapshot,
         });
         targetLabel = "toàn bộ Quản trị viên";
       }
@@ -188,6 +241,8 @@ export default function NotificationsTab() {
       setImagePreview("");
       setTargetType("all");
       setNotifType("admin");
+      setSelectedProject(null);
+      setProjectSearch("");
       setShowForm(false);
 
       fetchHistory();
@@ -556,6 +611,85 @@ export default function NotificationsTab() {
                     })}
                   </div>
                 </div>
+
+                {/* 2b. Chọn dự án có sẵn để tự điền (chỉ hiện khi loại = Đầu tư & Dự án) */}
+                {notifType === "project" && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-gray-700 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Briefcase className="w-3.5 h-3.5 text-[#948154]" /> Chọn dự án có sẵn để tự điền số liệu (tuỳ chọn):
+                      </span>
+                      {selectedProject && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProject(null)}
+                          className="text-[10px] text-red-500 hover:underline"
+                        >
+                          Bỏ chọn
+                        </button>
+                      )}
+                    </label>
+
+                    {selectedProject ? (
+                      <div className="flex items-center gap-2 p-2 rounded-xl border border-[#948154]/40 bg-[#948154]/5">
+                        {selectedProject.image && (
+                          <img src={selectedProject.image} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11.5px] font-bold text-black truncate">{selectedProject.title || selectedProject.name}</p>
+                          <span className={`inline-block mt-0.5 text-[8.5px] font-bold px-1.5 py-0.2 rounded border ${getCategoryBadgeStyle(selectedProject.category)}`}>
+                            {selectedProject.category}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={projectSearch}
+                            onChange={(e) => setProjectSearch(e.target.value)}
+                            placeholder="Tìm theo tên dự án..."
+                            className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+                          />
+                        </div>
+                        <div className="max-h-32 overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
+                          {projects
+                            .filter((p) => {
+                              const q = projectSearch.trim().toLowerCase();
+                              if (!q) return true;
+                              return (p.title || p.name || "").toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q);
+                            })
+                            .slice(0, 20)
+                            .map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => handleSelectProject(p)}
+                                className="w-full flex items-center gap-2 p-2 hover:bg-gray-50 transition-colors text-left cursor-pointer"
+                              >
+                                {p.image ? (
+                                  <img src={p.image} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                                ) : (
+                                  <span className="w-8 h-8 rounded-lg bg-gray-100 shrink-0" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[11px] font-semibold text-black truncate">{p.title || p.name}</p>
+                                  <span className={`inline-block text-[8px] font-bold px-1 py-0.1 rounded border ${getCategoryBadgeStyle(p.category)}`}>
+                                    {p.category}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          {projects.length === 0 && (
+                            <p className="text-[10px] text-gray-400 text-center py-3">Chưa có dự án nào</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* 3. Title & Content */}
                 <div className="space-y-3">

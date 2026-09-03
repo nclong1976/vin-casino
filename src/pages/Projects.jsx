@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import ProjectsHeader from "@/components/projects/ProjectsHeader";
 import ProjectCard from "@/components/projects/ProjectCard";
 import DepositModal from "@/components/projects/DepositModal";
@@ -19,6 +20,9 @@ export default function Projects() {
   const [selected, setSelected] = useState(null);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get("highlight");
+  const [highlightActive, setHighlightActive] = useState(!!highlightId);
 
   const applyList = (all) => {
     if (!Array.isArray(all)) return;
@@ -53,6 +57,16 @@ export default function Projects() {
     };
   }, []);
 
+  // Tới đây từ 1 thông báo "dự án mới mở" (NotificationBell.jsx) - cuộn tới
+  // đúng thẻ dự án đó và nổi bật tạm thời vài giây rồi tự tắt.
+  useEffect(() => {
+    if (!highlightId || projects.length === 0) return;
+    const el = document.getElementById(`project-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlightActive(false), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightId, projects]);
+
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
       <ProjectsHeader />
@@ -81,12 +95,17 @@ export default function Projects() {
           </div>
         ) : (
           projects.map((project, index) => (
-            <ProjectCard
+            <div
               key={project.id || project.title}
-              project={project}
-              index={index}
-              onDeposit={setSelected}
-            />
+              id={`project-${project.id}`}
+              className={
+                highlightActive && highlightId === String(project.id)
+                  ? "ring-2 ring-amber-400 rounded-2xl transition-all"
+                  : ""
+              }
+            >
+              <ProjectCard project={project} index={index} onDeposit={setSelected} />
+            </div>
           ))
         )}
       </div>

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import StockHeader from "@/components/stocks/StockHeader";
 import MarketSummary from "@/components/stocks/MarketSummary";
@@ -57,6 +58,9 @@ async function fetchStocks() {
 
 export default function Stocks() {
   const [selected, setSelected] = useState(null);
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get("highlight");
+  const [highlightActive, setHighlightActive] = useState(!!highlightId);
 
   // Đọc trực tiếp danh sách cổ phiếu admin cấu hình trong StocksTab.jsx
   // (đọc-nhanh khi mount, không polling liên tục vì giá không thay đổi
@@ -66,6 +70,16 @@ export default function Stocks() {
     queryFn: fetchStocks,
     staleTime: 30_000,
   });
+
+  // Tới đây từ 1 thông báo "dự án mới mở" (NotificationBell.jsx) - cuộn tới
+  // đúng thẻ cổ phiếu đó và nổi bật tạm thời vài giây rồi tự tắt.
+  useEffect(() => {
+    if (!highlightId || stocks.length === 0) return;
+    const el = document.getElementById(`project-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlightActive(false), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightId, stocks]);
 
   return (
     <main className="relative w-full min-h-screen bg-[#0d1117] overflow-x-hidden font-heading">
@@ -85,7 +99,13 @@ export default function Stocks() {
         </div>
 
         {stocks.map((stock, index) => (
-          <StockCard key={stock.id || stock.symbol} stock={stock} index={index} onTrade={setSelected} />
+          <div
+            key={stock.id || stock.symbol}
+            id={stock.id ? `project-${stock.id}` : undefined}
+            className={highlightActive && highlightId === String(stock.id) ? "ring-2 ring-amber-400 rounded-2xl" : ""}
+          >
+            <StockCard stock={stock} index={index} onTrade={setSelected} />
+          </div>
         ))}
 
         <p className="text-[9px] text-gray-600 text-center pt-2 leading-relaxed">
