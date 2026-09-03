@@ -1,10 +1,8 @@
-import { pushUserToRTDB } from '@/lib/rtdbSync';
-import { syncUserToSupabase } from '@/lib/twoWaySync';
-import { incrementUserBalance, setUserBalanceAbsolute } from '@/lib/supabaseDb';
+import { incrementUserBalance, setUserBalanceAbsolute, upsertSupabaseUser } from '@/lib/supabaseDb';
 
 /**
  * Ghi số dư/total_deposited (giá trị TUYỆT ĐỐI, đã tính sẵn) vào mọi nơi
- * cục bộ + RTDB + Supabase, và bắn sự kiện cho UI. Dùng chung cho cả
+ * cục bộ + Supabase, và bắn sự kiện cho UI. Dùng chung cho cả
  * updateUserBalance (đường cũ) và adjustUserBalance (đường atomic mới) -
  * cả 2 chỉ khác nhau ở CHỖ TÍNH ra numBalance/numDeposit, còn việc ghi thì
  * giống hệt nhau.
@@ -59,14 +57,7 @@ function applyBalanceToLocalStores(userId, numBalance, numDeposit, numVersion) {
     updatedUser = { id: userId, balance: numBalance, total_deposited: numDeposit, last_active: new Date().toISOString(), ...versionPatch };
   }
 
-  // 4. Push updated balance directly to Firebase Realtime Database for instant multi-device sync
-  try {
-    pushUserToRTDB(updatedUser);
-  } catch (e) {
-    console.warn("pushUserToRTDB error in balanceSync:", e);
-  }
-
-  // 5. Dispatch custom event for real-time UI synchronization across all open pages & components
+  // 4. Dispatch custom event for real-time UI synchronization across all open pages & components
   window.dispatchEvent(
     new CustomEvent("vinclub:balance_updated", {
       detail: { userId, newBalance: numBalance, updatedUser }
@@ -104,9 +95,9 @@ export async function setAbsoluteUserBalanceAndDeposit(userId, newBalance, newTo
     console.warn("[balanceSync] set_user_balance_absolute RPC unavailable, falling back to upsert");
     const updatedUser = applyBalanceToLocalStores(userId, numBalance, numDeposit);
     try {
-      syncUserToSupabase(updatedUser, { debounceMs: 0 });
+      upsertSupabaseUser(updatedUser);
     } catch (e) {
-      console.warn("syncUserToSupabase error in setAbsoluteUserBalanceAndDeposit:", e);
+      console.warn("upsertSupabaseUser error in setAbsoluteUserBalanceAndDeposit:", e);
     }
     return updatedUser;
   } catch (e) {
@@ -116,7 +107,7 @@ export async function setAbsoluteUserBalanceAndDeposit(userId, newBalance, newTo
 }
 
 /**
- * Nạp lại cache cục bộ (localStorage + RTDB) từ 1 bản ghi Supabase ĐÃ ĐỌC
+ * Nạp lại cache cục bộ (localStorage) từ 1 bản ghi Supabase ĐÃ ĐỌC
  * SẴN (vd. sau khi mạng phục hồi, chỉ để đồng bộ thiết bị này theo kịp) -
  * KHÔNG ghi ngược lại Supabase (vì giá trị vừa đọc ra từ chính Supabase,
  * ghi lại là thừa) và giữ nguyên balance_version thật của bản ghi thay vì
@@ -141,9 +132,9 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
 
     // Push updated balance to Supabase Database (PostgreSQL)
     try {
-      syncUserToSupabase(updatedUser, { debounceMs: 0 });
+      upsertSupabaseUser(updatedUser);
     } catch (e) {
-      console.warn("syncUserToSupabase error in updateUserBalance:", e);
+      console.warn("upsertSupabaseUser error in updateUserBalance:", e);
     }
 
     return updatedUser;
@@ -208,8 +199,8 @@ export async function adjustUserBalance(userId, delta, totalDepositedDelta = 0) 
   const rpcResult = await incrementUserBalance(userId, numDelta, numDepositDelta);
   if (rpcResult) {
     // Ghi đúng giá trị THẬT mà Postgres vừa tính ra (không phải giá trị
-    // đoán ở client) xuống mọi nơi cục bộ + RTDB, kèm balance_version mới
-    // để phiên đăng nhập khác nhận diện đây là bản cập nhật mới hơn
+    // đoán ở client) xuống cache cục bộ, kèm balance_version mới để phiên
+    // đăng nhập khác nhận diện đây là bản cập nhật mới hơn
     return applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
   }
 

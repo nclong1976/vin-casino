@@ -704,7 +704,7 @@ export async function deleteSupabaseWalletTransaction(id) {
 // cùng 1 tên sẽ trả về/khớp lại đúng channel đã subscribe() trước đó, và
 // .on() thêm vào một channel ĐÃ subscribe() sẽ ném lỗi "cannot add
 // postgres_changes callbacks... after subscribe()". Nhiều nơi độc lập cùng
-// gọi các hàm subscribe dưới đây (vd. twoWaySync.js chạy nền toàn app +
+// gọi các hàm subscribe dưới đây (vd. AuthContext.jsx chạy nền toàn app +
 // UsersTab.jsx của Admin) nên mỗi lần gọi phải tạo 1 tên channel RIÊNG,
 // không dùng chung 1 tên cố định.
 let channelSeq = 0;

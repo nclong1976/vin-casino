@@ -27,7 +27,6 @@ import { base44 } from "@/api/base44Client";
 import { setAbsoluteUserBalanceAndDeposit } from "@/lib/balanceSync";
 import { normalizeWalletTransaction } from "@/lib/transactionHistory";
 import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
-import { deleteUserFromRTDB, pushUserToRTDB } from "@/lib/rtdbSync";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
 import { getCardTierInfo } from "@/lib/membershipUtils";
@@ -223,7 +222,6 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       await Promise.allSettled([
         base44.entities.User.update(user.id, { is_locked: nextLocked }),
         upsertSupabaseUser(updated),
-        pushUserToRTDB(updated),
       ]);
 
       await base44.entities.AuditLog.create({
@@ -249,7 +247,6 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       await Promise.allSettled([
         base44.entities.User.update(user.id, { daily_interest_enabled: next }),
         upsertSupabaseUser(updated),
-        pushUserToRTDB(updated),
       ]);
 
       await base44.entities.AuditLog.create({
@@ -285,7 +282,6 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
     try {
       await Promise.allSettled([
         deleteSupabaseUser(user.id),
-        deleteUserFromRTDB(user.id),
         base44.entities.User.delete(user.id),
       ]);
 

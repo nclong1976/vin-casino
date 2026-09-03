@@ -3,10 +3,9 @@ import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { runDailyYieldAndMaturityCheck } from '@/lib/dailyYieldEngine';
 import { checkScheduledProjects } from '@/lib/projectScheduler';
-import { pushUserToRTDB, trackPresenceInRTDB } from '@/lib/rtdbSync';
+import { trackPresence } from '@/lib/presence';
 import { signOut as supaSignOut, getSession, onAuthStateChange, mapSupabaseUser } from '@/lib/supabaseAuth';
 import { getSupabaseUser, subscribeSupabaseUserRow } from '@/lib/supabaseDb';
-import { startTwoWaySync } from '@/lib/twoWaySync';
 import { saveAccountToSwitcher, switchToAccount as switchToSavedAccount } from '@/lib/accountSwitcher';
 import { hydrateUserOnNewDevice } from '@/lib/syncEngine';
 
@@ -53,9 +52,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     setAppPublicSettings({ id: appParams.appId || 'vin-investment-app', public_settings: {} });
     setIsLoadingPublicSettings(false);
-
-    // Khởi động hệ thống đồng bộ hai chiều Supabase <-> Firebase RTDB
-    const stopTwoWaySync = startTwoWaySync();
 
     // Kiểm tra session đang tồn tại khi khởi động app
     const initAuth = async () => {
@@ -122,22 +118,18 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       if (typeof unsubSupabase === 'function') unsubSupabase();
-      if (typeof stopTwoWaySync === 'function') stopTwoWaySync();
     };
   }, []);
 
   // ──────────────────────────────────────────────────────────────────
-  // Firebase RTDB — CHỈ còn giữ cho tính năng "đang online" (trackPresenceInRTDB,
-  // dùng onDisconnect() của Firebase, Supabase Realtime chưa có tương đương).
-  // startFirebaseSync() (Firestore) đã GỠ BỎ - nó lắng nghe real-time cho đúng
-  // các entity (User, Message, WalletTransaction, Transaction...) mà
-  // Supabase Realtime đã đảm nhiệm từ Phase 1 chuyển kiến trúc, hoàn toàn dư
-  // thừa và tốn thêm 1 nguồn dữ liệu cần đồng bộ không cần thiết.
+  // "Đang online": Supabase Realtime Presence (xem src/lib/presence.js) -
+  // thay thế Firebase RTDB onDisconnect(). Dữ liệu người dùng (balance,
+  // is_locked...) không còn cần đẩy sang đâu cả - Supabase Postgres đã là
+  // nguồn duy nhất, các nơi khác đọc thẳng qua Supabase Realtime.
   // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isAuthenticated && user) {
-      pushUserToRTDB(user);
-      const unsubPresence = trackPresenceInRTDB(user);
+      const unsubPresence = trackPresence(user);
 
       // Lắng nghe số dư real-time TRỰC TIẾP từ Supabase Postgres (nguồn sự
       // thật duy nhất) thay vì Firebase RTDB - loại bỏ hẳn kiểu ghi "set" đè

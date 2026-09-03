@@ -21,7 +21,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { listSupabaseUsers, deleteSupabaseUser, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
-import { deleteUserFromRTDB } from "@/lib/rtdbSync";
+import { subscribeOnlineUsers } from "@/lib/presence";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
@@ -101,14 +101,16 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
       });
     });
 
-    // Vẫn giữ RTDB CHỈ để hiển thị trạng thái Online (presence theo thời
-    // gian thực) - is_locked/balance/... không còn tin từ đây nữa.
-    let unsubRTDB;
-    import('@/lib/rtdbSync').then(({ subscribeAllUsersFromRTDB }) => {
-      unsubRTDB = subscribeAllUsersFromRTDB((_rtdbUsers, onlineMap) => {
-        if (onlineMap) setOnlineUsers(onlineMap);
+    // Trạng thái "đang online" qua Supabase Realtime Presence (xem
+    // src/lib/presence.js) - is_locked/balance/... không còn tin từ đây,
+    // chỉ dùng cho hiển thị presence theo thời gian thực.
+    const unsubPresence = subscribeOnlineUsers((presenceState) => {
+      const flat = {};
+      Object.entries(presenceState || {}).forEach(([uid, metas]) => {
+        if (metas && metas[0]) flat[uid] = metas[0];
       });
-    }).catch(() => null);
+      setOnlineUsers(flat);
+    });
 
     // Refetch định kỳ nhẹ làm lưới an toàn phòng khi kênh realtime bị rớt
     // (mất mạng, tab chuyển nền lâu) - không còn phải tính lại từ hàng trăm
@@ -119,7 +121,7 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
 
     return () => {
       if (typeof unsubSupabase === "function") unsubSupabase();
-      if (typeof unsubRTDB === "function") unsubRTDB();
+      if (typeof unsubPresence === "function") unsubPresence();
       clearInterval(pollInterval);
     };
   }, [fetchUsers]);
@@ -157,7 +159,6 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
     try {
       await Promise.allSettled([
         deleteSupabaseUser(u.id),
-        deleteUserFromRTDB(u.id),
         base44.entities.User.delete(u.id),
       ]);
 

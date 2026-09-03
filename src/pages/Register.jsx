@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { signUp as supaSignUp, mapSupabaseUser } from "@/lib/supabaseAuth";
 import { isIdentifierTaken, isReferralCodeValid } from "@/lib/supabaseDb";
 import { normalizeIdentifierToAuthEmail, isPhoneNumber } from "@/lib/identifier";
-import { pushUserToRTDB } from "@/lib/rtdbSync";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "sonner";
@@ -98,7 +97,8 @@ export default function Register() {
         phone: isPhoneNumber(rawIdentifier) ? rawIdentifier : "",
       });
 
-      // Đẩy user lên Firebase RTDB để Admin thấy ngay lập tức
+      // Admin thấy user mới ngay lập tức qua Supabase Realtime
+      // (subscribeSupabaseUsersTable trong UsersTab.jsx) - không cần đẩy đi đâu nữa.
       if (supaData?.user) {
         const vinUser = mapSupabaseUser(supaData.user, {
           full_name: fullName,
@@ -106,7 +106,6 @@ export default function Register() {
           membership_tier: "Member",
           vip_level: "VIP 0",
         });
-        pushUserToRTDB(vinUser);
         localStorage.setItem("base44_local_user", JSON.stringify(vinUser));
       }
 
