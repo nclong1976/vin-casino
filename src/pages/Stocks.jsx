@@ -45,6 +45,7 @@ function mapProjectToStock(p) {
     change,
     spark: synthesizeSpark(price, change),
     is_active: p.is_active ?? true,
+    description: p.description || "",
   };
 }
 

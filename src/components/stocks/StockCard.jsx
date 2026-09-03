@@ -59,6 +59,10 @@ export default function StockCard({ stock, index, onTrade }) {
         </div>
       </div>
 
+      {stock.description && (
+        <p className="text-[10.5px] text-gray-400 leading-tight mt-2.5 pt-2.5 border-t border-[#222c38]">{stock.description}</p>
+      )}
+
       <button
         disabled={!isActive}
         onClick={() => {
