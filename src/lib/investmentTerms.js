@@ -68,6 +68,17 @@ export function getMaturityDate(startDate, termDurationMinutes) {
  * category nào cũng có đủ total_term_interest_rate/term_duration_minutes/
  * minAmount (vd cổ phiếu dùng annual_yield, không dùng lãi suất toàn kỳ).
  */
+/** Định dạng ngắn gọn ngày giờ hẹn Mở/Tắt (scheduled_open_at/scheduled_close_at)
+ * - cùng kiểu hiển thị với fmtSchedule() trong ProjectsTab.jsx. */
+function formatScheduleDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
 export function buildProjectAnnouncementDraft(project) {
   if (!project) return { title: "", content: "" };
   const title = `🎉 Dự án mới mở: ${project.title || project.name || ""}`;
@@ -75,6 +86,15 @@ export function buildProjectAnnouncementDraft(project) {
   const lines = [];
   if (project.category) lines.push(`Danh mục: ${project.category}`);
   if (project.location) lines.push(`Vị trí: ${project.location}`);
+  const openAt = formatScheduleDate(project.scheduled_open_at);
+  const closeAt = formatScheduleDate(project.scheduled_close_at);
+  if (openAt && closeAt) {
+    lines.push(`Thời gian mở: ${openAt} - ${closeAt}`);
+  } else if (openAt) {
+    lines.push(`Mở lúc: ${openAt}`);
+  } else if (closeAt) {
+    lines.push(`Đóng lúc: ${closeAt}`);
+  }
   if (project.total_term_interest_rate) {
     lines.push(`${TERM_RATE_LABEL}: ${project.total_term_interest_rate}%`);
   }
