@@ -517,6 +517,23 @@ export async function isIdentifierTaken(identifier) {
   }
 }
 
+/** Kiểm tra mã giới thiệu qua RPC server (validate_referral_code) thay vì so
+ * sánh cứng trong mã nguồn trình duyệt - xem migration
+ * add_validate_referral_code_rpc để biết lý do. */
+export async function isReferralCodeValid(code) {
+  try {
+    const { data, error } = await supabase.rpc('validate_referral_code', { p_code: code });
+    if (error) {
+      console.warn('[SupabaseDb] isReferralCodeValid error:', error.message);
+      return false;
+    }
+    return data === true;
+  } catch (e) {
+    console.warn('[SupabaseDb] isReferralCodeValid exception:', e);
+    return false;
+  }
+}
+
 export async function updateSupabaseUser(id, updates) {
   if (!id || !updates) return null;
   try {
