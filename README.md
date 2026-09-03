@@ -5,7 +5,7 @@
 **Chạy ở máy local**
 
 1. Cài đặt: `npm install`
-2. Tạo file `.env.local` (xem `.env.example` để biết đầy đủ biến môi trường cần thiết — Supabase là bắt buộc, Firebase/Telegram là tuỳ chọn)
+2. Tạo file `.env.local` (xem `.env.example` để biết đầy đủ biến môi trường cần thiết — Supabase là bắt buộc, Telegram là tuỳ chọn)
 3. Chạy: `npm run dev`
 
 **Build & deploy**

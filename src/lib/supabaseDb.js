@@ -857,9 +857,9 @@ export function subscribeSupabaseWalletTransactionsForUser(userId, callback) {
 // liệu vĩnh viễn nếu người dùng/Admin xóa cache trình duyệt hoặc đổi
 // thiết bị). Các hàm dưới đây ghi (write-through) mọi thay đổi của các
 // thực thể này xuống Postgres như một lớp lưu trữ bền vững bổ sung -
-// KHÔNG thay thế luồng đọc/localStorage/Firebase hiện có, chỉ cộng thêm
-// một bản sao đáng tin cậy ở phía sau. Lỗi ghi Supabase ở đây luôn được
-// nuốt (catch) và không bao giờ chặn luồng chính của ứng dụng.
+// KHÔNG thay thế luồng đọc/localStorage hiện có, chỉ cộng thêm một bản
+// sao đáng tin cậy ở phía sau. Lỗi ghi Supabase ở đây luôn được nuốt
+// (catch) và không bao giờ chặn luồng chính của ứng dụng.
 
 const ENTITY_TABLE_MAP = {
   Message: 'messages',

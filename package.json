@@ -58,7 +58,6 @@
     "embla-carousel-react": "^8.5.2",
     "esbuild": "^0.28.2",
     "express": "^5.2.1",
-    "firebase": "^12.17.1",
     "framer-motion": "^11.16.4",
     "html2canvas": "^1.4.1",
     "input-otp": "^1.4.2",

@@ -555,7 +555,6 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
                 </p>
                 <ul className="list-disc list-inside space-y-0.5 text-[10.5px] text-red-600">
                   <li>Xóa hồ sơ hội viên trên Supabase Database</li>
-                  <li>Xóa tài khoản khỏi Firebase Realtime Database</li>
                   <li>Xóa tài khoản ngân hàng và số dư liên quan</li>
                 </ul>
               </div>
