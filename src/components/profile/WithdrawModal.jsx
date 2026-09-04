@@ -18,7 +18,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { notifyUser } from "@/lib/notifyUser";
-import { adjustUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import { getBankLogo } from "@/constants/banks";
 import { Link } from "react-router-dom";
@@ -178,7 +178,18 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
     setCreatedTimeStr(timeFormatted);
 
     try {
-      await adjustUserBalance(user?.id, -numAmount);
+      // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
+      // xác nhận thật từ Postgres) - trước đây dùng adjustUserBalance() (có
+      // await nhưng KHÔNG kiểm tra kết quả trả về), đường dự phòng của hàm
+      // đó luôn trả về "coi như thành công" ngay cả khi Postgres từ chối
+      // ghi, khiến lệnh rút "pending" vẫn được tạo và Admin vẫn thấy để
+      // duyệt dù tiền chưa hề bị trừ khỏi số dư thật (xem DepositModal.jsx,
+      // nơi lỗi tương tự đã được vá cho luồng đầu tư).
+      const balanceResult = await adjustUserBalanceStrict(user?.id, -numAmount);
+      if (!balanceResult) {
+        toast.error("Không thể trừ tiền để tạo lệnh rút, vui lòng thử lại!");
+        return;
+      }
 
       const tx = await base44.entities.WalletTransaction.create({
         type: "withdraw",

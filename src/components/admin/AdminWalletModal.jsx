@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Plus, Minus, Wallet, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalance, getFreshUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalanceStrict, getFreshUserBalance } from "@/lib/balanceSync";
 import { notifyUser } from "@/lib/notifyUser";
 import BalanceAmount from "@/components/admin/BalanceAmount";
 import { toast } from "sonner";
@@ -44,7 +44,21 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
         setSaving(false);
         return;
       }
-      await adjustUserBalance(user.id, mode === "add" ? numAmount : -numAmount, mode === "add" ? numAmount : 0);
+      // adjustUserBalanceStrict() (không phải adjustUserBalance()) - chỉ tin
+      // kết quả RPC nguyên tử có xác nhận thật từ Postgres. Dùng cho CẢ cộng
+      // lẫn trừ vì bên dưới luôn tạo 1 dòng WalletTransaction "completed" +
+      // báo người dùng "đã cộng/trừ" - không được làm vậy nếu chưa chắc chắn
+      // Postgres đã ghi thành công (xem WithdrawModal.jsx/DepositModal.jsx
+      // cho cùng loại lỗi này ở luồng rút/đầu tư của người dùng).
+      const result = await adjustUserBalanceStrict(
+        user.id,
+        mode === "add" ? numAmount : -numAmount,
+        mode === "add" ? numAmount : 0
+      );
+      if (!result) {
+        toast.error("Không thể ghi nhận thay đổi số dư, vui lòng thử lại!");
+        return;
+      }
 
       await base44.entities.WalletTransaction.create({
         user_id: user.id,

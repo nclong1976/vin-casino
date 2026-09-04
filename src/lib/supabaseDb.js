@@ -237,27 +237,29 @@ export async function deleteSavingsGoalWithRefund(goalId) {
 }
 
 /**
- * Admin duyệt/từ chối 1 lệnh rút tiền qua RPC process_withdrawal() - đổi
- * status + hoàn tiền (nếu từ chối) + ghi audit log/notification trong CÙNG
- * 1 transaction Postgres, khoá đúng dòng (FOR UPDATE + status='pending')
- * nên click đúp/2 tab admin cùng lúc chỉ xử lý được đúng 1 lần.
+ * Admin duyệt/từ chối 1 lệnh nạp/rút tiền qua RPC process_wallet_transaction()
+ * - đổi status + cộng/hoàn tiền đúng trường hợp + ghi audit log/tin nhắn CSKH
+ * trong CÙNG 1 transaction Postgres, khoá đúng dòng (FOR UPDATE +
+ * status='pending') nên click đúp/2 tab admin cùng lúc chỉ xử lý được đúng
+ * 1 lần. Thay thế TransactionsTab.jsx tự làm 4 bước riêng lẻ ở client
+ * (không nguyên tử, không khoá chống trùng) trước đây.
  */
-export async function processWithdrawal(txId, action, reason = null) {
+export async function processWalletTransaction(txId, action, reason = null) {
   if (!txId || !['approve', 'reject'].includes(action)) return null;
   try {
-    const { data, error } = await supabase.rpc('process_withdrawal', {
+    const { data, error } = await supabase.rpc('process_wallet_transaction', {
       p_tx_id: txId,
       p_action: action,
       p_reason: reason,
     });
 
     if (error) {
-      console.warn('[SupabaseDb] processWithdrawal error:', error.message);
+      console.warn('[SupabaseDb] processWalletTransaction error:', error.message);
       return null;
     }
     return Array.isArray(data) ? data[0] : data;
   } catch (e) {
-    console.warn('[SupabaseDb] processWithdrawal exception:', e);
+    console.warn('[SupabaseDb] processWalletTransaction exception:', e);
     return null;
   }
 }
