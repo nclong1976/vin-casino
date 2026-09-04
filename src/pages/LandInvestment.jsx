@@ -38,7 +38,8 @@ const DEFAULT_PROPERTIES = [
     pricePerM2: 35000000,
     priceStr: "35 triệu/m²",
     rate: "0.5%/ngày",
-    rateNum: 0.5,
+    rateNum: 12,
+    total_term_interest_rate: 12,
     area: "80-120m²",
     progress: 88,
     minAmount: "2800000000",
@@ -57,7 +58,8 @@ const DEFAULT_PROPERTIES = [
     pricePerM2: 42000000,
     priceStr: "42 triệu/m²",
     rate: "0.6%/ngày",
-    rateNum: 0.6,
+    rateNum: 14,
+    total_term_interest_rate: 14,
     area: "60-100m²",
     progress: 92,
     minAmount: "2520000000",
@@ -76,7 +78,8 @@ const DEFAULT_PROPERTIES = [
     pricePerM2: 38000000,
     priceStr: "38 triệu/m²",
     rate: "0.4%/ngày",
-    rateNum: 0.4,
+    rateNum: 11,
+    total_term_interest_rate: 11,
     area: "70-110m²",
     progress: 85,
     minAmount: "2660000000",
@@ -95,7 +98,8 @@ const DEFAULT_PROPERTIES = [
     pricePerM2: 40000000,
     priceStr: "40 triệu/m²",
     rate: "0.5%/ngày",
-    rateNum: 0.5,
+    rateNum: 13,
+    total_term_interest_rate: 13,
     area: "75-105m²",
     progress: 90,
     minAmount: "3000000000",
@@ -158,7 +162,14 @@ export default function LandInvestment() {
             minAmount: p.minAmount ?? p.min_amount,
             pricePerM2: p.price_per_m2 || 35000000,
             priceStr: p.priceStr || p.price_str || (p.price_per_m2 ? `${new Intl.NumberFormat("vi-VN").format(p.price_per_m2)} ₫/m²` : "35 triệu/m²"),
-            rateNum: parseFloat(String(p.rate || "12").replace(/[^\d.]/g, "")) || 12,
+            // Trước đây tự tách số từ field "rate" (nhãn hiển thị dạng chuỗi
+            // tự do, admin ghi "chỉ để tham khảo" - xem ProjectsTab.jsx) bằng
+            // regex xoá ký tự không phải số, dễ ra số sai (vd "90%/45 ngày"
+            // -> "90.45"). Dùng thẳng total_term_interest_rate - đúng con số
+            // DUY NHẤT admin cấu hình và cũng là số thật dùng để tính lãi
+            // (trigger compute_transaction_interest), để "lãi toàn kỳ" hiển
+            // thị ở đây luôn khớp với admin.
+            rateNum: Number(p.total_term_interest_rate) || 0,
             // Đọc đúng dữ liệu riêng của từng dự án (admin sửa qua ProjectsTab) -
             // trước đây 3 trường này bị gán cứng 1 chuỗi tĩnh cho MỌI dự án.
             legalStatus: p.legal_status || "Đang cập nhật pháp lý",
@@ -204,10 +215,27 @@ export default function LandInvestment() {
   const [bookingNote, setBookingNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Khoảng "Lãi suất toàn kỳ" hiển thị ở banner/lý do đầu tư - tính động
+  // từ total_term_interest_rate thật của từng dự án (đồng bộ với admin),
+  // thay vì con số tĩnh "11% - 14%/năm" ghi cứng trước đây không đổi theo
+  // dữ liệu thật.
+  const termRateValues = properties
+    .map((p) => Number(p.total_term_interest_rate) || 0)
+    .filter((v) => v > 0);
+  const minTermRate = termRateValues.length ? Math.min(...termRateValues) : 0;
+  const maxTermRate = termRateValues.length ? Math.max(...termRateValues) : 0;
+  const termRateRangeLabel = !termRateValues.length
+    ? "—"
+    : minTermRate === maxTermRate
+    ? `${minTermRate}%`
+    : `${minTermRate}% - ${maxTermRate}%`;
+
   // Calculations for Valuation Tool
   const currentValProject = properties[valProjectIndex] || properties[0] || DEFAULT_PROPERTIES[0];
   const calculatedTotalPrice = valArea * (currentValProject?.pricePerM2 || 35000000);
-  const projectedReturn1Yr = calculatedTotalPrice * ((currentValProject?.rateNum || 12) / 100);
+  // Lãi TOÀN KỲ (không phải lãi năm) - khớp đúng bản chất total_term_interest_rate
+  // (xem TERM_RATE_LABEL trong lib/investmentTerms.js).
+  const projectedReturn = calculatedTotalPrice * ((currentValProject?.rateNum || 0) / 100);
 
   const handleConfirmLegalBooking = () => {
     if (!bookingExpert) return;
@@ -293,8 +321,8 @@ export default function LandInvestment() {
               </div>
               <div className="bg-white rounded-xl p-2 shadow-2xs border border-gray-100 text-center">
                 <TrendingUp className="w-3.5 h-3.5 mx-auto text-[#948154] mb-0.5" />
-                <p className="text-[8px] text-gray-400">Lãi suất kỳ vọng</p>
-                <p className="text-[10px] font-bold text-[#D32F2F]">11% - 14%/năm</p>
+                <p className="text-[8px] text-gray-400">Lãi suất toàn kỳ</p>
+                <p className="text-[10px] font-bold text-[#D32F2F]">{termRateRangeLabel}</p>
               </div>
               <div className="bg-white rounded-xl p-2 shadow-2xs border border-gray-100 text-center">
                 <ShieldCheck className="w-3.5 h-3.5 mx-auto text-blue-600 mb-0.5" />
@@ -345,8 +373,8 @@ export default function LandInvestment() {
                         <p className="text-[10.5px] font-extrabold text-[#948154]">{p.priceStr}</p>
                       </div>
                       <div>
-                        <p className="text-[8px] text-gray-400 font-medium">Lãi kỳ vọng</p>
-                        <p className="text-[10.5px] font-extrabold text-[#D32F2F]">{p.rate}</p>
+                        <p className="text-[8px] text-gray-400 font-medium">Lãi suất toàn kỳ</p>
+                        <p className="text-[10.5px] font-extrabold text-[#D32F2F]">{p.total_term_interest_rate ?? 0}%</p>
                       </div>
                       <div>
                         <p className="text-[8px] text-gray-400 font-medium">Diện tích</p>
@@ -447,7 +475,7 @@ export default function LandInvestment() {
                   <TrendingUp className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-[11px] font-bold text-black">Biên độ sinh lời kỳ vọng 11% - 14%/năm</h4>
+                  <h4 className="text-[11px] font-bold text-black">Biên độ sinh lời toàn kỳ {termRateRangeLabel}</h4>
                   <p className="text-[9.5px] text-gray-500 mt-0.5 leading-relaxed">
                     Hiệu suất lợi nhuận vượt trội so với các kênh gửi tiết kiệm hoặc tích trữ vàng. Biên độ tăng giá đất nền tại các khu vực đô thị vệ tinh Vinhomes đạt mức tối ưu.
                   </p>
@@ -578,9 +606,9 @@ export default function LandInvestment() {
                       </span>
                     </div>
                     <div className="flex justify-between border-t border-gray-200/60 pt-1">
-                      <span className="text-gray-600">Lãi suất kỳ vọng ({currentValProject.rate}):</span>
+                      <span className="text-gray-600">Lãi suất toàn kỳ ({currentValProject.total_term_interest_rate ?? 0}%):</span>
                       <span className="font-bold text-red-600">
-                        +{new Intl.NumberFormat("vi-VN").format(projectedReturn1Yr)} ₫ / năm
+                        +{new Intl.NumberFormat("vi-VN").format(projectedReturn)} ₫
                       </span>
                     </div>
                   </div>
