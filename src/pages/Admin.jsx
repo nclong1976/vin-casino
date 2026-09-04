@@ -45,9 +45,15 @@ export default function Admin() {
   // mọi tab.
   const [showOverview, setShowOverview] = useState(false);
   // "Đi tới Dự án" từ tab Chứng khoán mở đúng luôn bộ lọc STOCKS thay vì
-  // bắt admin tự bấm lại - reset về "ALL" mỗi lần set để lần bấm sau (từ
-  // 1 nơi khác, nếu có) không vô tình kẹt lại filter cũ.
-  const [projectsInitialFilter, setProjectsInitialFilter] = useState("ALL");
+  // bắt admin tự bấm lại. Dùng "nonce" tăng dần mỗi lần bấm (không chỉ set
+  // giá trị filter) vì ProjectsTab giờ luôn được mount sẵn (xem bên dưới -
+  // không còn unmount/remount mỗi lần đổi tab để tránh tải lại dữ liệu) -
+  // nếu chỉ set lại đúng chuỗi "STOCKS" y hệt lần trước, useEffect phía
+  // ProjectsTab sẽ không thấy giá trị đổi nên không áp dụng lại, khiến bấm
+  // lần 2 liên tiếp vô tác dụng nếu admin đã tự đổi filter khác ở giữa.
+  const [projectsFilterRequest, setProjectsFilterRequest] = useState({ filter: "ALL", nonce: 0 });
+  const requestProjectsFilter = (filter) =>
+    setProjectsFilterRequest((r) => ({ filter, nonce: r.nonce + 1 }));
 
   const fetchStats = () => {
     Promise.all([
@@ -206,35 +212,40 @@ export default function Admin() {
         </div>
       </header>
 
+      {/* Mọi tab đều luôn mount sẵn, chỉ ẩn/hiện bằng class "hidden" (CSS)
+          thay vì gỡ hẳn khỏi DOM như trước - trước đây mỗi lần đổi tab, tab
+          cũ bị unmount hoàn toàn nên quay lại là coi như mở mới, phải tải
+          lại dữ liệu và hiện "Đang tải..." dù vừa xem xong vài giây trước.
+          Đổi tab giờ tức thời, không còn màn hình tải lặp lại. Mỗi tab có
+          AdminErrorBoundary RIÊNG (không dùng chung 1 boundary + resetKey
+          như trước) vì nội dung mỗi khối giờ cố định, không còn đổi qua đổi
+          lại giữa các tab để cần tín hiệu "nội dung mới, xoá lỗi cũ" nữa. */}
       <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
-        <AdminErrorBoundary resetKey={tab}>
-          {/* mode="wait" đợi tab cũ fade-out xong mới fade-in tab mới, tránh
-              2 tab chồng lên nhau lúc chuyển tiếp. key={tab} là thứ báo cho
-              AnimatePresence biết "đây là nội dung mới" để chạy exit/enter. */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={tab}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-            >
-              {tab === "member_hub" && <MemberHubTab />}
-              {tab === "stocks" && (
-                <StocksTab
-                  onNavigateToProjects={() => {
-                    setProjectsInitialFilter("STOCKS");
-                    setTab("projects");
-                  }}
-                />
-              )}
-              {tab === "casino" && <CasinoTab />}
-              {tab === "projects" && <ProjectsTab initialCategoryFilter={projectsInitialFilter} />}
-              {tab === "news" && <NewsTab />}
-              {tab === "notifications" && <NotificationsTab />}
-            </motion.div>
-          </AnimatePresence>
-        </AdminErrorBoundary>
+        <div className={tab === "member_hub" ? "" : "hidden"}>
+          <AdminErrorBoundary><MemberHubTab /></AdminErrorBoundary>
+        </div>
+        <div className={tab === "stocks" ? "" : "hidden"}>
+          <AdminErrorBoundary>
+            <StocksTab
+              onNavigateToProjects={() => {
+                requestProjectsFilter("STOCKS");
+                setTab("projects");
+              }}
+            />
+          </AdminErrorBoundary>
+        </div>
+        <div className={tab === "casino" ? "" : "hidden"}>
+          <AdminErrorBoundary><CasinoTab /></AdminErrorBoundary>
+        </div>
+        <div className={tab === "projects" ? "" : "hidden"}>
+          <AdminErrorBoundary><ProjectsTab filterRequest={projectsFilterRequest} /></AdminErrorBoundary>
+        </div>
+        <div className={tab === "news" ? "" : "hidden"}>
+          <AdminErrorBoundary><NewsTab /></AdminErrorBoundary>
+        </div>
+        <div className={tab === "notifications" ? "" : "hidden"}>
+          <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
+        </div>
       </div>
     </div>
   );
