@@ -23,10 +23,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers } from "@/lib/supabaseDb";
-import { adjustUserBalance } from "@/lib/balanceSync";
-import { notifyUser } from "@/lib/notifyUser";
-import { useAuth } from "@/lib/AuthContext";
+import { listSupabaseUsers, processWalletTransaction } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -193,8 +190,6 @@ function TxCard({ tx, userMap, isDeposit, onApprove, onReject, copyText, onNavig
 
 // ── Main Component ────────────────────────────────────────────────
 export default function TransactionsTab({ initialSearchQuery = "", onNavigateToChat = null }) {
-  const { user: adminUser } = useAuth();
-
   // "deposit" | "withdraw"
   const [txType, setTxType] = useState("deposit");
 
@@ -320,6 +315,11 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
   }, [activeTxs, filterStatus, searchQuery, userMap]);
 
   // ── Approve ────────────────────────────────────────────────────
+  // Gọi RPC process_wallet_transaction() (nguyên tử, khoá dòng FOR UPDATE +
+  // status='pending' trên Postgres) thay vì tự làm 4 bước riêng lẻ ở client
+  // (cộng/trừ ví + đổi status + báo người dùng + ghi audit log) như trước -
+  // cách cũ không nguyên tử và không khoá chống trùng, bấm đúp hoặc 2 tab
+  // admin duyệt cùng lúc 1 lệnh có thể cộng/trừ tiền 2 lần.
   const handleApprove = useCallback(async () => {
     if (!approvingTx) return;
     const tx = approvingTx;
@@ -332,48 +332,9 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
     setter((prev) => prev.filter((t) => t.id !== tx.id));
 
     try {
-      const amount = tx.amount || 0;
-      if (isDeposit) {
-        await adjustUserBalance(tx.user_id, amount, amount);
-        await base44.entities.WalletTransaction.update(tx.id, {
-          status: "completed",
-          approved_at: new Date().toISOString(),
-          approved_by: adminUser?.email || "Admin",
-        });
-        await notifyUser(tx.user_id, {
-          title: `Biến động số dư: +${fmt(amount)} VNĐ`,
-          content: `Yêu cầu nạp tiền mã ${tx.code || tx.id} đã được phê duyệt. Số dư ví được cộng thêm ${fmt(amount)} VNĐ.`,
-          type: "deposit",
-        });
-        await base44.entities.AuditLog.create({
-          action: "APPROVE_DEPOSIT", tx_code: tx.code || tx.id, amount,
-          user_id: tx.user_id, user_name: userMap[tx.user_id]?.full_name || "N/A",
-          admin_email: adminUser?.email || "Admin",
-          created_date: new Date().toISOString(),
-          notes: `Phê duyệt cộng ${fmt(amount)} VNĐ vào ví`,
-        });
-        toast.success(`✅ Đã duyệt lệnh nạp ${tx.code || tx.id}`);
-      } else {
-        await adjustUserBalance(tx.user_id, -amount, 0);
-        await base44.entities.WalletTransaction.update(tx.id, {
-          status: "completed",
-          approved_at: new Date().toISOString(),
-          approved_by: adminUser?.email || "Admin",
-        });
-        await notifyUser(tx.user_id, {
-          title: `Biến động số dư: -${fmt(amount)} VNĐ`,
-          content: `Yêu cầu rút tiền mã ${tx.code || tx.id} đã được phê duyệt. Số dư ví bị trừ ${fmt(amount)} VNĐ.`,
-          type: "withdraw",
-        });
-        await base44.entities.AuditLog.create({
-          action: "APPROVE_WITHDRAWAL", tx_code: tx.code || tx.id, amount,
-          user_id: tx.user_id, user_name: userMap[tx.user_id]?.full_name || "N/A",
-          admin_email: adminUser?.email || "Admin",
-          created_date: new Date().toISOString(),
-          notes: `Phê duyệt rút ${fmt(amount)} VNĐ ra khỏi ví`,
-        });
-        toast.success(`✅ Đã duyệt lệnh rút ${tx.code || tx.id}`);
-      }
+      const result = await processWalletTransaction(tx.id, "approve");
+      if (!result) throw new Error("process_wallet_transaction failed");
+      toast.success(`✅ Đã duyệt lệnh ${isDeposit ? "nạp" : "rút"} ${tx.code || tx.id}`);
 
       setTimeout(() => {
         isProcessingRef.current = false;
@@ -388,7 +349,7 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
     } finally {
       setProcessing(false);
     }
-  }, [approvingTx, isDeposit, userMap, adminUser, fetchTxs]);
+  }, [approvingTx, isDeposit, fetchTxs]);
 
   // ── Reject ─────────────────────────────────────────────────────
   const handleReject = useCallback(async () => {
@@ -409,30 +370,8 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
     setter((prev) => prev.filter((t) => t.id !== tx.id));
 
     try {
-      const amount = tx.amount || 0;
-      if (!isDeposit) {
-        // Hoàn tiền lại vào ví khi từ chối lệnh rút
-        await adjustUserBalance(tx.user_id, amount, 0);
-      }
-      await base44.entities.WalletTransaction.update(tx.id, {
-        status: "rejected",
-        rejection_reason: finalReason,
-        rejected_at: new Date().toISOString(),
-        rejected_by: adminUser?.email || "Admin",
-      });
-      await notifyUser(tx.user_id, {
-        title: isDeposit ? "Yêu cầu nạp tiền bị từ chối" : "Yêu cầu rút tiền bị từ chối",
-        content: `Lệnh ${isDeposit ? "nạp" : "rút"} ${fmt(amount)} VNĐ (Mã ${tx.code || tx.id}) bị từ chối. Lý do: ${finalReason}.`,
-        type: isDeposit ? "deposit" : "withdraw",
-      });
-      await base44.entities.AuditLog.create({
-        action: isDeposit ? "REJECT_DEPOSIT" : "REJECT_WITHDRAWAL",
-        tx_code: tx.code || tx.id, amount,
-        user_id: tx.user_id, user_name: userMap[tx.user_id]?.full_name || "N/A",
-        admin_email: adminUser?.email || "Admin",
-        created_date: new Date().toISOString(),
-        notes: `Từ chối lệnh ${isDeposit ? "nạp" : "rút"} ${fmt(amount)} VNĐ. Lý do: ${finalReason}.`,
-      });
+      const result = await processWalletTransaction(tx.id, "reject", finalReason);
+      if (!result) throw new Error("process_wallet_transaction failed");
       toast.success(`✅ Đã từ chối lệnh ${isDeposit ? "nạp" : "rút"} ${tx.code || tx.id}`);
 
       setTimeout(() => {
@@ -448,7 +387,7 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
     } finally {
       setProcessing(false);
     }
-  }, [rejectingTx, rejectReason, customReason, isDeposit, userMap, adminUser, fetchTxs]);
+  }, [rejectingTx, rejectReason, customReason, isDeposit, fetchTxs]);
 
   const copyText = useCallback((text) => {
     navigator.clipboard.writeText(text);
