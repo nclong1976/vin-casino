@@ -5,6 +5,7 @@ import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import ContractDocument from "@/components/projects/ContractDocument";
+import DailyPayoutSchedule from "@/components/profile/DailyPayoutSchedule";
 import SignaturePicker from "@/components/signature/SignaturePicker";
 import BottomNav from "@/components/BottomNav";
 
@@ -112,6 +113,8 @@ export default function Contract() {
           user={user}
           signature={signature}
         />
+
+        <DailyPayoutSchedule tx={tx} />
 
         {!signed && (
           <div className="bg-white rounded-2xl p-3 shadow-sm space-y-2">
