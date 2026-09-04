@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Wrench, ShieldAlert, Sliders, Dices, Flame, RefreshCw, Power, Award, Sparkles } from "lucide-react";
 import { getCasinoConfig, saveCasinoConfig, refreshCasinoConfig } from "@/lib/casinoConfig";
 import { getCasinoSecureConfig, updateCasinoSecureConfig, subscribeCasinoMaintenanceConfig } from "@/lib/supabaseDb";
@@ -275,28 +276,30 @@ export default function CasinoTab() {
             </div>
           </div>
 
-          {/* Game Switch Buttons */}
+          {/* Game Switch Buttons - khối nền trượt mượt (layoutId) khi chuyển
+              game, đồng nhất với cách Admin.jsx/MemberHubTab.jsx đang làm. */}
           <div className="flex bg-black/60 p-1 rounded-xl border border-[#d4af37]/40 w-full sm:w-auto">
-            <button
-              onClick={() => setSelectedSpecialGame("tiger-baccarat")}
-              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                selectedSpecialGame === "tiger-baccarat"
-                  ? "bg-[#d4af37] text-black shadow-md font-black"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Tiger Baccarat
-            </button>
-            <button
-              onClick={() => setSelectedSpecialGame("baccarat-long-ho")}
-              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                selectedSpecialGame === "baccarat-long-ho"
-                  ? "bg-[#d4af37] text-black shadow-md font-black"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Baccarat Long Hổ
-            </button>
+            {[
+              { id: "tiger-baccarat", label: "Tiger Baccarat" },
+              { id: "baccarat-long-ho", label: "Baccarat Long Hổ" },
+            ].map((g) => (
+              <button
+                key={g.id}
+                onClick={() => setSelectedSpecialGame(g.id)}
+                className={`relative flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  selectedSpecialGame === g.id ? "text-black font-black" : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {selectedSpecialGame === g.id && (
+                  <motion.span
+                    layoutId="casino-special-game-active-bg"
+                    className="absolute inset-0 bg-[#d4af37] rounded-lg shadow-md"
+                    transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                  />
+                )}
+                <span className="relative z-10">{g.label}</span>
+              </button>
+            ))}
           </div>
         </div>
 

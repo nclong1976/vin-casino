@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Check, X, FileSignature } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { notifyUser } from "@/lib/notifyUser";
@@ -93,11 +94,18 @@ export default function ContractsTab() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-              filter === f ? "bg-[#948154] text-white" : "bg-white text-gray-400 shadow-sm"
+            className={`relative px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+              filter === f ? "text-white" : "bg-white text-gray-400 shadow-sm"
             }`}
           >
-            {f === "all" ? "Tất cả" : STATUS_CONFIG[f].label}
+            {filter === f && (
+              <motion.span
+                layoutId="contracts-filter-active-bg"
+                className="absolute inset-0 bg-[#948154] rounded-lg"
+                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              />
+            )}
+            <span className="relative z-10">{f === "all" ? "Tất cả" : STATUS_CONFIG[f].label}</span>
           </button>
         ))}
       </div>
