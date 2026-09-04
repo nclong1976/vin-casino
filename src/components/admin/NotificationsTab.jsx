@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { buildProjectAnnouncementDraft } from "@/lib/investmentTerms";
+import { buildProjectAnnouncementDraft, resolveProjectOpenClose } from "@/lib/investmentTerms";
 import { toast } from "sonner";
 
 function getCategoryBadgeStyle(category = "") {
@@ -173,6 +173,7 @@ export default function NotificationsTab() {
       // thị đúng số liệu tại thời điểm gửi. Các field này không nằm trong
       // whitelist cột Notification (xem ENTITY_COLUMNS trong supabaseDb.js)
       // nên tự động rơi vào cột "extra" jsonb, không cần đổi schema.
+      const { openIso, closeIso } = selectedProject ? resolveProjectOpenClose(selectedProject) : {};
       const projectSnapshot = selectedProject
         ? {
             project_id: selectedProject.id,
@@ -181,6 +182,8 @@ export default function NotificationsTab() {
             project_duration_minutes: selectedProject.term_duration_minutes,
             project_min_amount: selectedProject.minAmount ?? selectedProject.min_amount,
             project_scale: selectedProject.scale,
+            project_open_at: openIso || undefined,
+            project_close_at: closeIso || undefined,
           }
         : {};
 

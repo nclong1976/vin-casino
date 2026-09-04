@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, X } from "lucide-react";
+import { Bell, X, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
-import { getProjectTermUnit, getProjectTermDurationDisplayValue } from "@/lib/investmentTerms";
+import { getProjectTermUnit, getProjectTermDurationDisplayValue, formatScheduleTime } from "@/lib/investmentTerms";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
@@ -211,6 +211,8 @@ export default function NotificationBell() {
                       term_duration_minutes: n.extra.project_duration_minutes,
                     });
                     const minAmount = Number(n.extra.project_min_amount) || 0;
+                    const openTime = formatScheduleTime(n.extra.project_open_at);
+                    const closeTime = formatScheduleTime(n.extra.project_close_at);
                     return (
                       <button
                         key={n.id}
@@ -231,6 +233,11 @@ export default function NotificationBell() {
                           <img src={n.image} alt="" className="w-full h-20 rounded-lg object-cover mb-1.5" />
                         )}
                         <p className="text-[11px] font-semibold text-black leading-tight mb-1">{n.title}</p>
+                        {openTime && closeTime && (
+                          <p className="flex items-center gap-1 text-[9.5px] font-semibold text-[#948154] mb-1">
+                            <Clock className="w-2.5 h-2.5" /> Mở đầu tư: {openTime} - {closeTime}
+                          </p>
+                        )}
                         <div className="grid grid-cols-3 gap-1 bg-gray-50 rounded-lg p-1.5">
                           <div className="text-center">
                             <p className="text-[10px] font-black text-[#948154]">{n.extra.project_rate ? `${n.extra.project_rate}%` : "-"}</p>
