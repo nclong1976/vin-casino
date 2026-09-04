@@ -15,6 +15,7 @@ import {
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
+import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
@@ -212,19 +213,20 @@ export default function Admin() {
         </div>
       </header>
 
-      {/* Mọi tab đều luôn mount sẵn, chỉ ẩn/hiện bằng class "hidden" (CSS)
-          thay vì gỡ hẳn khỏi DOM như trước - trước đây mỗi lần đổi tab, tab
-          cũ bị unmount hoàn toàn nên quay lại là coi như mở mới, phải tải
-          lại dữ liệu và hiện "Đang tải..." dù vừa xem xong vài giây trước.
-          Đổi tab giờ tức thời, không còn màn hình tải lặp lại. Mỗi tab có
+      {/* Mọi tab đều luôn mount sẵn (AnimatedTabPanel chỉ ẩn/hiện bằng class
+          "hidden" - CSS - thay vì gỡ hẳn khỏi DOM như trước) nên tab cũ
+          không còn bị mất dữ liệu/phải tải lại mỗi lần quay lại. Hiệu ứng
+          fade + trượt nhẹ khi chuyển tab vẫn giữ nguyên như thiết kế gốc -
+          AnimatedTabPanel tự chạy lại animation đó mỗi lần "active" bật lên
+          mà không cần unmount (xem AnimatedTabPanel.jsx). Mỗi tab có
           AdminErrorBoundary RIÊNG (không dùng chung 1 boundary + resetKey
           như trước) vì nội dung mỗi khối giờ cố định, không còn đổi qua đổi
           lại giữa các tab để cần tín hiệu "nội dung mới, xoá lỗi cũ" nữa. */}
       <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
-        <div className={tab === "member_hub" ? "" : "hidden"}>
+        <AnimatedTabPanel active={tab === "member_hub"}>
           <AdminErrorBoundary><MemberHubTab /></AdminErrorBoundary>
-        </div>
-        <div className={tab === "stocks" ? "" : "hidden"}>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "stocks"}>
           <AdminErrorBoundary>
             <StocksTab
               onNavigateToProjects={() => {
@@ -233,19 +235,19 @@ export default function Admin() {
               }}
             />
           </AdminErrorBoundary>
-        </div>
-        <div className={tab === "casino" ? "" : "hidden"}>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "casino"}>
           <AdminErrorBoundary><CasinoTab /></AdminErrorBoundary>
-        </div>
-        <div className={tab === "projects" ? "" : "hidden"}>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "projects"}>
           <AdminErrorBoundary><ProjectsTab filterRequest={projectsFilterRequest} /></AdminErrorBoundary>
-        </div>
-        <div className={tab === "news" ? "" : "hidden"}>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "news"}>
           <AdminErrorBoundary><NewsTab /></AdminErrorBoundary>
-        </div>
-        <div className={tab === "notifications" ? "" : "hidden"}>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "notifications"}>
           <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
-        </div>
+        </AnimatedTabPanel>
       </div>
     </div>
   );

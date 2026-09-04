@@ -6,6 +6,7 @@ import MessagesTab from "@/components/admin/MessagesTab";
 import TransactionsTab from "@/components/admin/TransactionsTab";
 import ContractsTab from "@/components/admin/ContractsTab";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
+import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import { base44 } from "@/api/base44Client";
 
 export default function MemberHubTab({ initialSubTab = "users" }) {
@@ -200,40 +201,42 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
       </div>
 
       {/* ── SubTab Content Rendering ──
-          Cả 4 subtab đều luôn mount sẵn, chỉ ẩn/hiện bằng class "hidden"
-          thay vì unmount/remount như trước - tránh mỗi lần quay lại 1
-          subtab phải tải lại dữ liệu từ đầu (xem ghi chú tương tự ở
-          Admin.jsx). MessagesTab/TransactionsTab đã tự có useEffect phản
-          ứng theo initialSelectedUserId/initialSearchQuery nên vẫn nhận
-          đúng giá trị mới mỗi lần điều hướng chéo dù không còn remount. */}
+          Cả 4 subtab đều luôn mount sẵn (AnimatedTabPanel chỉ ẩn/hiện bằng
+          CSS) thay vì unmount/remount như trước - tránh mỗi lần quay lại 1
+          subtab phải tải lại dữ liệu từ đầu, vẫn giữ nguyên hiệu ứng fade +
+          trượt nhẹ khi chuyển subtab như thiết kế gốc (xem ghi chú tương tự
+          ở Admin.jsx / AnimatedTabPanel.jsx). MessagesTab/TransactionsTab đã
+          tự có useEffect phản ứng theo initialSelectedUserId/
+          initialSearchQuery nên vẫn nhận đúng giá trị mới mỗi lần điều
+          hướng chéo dù không còn remount. */}
       <div className="overflow-hidden">
-        <div className={subTab === "users" ? "" : "hidden"}>
+        <AnimatedTabPanel active={subTab === "users"}>
           <AdminErrorBoundary>
             <UsersTab
               onNavigateToChat={handleNavigateToChat}
               onNavigateToTransactions={handleNavigateToTransactions}
             />
           </AdminErrorBoundary>
-        </div>
+        </AnimatedTabPanel>
 
-        <div className={subTab === "messages" ? "" : "hidden"}>
+        <AnimatedTabPanel active={subTab === "messages"}>
           <AdminErrorBoundary>
             <MessagesTab initialSelectedUserId={chatTargetUserId} />
           </AdminErrorBoundary>
-        </div>
+        </AnimatedTabPanel>
 
-        <div className={subTab === "transactions" ? "" : "hidden"}>
+        <AnimatedTabPanel active={subTab === "transactions"}>
           <AdminErrorBoundary>
             <TransactionsTab
               initialSearchQuery={txSearchQuery}
               onNavigateToChat={handleNavigateToChat}
             />
           </AdminErrorBoundary>
-        </div>
+        </AnimatedTabPanel>
 
-        <div className={subTab === "contracts" ? "" : "hidden"}>
+        <AnimatedTabPanel active={subTab === "contracts"}>
           <AdminErrorBoundary><ContractsTab /></AdminErrorBoundary>
-        </div>
+        </AnimatedTabPanel>
       </div>
     </div>
   );
