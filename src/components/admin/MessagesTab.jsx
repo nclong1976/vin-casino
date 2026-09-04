@@ -9,6 +9,7 @@ import {
   Send,
   ChevronLeft,
   MessageSquare,
+  MessageSquareText,
   Paperclip,
   Copy,
   Check,
@@ -41,6 +42,21 @@ const fmtTime = (iso) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+// Mẫu tin nhắn CSKH soạn sẵn cho các tình huống thường gặp (nạp/rút/đầu tư/
+// khóa tài khoản) - chọn 1 mẫu chỉ ĐIỀN vào ô soạn tin (replyText), KHÔNG tự
+// gửi, để admin xem/sửa lại trước khi bấm gửi như bình thường.
+const QUICK_REPLY_TEMPLATES = [
+  { label: "Lời chào mở đầu", text: "Xin chào Quý khách! Em là CSKH VinClub. Em có thể hỗ trợ gì cho Quý khách ạ?" },
+  { label: "Đã tiếp nhận, đang xử lý", text: "Dạ em đã tiếp nhận yêu cầu của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ." },
+  { label: "Duyệt nạp tiền thành công", text: "Yêu cầu nạp tiền của Quý khách đã được duyệt thành công, số dư ví đã được cộng đầy đủ. Cảm ơn Quý khách đã tin tưởng đồng hành cùng VinClub!" },
+  { label: "Duyệt rút tiền thành công", text: "Lệnh rút tiền của Quý khách đã được duyệt và chuyển khoản thành công. Quý khách vui lòng kiểm tra tài khoản ngân hàng, tiền sẽ về trong ít phút ạ." },
+  { label: "Từ chối yêu cầu", text: "Rất tiếc, yêu cầu của Quý khách chưa thể xử lý do: [lý do]. Quý khách vui lòng kiểm tra lại và gửi lại yêu cầu ạ." },
+  { label: "Yêu cầu bổ sung giấy tờ", text: "Để xác minh giao dịch, Quý khách vui lòng gửi thêm [ảnh CCCD/sao kê chuyển khoản] giúp em ạ. Em cảm ơn Quý khách!" },
+  { label: "Thông báo tài khoản tạm khóa", text: "Tài khoản của Quý khách hiện đang tạm khóa để xác minh bảo mật. Quý khách vui lòng liên hệ CSKH để được hỗ trợ mở khóa sớm nhất ạ." },
+  { label: "Xin lỗi vì phản hồi chậm", text: "Em xin lỗi vì đã để Quý khách chờ lâu. Hiện hệ thống đang xử lý nhiều yêu cầu cùng lúc, em sẽ hỗ trợ Quý khách ngay ạ." },
+  { label: "Cảm ơn & kết thúc hỗ trợ", text: "Cảm ơn Quý khách đã liên hệ VinClub. Nếu cần hỗ trợ thêm, Quý khách cứ nhắn lại đây ạ. Chúc Quý khách một ngày tốt lành!" },
+];
 
 const fmtDate = (iso) => {
   const d = new Date(iso || Date.now());
@@ -210,12 +226,24 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // {type: 'msg'|'conv', target}
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const templatesRef = useRef(null);
   const prevMsgCountRef = useRef(0);
   const prevConvRef = useRef(null);
+
+  // Đóng danh sách mẫu khi bấm ra ngoài - cùng cách NotificationBell.jsx
+  // đang đóng dropdown của nó.
+  useEffect(() => {
+    const handler = (e) => {
+      if (templatesRef.current && !templatesRef.current.contains(e.target)) setShowTemplates(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // ── Load users once ─────────────────────────────────────────────
   useEffect(() => {
@@ -652,7 +680,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         </div>
 
         {/* Reply Input */}
-        <div className="bg-white rounded-2xl p-2.5 shadow-xs border border-gray-100 space-y-2">
+        <div className="relative bg-white rounded-2xl p-2.5 shadow-xs border border-gray-100 space-y-2">
           {files.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               {files.map((f, i) => (
@@ -685,6 +713,37 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
             >
               <Paperclip className="w-4 h-4" />
             </button>
+
+            <div ref={templatesRef} className="relative shrink-0">
+              <button
+                onClick={() => setShowTemplates((v) => !v)}
+                className={`w-8 h-8 rounded-xl flex items-center justify-center cursor-pointer transition-colors ${
+                  showTemplates ? "bg-[#948154] text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-600"
+                }`}
+                title="Chèn mẫu tin nhắn"
+              >
+                <MessageSquareText className="w-4 h-4" />
+              </button>
+
+              {showTemplates && (
+                <div className="absolute bottom-full left-0 mb-2 w-64 max-h-64 overflow-y-auto bg-white rounded-xl border border-gray-200 shadow-xl z-30 py-1">
+                  {QUICK_REPLY_TEMPLATES.map((t, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setReplyText(t.text);
+                        setShowTemplates(false);
+                        textareaRef.current?.focus();
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0"
+                    >
+                      <p className="text-[10.5px] font-bold text-black">{t.label}</p>
+                      <p className="text-[9.5px] text-gray-400 line-clamp-1">{t.text}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <textarea
               ref={textareaRef}
