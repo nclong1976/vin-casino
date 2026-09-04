@@ -14,6 +14,51 @@
 export const TERM_RATE_LABEL = "Lãi suất toàn kỳ";
 export const TERM_PAYOUT_COPY = "Thanh toán gốc và lãi một lần khi đáo hạn dự án";
 
+// 2 hạng mục trả lãi HÀNG NGÀY thay vì gộp 1 lần khi đáo hạn - khớp đúng
+// điều kiện category trong trigger compute_transaction_interest() (Postgres,
+// xem migration 20260904010000_daily_accrual_payout_for_vinhomes_resort.sql).
+// Dùng CHUNG hằng số này ở mọi nơi hiển thị (trước đây LandInvestment.jsx/
+// DepositModal.jsx mỗi nơi tự khai lại danh sách 2 category này riêng).
+export const DAILY_ACCRUAL_CATEGORIES = ["VinHomes", "Đầu tư nghỉ dưỡng"];
+
+export function isDailyAccrualCategory(category) {
+  return DAILY_ACCRUAL_CATEGORIES.includes(category);
+}
+
+/** Số ngày kỳ hạn (làm tròn xuống, tối thiểu 1) - PHẢI khớp đúng công thức
+ * v_cycle_days trong disburse_daily_investment_payouts() (SQL) để %/ngày
+ * hiển thị ở đây luôn đúng bằng lãi suất thật admin/người dùng sẽ nhận mỗi
+ * ngày, không phải một cách quy đổi khác đi. */
+export function getCycleDays(project) {
+  const minutes = Number(project?.term_duration_minutes) || 0;
+  return Math.max(1, Math.floor(minutes / 1440));
+}
+
+/**
+ * Quy đổi lãi suất TOÀN KỲ thành lãi suất bình quân MỖI NGÀY (chia đều cho số
+ * ngày kỳ hạn) - chỉ mang tính tham khảo cho người xem dễ hình dung, KHÔNG
+ * dùng để tính tiền (tiền luôn tính theo total_term_interest_rate nguyên bản
+ * - xem calculateExpectedInterest() ở trên và disburse_daily_investment_payouts()
+ * phía Postgres). Nhận trực tiếp rate/cycleDays để dùng được cho cả object
+ * project (total_term_interest_rate/term_duration_minutes) lẫn 1 giao dịch
+ * đã chốt (rate/duration_days snapshot lúc đầu tư).
+ */
+export function computeDailyRatePercent(totalTermRate, cycleDays) {
+  const rate = Number(totalTermRate) || 0;
+  const days = Math.max(1, Math.round(Number(cycleDays) || 0));
+  return rate / days;
+}
+
+export function getProjectDailyRatePercent(project) {
+  return computeDailyRatePercent(project?.total_term_interest_rate, getCycleDays(project));
+}
+
+/** "1.25%/ngày" - bỏ số 0 thừa cuối (0.500 -> 0.5) cho gọn. */
+export function formatDailyRatePercent(totalTermRate, cycleDays) {
+  const daily = computeDailyRatePercent(totalTermRate, cycleDays);
+  return `${parseFloat(daily.toFixed(3))}%/ngày`;
+}
+
 export function getProjectTermUnit(project) {
   const category = project?.category || "";
   const rateLabel = String(project?.rate || "");
@@ -132,7 +177,10 @@ export function buildProjectAnnouncementDraft(project) {
     lines.push(`Đóng đầu tư lúc: ${closeAt}`);
   }
   if (project.total_term_interest_rate) {
-    lines.push(`${TERM_RATE_LABEL}: ${project.total_term_interest_rate}%`);
+    const dailySuffix = isDailyAccrualCategory(project.category)
+      ? ` (~${formatDailyRatePercent(project.total_term_interest_rate, getCycleDays(project))})`
+      : "";
+    lines.push(`${TERM_RATE_LABEL}: ${project.total_term_interest_rate}%${dailySuffix}`);
   }
   if (Number(project.term_duration_minutes) > 0) {
     const unit = getProjectTermUnit(project);

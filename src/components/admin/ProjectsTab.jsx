@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { isDailyAccrualCategory, getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
 
 const fmtSchedule = (iso) => {
   if (!iso) return "";
@@ -265,6 +266,11 @@ export default function ProjectsTab({ filterRequest }) {
                     <div>
                       <span className="text-gray-400 block text-[8px]">Lãi suất toàn kỳ:</span>
                       <span className="font-bold text-red-600">{p.total_term_interest_rate ?? 0}%</span>
+                      {isDailyAccrualCategory(p.category) && (
+                        <span className="text-gray-400 block text-[8px]">
+                          ~{formatDailyRatePercent(p.total_term_interest_rate, getCycleDays(p))}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <span className="text-gray-400 block text-[8px]">Diện tích:</span>
@@ -575,7 +581,13 @@ function ProjectEditModal({ project, onClose, onSave }) {
                 placeholder="90"
                 className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
               />
-              <p className="text-[9px] text-gray-400 mt-0.5">Lãi cho TRỌN kỳ hạn, trả 1 lần khi đáo hạn.</p>
+              {isDailyAccrualCategory(form.category) ? (
+                <p className="text-[9px] text-emerald-600 mt-0.5 font-semibold">
+                  Giải ngân hàng ngày, ~{formatDailyRatePercent(form.total_term_interest_rate, getCycleDays(form))} - gốc hoàn trả ngày cuối.
+                </p>
+              ) : (
+                <p className="text-[9px] text-gray-400 mt-0.5">Lãi cho TRỌN kỳ hạn, trả 1 lần khi đáo hạn.</p>
+              )}
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-700 block mb-1">Kỳ hạn (phút):</label>

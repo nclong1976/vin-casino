@@ -13,6 +13,9 @@ import {
   getProjectTermUnit,
   getProjectTermDurationDisplayValue,
   calculateExpectedInterest,
+  isDailyAccrualCategory as checkIsDailyAccrualCategory,
+  getCycleDays,
+  formatDailyRatePercent,
 } from "@/lib/investmentTerms";
 
 const parseAmount = (str) => parseInt(String(str).replace(/[^\d]/g, "")) || 0;
@@ -31,8 +34,12 @@ export default function DepositModal({ project, onClose }) {
   // Khớp đúng điều kiện category trong compute_transaction_interest()
   // (Postgres) - 2 hạng mục này tự chuyển sang trả lãi hàng ngày.
   const isDailyAccrualCategory = useMemo(
-    () => project?.category === "VinHomes" || project?.category === "Đầu tư nghỉ dưỡng",
+    () => checkIsDailyAccrualCategory(project?.category),
     [project]
+  );
+  const dailyRateLabel = useMemo(
+    () => formatDailyRatePercent(totalTermInterestRate, getCycleDays(project)),
+    [totalTermInterestRate, project]
   );
 
   const termUnit = useMemo(() => getProjectTermUnit(project), [project]);
@@ -417,6 +424,9 @@ export default function DepositModal({ project, onClose }) {
                         <div>
                           <span className="text-gray-500">{TERM_RATE_LABEL}: </span>
                           <span className="font-bold text-[#D32F2F]">{totalTermInterestRate}%</span>
+                          {isDailyAccrualCategory && (
+                            <span className="text-[9.5px] text-gray-400"> (~{dailyRateLabel})</span>
+                          )}
                         </div>
                         <div>
                           <span className="text-gray-500">Kỳ hạn: </span>
@@ -476,7 +486,7 @@ export default function DepositModal({ project, onClose }) {
                             đây - báo trước cách nhận tiền trước khi ký. */}
                         {isDailyAccrualCategory ? (
                           <p className="text-[9.5px] text-emerald-700 leading-snug pt-1">
-                            Lãi được giải ngân từng ngày vào ví trong suốt kỳ hạn, vốn gốc hoàn trả cùng lãi ngày cuối khi đáo hạn.
+                            Lãi ~{dailyRateLabel} được giải ngân vào ví mỗi ngày trong suốt kỳ hạn, vốn gốc hoàn trả cùng lãi ngày cuối khi đáo hạn.
                           </p>
                         ) : (
                           <p className="text-[9.5px] text-gray-400 leading-snug pt-1">
@@ -547,6 +557,7 @@ export default function DepositModal({ project, onClose }) {
                         total={total}
                         user={user}
                         signature={signature}
+                        dailyRateLabel={isDailyAccrualCategory ? dailyRateLabel : null}
                       />
                     </motion.div>
                   )}
