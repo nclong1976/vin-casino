@@ -15,6 +15,7 @@ import {
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
+import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
@@ -45,9 +46,15 @@ export default function Admin() {
   // mọi tab.
   const [showOverview, setShowOverview] = useState(false);
   // "Đi tới Dự án" từ tab Chứng khoán mở đúng luôn bộ lọc STOCKS thay vì
-  // bắt admin tự bấm lại - reset về "ALL" mỗi lần set để lần bấm sau (từ
-  // 1 nơi khác, nếu có) không vô tình kẹt lại filter cũ.
-  const [projectsInitialFilter, setProjectsInitialFilter] = useState("ALL");
+  // bắt admin tự bấm lại. Dùng "nonce" tăng dần mỗi lần bấm (không chỉ set
+  // giá trị filter) vì ProjectsTab giờ luôn được mount sẵn (xem bên dưới -
+  // không còn unmount/remount mỗi lần đổi tab để tránh tải lại dữ liệu) -
+  // nếu chỉ set lại đúng chuỗi "STOCKS" y hệt lần trước, useEffect phía
+  // ProjectsTab sẽ không thấy giá trị đổi nên không áp dụng lại, khiến bấm
+  // lần 2 liên tiếp vô tác dụng nếu admin đã tự đổi filter khác ở giữa.
+  const [projectsFilterRequest, setProjectsFilterRequest] = useState({ filter: "ALL", nonce: 0 });
+  const requestProjectsFilter = (filter) =>
+    setProjectsFilterRequest((r) => ({ filter, nonce: r.nonce + 1 }));
 
   const fetchStats = () => {
     Promise.all([
@@ -206,35 +213,41 @@ export default function Admin() {
         </div>
       </header>
 
+      {/* Mọi tab đều luôn mount sẵn (AnimatedTabPanel chỉ ẩn/hiện bằng class
+          "hidden" - CSS - thay vì gỡ hẳn khỏi DOM như trước) nên tab cũ
+          không còn bị mất dữ liệu/phải tải lại mỗi lần quay lại. Hiệu ứng
+          fade + trượt nhẹ khi chuyển tab vẫn giữ nguyên như thiết kế gốc -
+          AnimatedTabPanel tự chạy lại animation đó mỗi lần "active" bật lên
+          mà không cần unmount (xem AnimatedTabPanel.jsx). Mỗi tab có
+          AdminErrorBoundary RIÊNG (không dùng chung 1 boundary + resetKey
+          như trước) vì nội dung mỗi khối giờ cố định, không còn đổi qua đổi
+          lại giữa các tab để cần tín hiệu "nội dung mới, xoá lỗi cũ" nữa. */}
       <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
-        <AdminErrorBoundary resetKey={tab}>
-          {/* mode="wait" đợi tab cũ fade-out xong mới fade-in tab mới, tránh
-              2 tab chồng lên nhau lúc chuyển tiếp. key={tab} là thứ báo cho
-              AnimatePresence biết "đây là nội dung mới" để chạy exit/enter. */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={tab}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-            >
-              {tab === "member_hub" && <MemberHubTab />}
-              {tab === "stocks" && (
-                <StocksTab
-                  onNavigateToProjects={() => {
-                    setProjectsInitialFilter("STOCKS");
-                    setTab("projects");
-                  }}
-                />
-              )}
-              {tab === "casino" && <CasinoTab />}
-              {tab === "projects" && <ProjectsTab initialCategoryFilter={projectsInitialFilter} />}
-              {tab === "news" && <NewsTab />}
-              {tab === "notifications" && <NotificationsTab />}
-            </motion.div>
-          </AnimatePresence>
-        </AdminErrorBoundary>
+        <AnimatedTabPanel active={tab === "member_hub"}>
+          <AdminErrorBoundary><MemberHubTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "stocks"}>
+          <AdminErrorBoundary>
+            <StocksTab
+              onNavigateToProjects={() => {
+                requestProjectsFilter("STOCKS");
+                setTab("projects");
+              }}
+            />
+          </AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "casino"}>
+          <AdminErrorBoundary><CasinoTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "projects"}>
+          <AdminErrorBoundary><ProjectsTab filterRequest={projectsFilterRequest} /></AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "news"}>
+          <AdminErrorBoundary><NewsTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "notifications"}>
+          <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
       </div>
     </div>
   );

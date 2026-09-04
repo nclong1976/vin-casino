@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Users, MessageSquare, ArrowRightLeft, FileSignature } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import UsersTab from "@/components/admin/UsersTab";
 import MessagesTab from "@/components/admin/MessagesTab";
 import TransactionsTab from "@/components/admin/TransactionsTab";
 import ContractsTab from "@/components/admin/ContractsTab";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
+import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import { base44 } from "@/api/base44Client";
 
 export default function MemberHubTab({ initialSubTab = "users" }) {
@@ -199,41 +200,43 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
         </div>
       </div>
 
-      {/* ── SubTab Content Rendering ── */}
+      {/* ── SubTab Content Rendering ──
+          Cả 4 subtab đều luôn mount sẵn (AnimatedTabPanel chỉ ẩn/hiện bằng
+          CSS) thay vì unmount/remount như trước - tránh mỗi lần quay lại 1
+          subtab phải tải lại dữ liệu từ đầu, vẫn giữ nguyên hiệu ứng fade +
+          trượt nhẹ khi chuyển subtab như thiết kế gốc (xem ghi chú tương tự
+          ở Admin.jsx / AnimatedTabPanel.jsx). MessagesTab/TransactionsTab đã
+          tự có useEffect phản ứng theo initialSelectedUserId/
+          initialSearchQuery nên vẫn nhận đúng giá trị mới mỗi lần điều
+          hướng chéo dù không còn remount. */}
       <div className="overflow-hidden">
-        <AdminErrorBoundary resetKey={subTab}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={subTab}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-            >
-              {subTab === "users" && (
-                <UsersTab
-                  onNavigateToChat={handleNavigateToChat}
-                  onNavigateToTransactions={handleNavigateToTransactions}
-                />
-              )}
+        <AnimatedTabPanel active={subTab === "users"}>
+          <AdminErrorBoundary>
+            <UsersTab
+              onNavigateToChat={handleNavigateToChat}
+              onNavigateToTransactions={handleNavigateToTransactions}
+            />
+          </AdminErrorBoundary>
+        </AnimatedTabPanel>
 
-              {subTab === "messages" && (
-                <MessagesTab
-                  initialSelectedUserId={chatTargetUserId}
-                />
-              )}
+        <AnimatedTabPanel active={subTab === "messages"}>
+          <AdminErrorBoundary>
+            <MessagesTab initialSelectedUserId={chatTargetUserId} />
+          </AdminErrorBoundary>
+        </AnimatedTabPanel>
 
-              {subTab === "transactions" && (
-                <TransactionsTab
-                  initialSearchQuery={txSearchQuery}
-                  onNavigateToChat={handleNavigateToChat}
-                />
-              )}
+        <AnimatedTabPanel active={subTab === "transactions"}>
+          <AdminErrorBoundary>
+            <TransactionsTab
+              initialSearchQuery={txSearchQuery}
+              onNavigateToChat={handleNavigateToChat}
+            />
+          </AdminErrorBoundary>
+        </AnimatedTabPanel>
 
-              {subTab === "contracts" && <ContractsTab />}
-            </motion.div>
-          </AnimatePresence>
-        </AdminErrorBoundary>
+        <AnimatedTabPanel active={subTab === "contracts"}>
+          <AdminErrorBoundary><ContractsTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
       </div>
     </div>
   );

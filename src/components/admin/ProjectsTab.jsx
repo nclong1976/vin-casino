@@ -13,7 +13,7 @@ const fmtSchedule = (iso) => {
   }
 };
 
-export default function ProjectsTab({ initialCategoryFilter = "ALL" }) {
+export default function ProjectsTab({ filterRequest }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -21,10 +21,19 @@ export default function ProjectsTab({ initialCategoryFilter = "ALL" }) {
   const [search, setSearch] = useState("");
   // "Đi tới Dự án" từ tab Chứng khoán truyền sẵn "STOCKS" để mở đúng bộ
   // lọc, không bắt admin tự bấm lại.
-  const [categoryFilter, setCategoryFilter] = useState(initialCategoryFilter);
+  const [categoryFilter, setCategoryFilter] = useState(filterRequest?.filter || "ALL");
   const [togglingId, setTogglingId] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // ProjectsTab giờ luôn mount sẵn (Admin.jsx chỉ ẩn/hiện bằng CSS thay vì
+  // unmount) nên không còn nhận filter mới qua remount - phải tự áp dụng
+  // lại mỗi khi Admin.jsx bấm "Đi tới Dự án" gửi yêu cầu mới (nhận biết qua
+  // "nonce" tăng dần, không phải qua giá trị filter, để bấm 2 lần liên tiếp
+  // cùng 1 filter vẫn có tác dụng).
+  useEffect(() => {
+    if (filterRequest?.filter) setCategoryFilter(filterRequest.filter);
+  }, [filterRequest?.nonce]);
 
   const fetch = () => {
     base44.entities.Project
