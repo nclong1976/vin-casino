@@ -89,6 +89,29 @@ export default function TransactionList({ txs = [], loading = false }) {
               </div>
             </div>
 
+            {/* Daily payout progress - chỉ giao dịch payout_model DAILY_ACCRUAL
+                (VinHomes/Đầu tư nghỉ dưỡng tạo sau khi bật cơ chế trả lãi hàng
+                ngày) mới có 2 field này khác 0/null. Giao dịch LUMP_SUM
+                (Dự Án/Chứng khoán + hợp đồng VinHomes cũ) không hiện gì thêm. */}
+            {t.payout_model === "DAILY_ACCRUAL" && (
+              <div className="mt-2 pt-1.5 border-t border-dashed border-gray-100">
+                <div className="flex items-center justify-between text-[9.5px] text-gray-400 mb-1">
+                  <span>Giải ngân lãi hàng ngày</span>
+                  <span className="font-bold text-emerald-600">
+                    Đã nhận {t.daily_payout_days_paid || 0}/{t.duration_days || 0} ngày
+                  </span>
+                </div>
+                <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{
+                      width: `${t.duration_days ? Math.min(100, ((t.daily_payout_days_paid || 0) / t.duration_days) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Footer action */}
             <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-50">
               <span className="text-[9.5px] text-gray-400">
