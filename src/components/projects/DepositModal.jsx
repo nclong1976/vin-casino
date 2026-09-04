@@ -28,6 +28,13 @@ export default function DepositModal({ project, onClose }) {
   // suất theo phút/giờ/ngày phải nhân thêm với số đơn vị kỳ hạn.
   const totalTermInterestRate = useMemo(() => Number(project?.total_term_interest_rate) || 0, [project]);
 
+  // Khớp đúng điều kiện category trong compute_transaction_interest()
+  // (Postgres) - 2 hạng mục này tự chuyển sang trả lãi hàng ngày.
+  const isDailyAccrualCategory = useMemo(
+    () => project?.category === "VinHomes" || project?.category === "Đầu tư nghỉ dưỡng",
+    [project]
+  );
+
   const termUnit = useMemo(() => getProjectTermUnit(project), [project]);
   const isMinute = termUnit === "phút";
   const isHourly = termUnit === "giờ";
@@ -463,6 +470,19 @@ export default function DepositModal({ project, onClose }) {
                           <span className="text-gray-500">Tổng nhận (gốc + lãi):</span>
                           <span className="font-bold text-black font-mono">{fmt(total)} VNĐ</span>
                         </div>
+                        {/* VinHomes/Đầu tư nghỉ dưỡng: đúng category ở
+                            compute_transaction_interest() (Postgres) tự gán
+                            payout_model='DAILY_ACCRUAL' cho giao dịch tạo từ
+                            đây - báo trước cách nhận tiền trước khi ký. */}
+                        {isDailyAccrualCategory ? (
+                          <p className="text-[9.5px] text-emerald-700 leading-snug pt-1">
+                            Lãi được giải ngân từng ngày vào ví trong suốt kỳ hạn, vốn gốc hoàn trả cùng lãi ngày cuối khi đáo hạn.
+                          </p>
+                        ) : (
+                          <p className="text-[9.5px] text-gray-400 leading-snug pt-1">
+                            Thanh toán gốc và lãi một lần khi đáo hạn.
+                          </p>
+                        )}
                       </div>
                     </motion.div>
                   )}
