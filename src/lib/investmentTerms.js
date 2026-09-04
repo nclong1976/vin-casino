@@ -79,12 +79,40 @@ function formatScheduleDate(iso) {
   }
 }
 
+/** Chỉ giờ:phút (không kèm ngày) - dùng cho thẻ thông báo gọn (NotificationBell.jsx),
+ * nơi ngày gửi đã hiển thị riêng ("X phút trước") nên không cần lặp lại ngày. */
+export function formatScheduleTime(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
 /** Mọi dự án đều tự động khóa đầu tư sau đúng 30 phút kể từ khi mở (xem
  * migration 20260903230000_auto_lock_investment_30min_after_open.sql) - hầu
  * hết dự án sẽ không có scheduled_close_at (admin không cần tự đặt giờ đóng
  * nữa), nên nếu thiếu, suy ra giờ đóng = giờ mở + 30 phút để nội dung thông
  * báo vẫn hiển thị đúng khung giờ đầu tư thực tế. */
-const AUTO_LOCK_MINUTES = 30;
+export const AUTO_LOCK_MINUTES = 30;
+
+/**
+ * Suy ra khung giờ mở/đóng đầu tư thực tế của 1 dự án (ISO string), dùng
+ * chung cho cả nội dung soạn thông báo (buildProjectAnnouncementDraft) lẫn
+ * snapshot lưu vào Notification.extra khi gửi (NotificationsTab.jsx) - để
+ * NotificationBell.jsx có đúng giờ hiển thị thay vì phải tính lại.
+ */
+export function resolveProjectOpenClose(project) {
+  const openIso = project?.scheduled_open_at || project?.opened_at || null;
+  let closeIso = project?.scheduled_close_at || null;
+  let closeIsAutoLock = false;
+  if (!closeIso && openIso) {
+    closeIso = new Date(new Date(openIso).getTime() + AUTO_LOCK_MINUTES * 60 * 1000).toISOString();
+    closeIsAutoLock = true;
+  }
+  return { openIso, closeIso, closeIsAutoLock };
+}
 
 export function buildProjectAnnouncementDraft(project) {
   if (!project) return { title: "", content: "" };
@@ -93,14 +121,9 @@ export function buildProjectAnnouncementDraft(project) {
   const lines = [];
   if (project.category) lines.push(`Danh mục: ${project.category}`);
   if (project.location) lines.push(`Vị trí: ${project.location}`);
-  const openIso = project.scheduled_open_at || project.opened_at || null;
+  const { openIso, closeIso, closeIsAutoLock } = resolveProjectOpenClose(project);
   const openAt = formatScheduleDate(openIso);
-  let closeAt = formatScheduleDate(project.scheduled_close_at);
-  let closeIsAutoLock = false;
-  if (!closeAt && openIso) {
-    closeAt = formatScheduleDate(new Date(new Date(openIso).getTime() + AUTO_LOCK_MINUTES * 60 * 1000).toISOString());
-    closeIsAutoLock = true;
-  }
+  const closeAt = formatScheduleDate(closeIso);
   if (openAt && closeAt) {
     lines.push(`Thời gian mở đầu tư: ${openAt} - ${closeAt}${closeIsAutoLock ? ` (tự động khóa sau ${AUTO_LOCK_MINUTES} phút)` : ""}`);
   } else if (openAt) {
