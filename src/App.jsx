@@ -38,6 +38,7 @@ import News from './pages/News';
 import MembershipCard from './pages/MembershipCard';
 import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
 import WelcomeIntroPlayer from '@/components/WelcomeIntroPlayer';
+import { useDailyPayoutToast } from '@/hooks/useDailyPayoutToast';
 
 const AuthenticatedApp = () => {
   const { isAuthenticated, user, isLoadingAuth, isLoadingPublicSettings, authError, otpPending } = useAuth();
@@ -45,6 +46,11 @@ const AuthenticatedApp = () => {
   const [introCompleted, setIntroCompleted] = useState(
     () => sessionStorage.getItem("vinclub_welcome_seen") === "true"
   );
+
+  // Gọi vô điều kiện trước mọi early-return bên dưới (Rules of Hooks) - tự
+  // no-op khi chưa có user.id, tắt hẳn khi đăng xuất (subscribe cũ tự huỷ
+  // qua cleanup effect khi userId đổi/về null).
+  useDailyPayoutToast(user?.id);
 
   // Splash luxury loader
   if (isLoadingPublicSettings || isLoadingAuth) {
