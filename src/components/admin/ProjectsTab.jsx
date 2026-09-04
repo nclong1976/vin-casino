@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
-import { isDailyAccrualCategory, getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
+import { isDailyAccrualCategory, getCycleDays, formatDailyRatePercent, getProjectTermUnit } from "@/lib/investmentTerms";
 
 const fmtSchedule = (iso) => {
   if (!iso) return "";
@@ -426,6 +426,31 @@ function ProjectEditModal({ project, onClose, onSave }) {
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v, ...(k === "title" ? { name: v } : {}) }));
 
+  // Đơn vị kỳ hạn admin nhập ĐÚNG đơn vị người dùng nhìn thấy trên thẻ/
+  // DepositModal (getProjectTermUnit(): Dự Án=phút, Đầu tư nghỉ dưỡng=giờ,
+  // còn lại=ngày) - trước đây admin luôn phải tự quy đổi tay ra phút (vd 5
+  // ngày phải tự gõ 7200), dễ tính nhầm. term_duration_minutes vẫn là cột
+  // lưu thật DUY NHẤT, chỉ quy đổi qua lại lúc hiển thị/nhập.
+  const termUnit = getProjectTermUnit({ category: form.category });
+  const termUnitDivisor = termUnit === "phút" ? 1 : termUnit === "giờ" ? 60 : 1440;
+  const termValueInUnit = Math.round((Number(form.term_duration_minutes) || 0) / termUnitDivisor);
+  const setTermValueInUnit = (val) => {
+    set("term_duration_minutes", Math.round((Number(val) || 0) * termUnitDivisor));
+  };
+
+  // Nhãn "Đơn giá" đúng Ý NGHĨA thật theo từng mục - cùng 1 cột
+  // (price_per_m2/priceStr) nhưng mang ý nghĩa khác hẳn nhau: giá đất/m²
+  // (VinHomes), giá trọn gói (Nghỉ dưỡng), giá khớp lệnh (Chứng khoán). Riêng
+  // "Dự Án" (ProjectCard.jsx) KHÔNG hề đọc/hiển thị 2 trường này cho người
+  // dùng - ghi rõ để admin khỏi mất công điền nhầm tưởng có tác dụng.
+  const PRICE_FIELD_LABELS = {
+    "VinHomes": { main: "Đơn giá đất (₫/m²):", str: "Đơn giá niêm yết (vd: 35 triệu/m²):" },
+    "Đầu tư nghỉ dưỡng": { main: "Giá trọn gói đầu tư (₫):", str: "Giá niêm yết (vd: 2.5 tỷ):" },
+    "Đầu tư chứng khoán": { main: "Giá khớp lệnh (₫/CP):", str: "Giá niêm yết (vd: 85.000đ/CP):" },
+    "Dự Án": { main: "Đơn giá (không hiển thị cho Dự Án):", str: "Đơn giá niêm yết (không hiển thị cho Dự Án):" },
+  };
+  const priceLabels = PRICE_FIELD_LABELS[form.category] || PRICE_FIELD_LABELS["VinHomes"];
+
   // "minAmount" là input text tự do lưu số tiền tối thiểu (₫) - trước đây
   // không validate nên có thể lưu rỗng/số âm, khiến điều kiện "đủ tối thiểu
   // để đầu tư" ở phía người dùng bị vô hiệu hoá (Number("") === 0, Number
@@ -537,9 +562,7 @@ function ProjectEditModal({ project, onClose, onSave }) {
           {/* Price & Rate Grid */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                {form.category === "Đầu tư chứng khoán" ? "Giá khớp lệnh (₫/CP):" : "Đơn giá (số, vd 35000000):"}
-              </label>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.main}</label>
               <input
                 type="number"
                 value={form.price_per_m2}
@@ -549,7 +572,7 @@ function ProjectEditModal({ project, onClose, onSave }) {
               />
             </div>
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Đơn giá niêm yết (chuỗi hiển thị):</label>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.str}</label>
               <input
                 value={form.priceStr}
                 onChange={(e) => set("priceStr", e.target.value)}
@@ -590,17 +613,19 @@ function ProjectEditModal({ project, onClose, onSave }) {
               )}
             </div>
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Kỳ hạn (phút):</label>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Kỳ hạn ({termUnit}):</label>
               <input
                 type="number"
                 min="1"
                 step="1"
-                value={form.term_duration_minutes}
-                onChange={(e) => set("term_duration_minutes", e.target.value)}
-                placeholder="64800"
+                value={termValueInUnit}
+                onChange={(e) => setTermValueInUnit(e.target.value)}
+                placeholder={termUnit === "phút" ? "64800" : termUnit === "giờ" ? "120" : "45"}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
               />
-              <p className="text-[9px] text-gray-400 mt-0.5">45 ngày = 64800 · 1 giờ = 60 · 1 ngày = 1440</p>
+              <p className="text-[9px] text-gray-400 mt-0.5">
+                Đúng đơn vị hiển thị cho người dùng ở mục này (= {form.term_duration_minutes || 0} phút lưu thật).
+              </p>
             </div>
           </div>
 
