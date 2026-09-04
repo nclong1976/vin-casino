@@ -4,6 +4,7 @@ import { Check, X, FileSignature } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
+import { formatDailyRatePercent } from "@/lib/investmentTerms";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
@@ -150,6 +151,12 @@ export default function ContractsTab() {
                   <span className="text-gray-500">Tổng nhận</span>
                   <span className="font-bold text-[#948154]">{fmt(tx.total)} VNĐ</span>
                 </div>
+                {tx.payout_model === "DAILY_ACCRUAL" && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Lãi suất/ngày</span>
+                    <span className="font-medium text-black">{formatDailyRatePercent(tx.rate, tx.duration_days)}</span>
+                  </div>
+                )}
               </div>
 
               {tx.signature_content && (

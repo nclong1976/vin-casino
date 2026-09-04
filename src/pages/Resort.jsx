@@ -7,6 +7,7 @@ import BottomNav from "@/components/BottomNav";
 import DepositModal from "@/components/projects/DepositModal";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
 
 const DEFAULT_RESORTS = [
   {
@@ -16,6 +17,7 @@ const DEFAULT_RESORTS = [
     image: "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=600&h=400&fit=crop",
     price: "2.5 tỷ",
     rate: "0.025%/giờ",
+    total_term_interest_rate: 18,
     tag: "Biển",
     desc: "Resort 5 sao tầm nhìn biển trực diện, cam kết lợi nhuận chi trả theo giờ.",
     minAmount: "500000000",
@@ -29,6 +31,7 @@ const DEFAULT_RESORTS = [
     image: "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=600&h=400&fit=crop",
     price: "3.2 tỷ",
     rate: "0.030%/giờ",
+    total_term_interest_rate: 22,
     tag: "Đảo",
     desc: "Condotel đẳng cấp quốc tế, phân phối lợi nhuận tự động chi trả theo giờ.",
     minAmount: "650000000",
@@ -42,6 +45,7 @@ const DEFAULT_RESORTS = [
     image: "https://images.unsplash.com/photo-1602002418082-a4443e081dd1?w=600&h=400&fit=crop",
     price: "1.8 tỷ",
     rate: "0.020%/giờ",
+    total_term_interest_rate: 14,
     tag: "Sông",
     desc: "Kết hợp văn hóa di sản và đầu tư sinh lời theo giờ bền vững.",
     minAmount: "360000000",
@@ -55,6 +59,7 @@ const DEFAULT_RESORTS = [
     image: "https://images.unsplash.com/photo-1559508551-44bff1de756b?w=600&h=400&fit=crop",
     price: "2.1 tỷ",
     rate: "0.022%/giờ",
+    total_term_interest_rate: 16,
     tag: "Biển",
     desc: "Resort ven biển Non Nước, lợi nhuận chi trả từng giờ.",
     minAmount: "420000000",
@@ -68,6 +73,7 @@ const DEFAULT_RESORTS = [
     image: "https://images.unsplash.com/photo-1601918774946-25832a4be0d6?w=600&h=400&fit=crop",
     price: "2.8 tỷ",
     rate: "0.028%/giờ",
+    total_term_interest_rate: 20,
     tag: "Vịnh",
     desc: "Tầm nhìn vịnh Hạ Long, di sản thiên nhiên thế giới, nhận lãi liên tục từng giờ.",
     minAmount: "560000000",
@@ -196,9 +202,10 @@ export default function Resort() {
                   </div>
                   <div className="text-right">
                     <p className="text-[8px] text-gray-400 flex items-center gap-0.5 justify-end">
-                      <TrendingUp className="w-2.5 h-2.5 text-red-500" /> Lãi suất/giờ
+                      <TrendingUp className="w-2.5 h-2.5 text-red-500" /> Lãi suất toàn kỳ
                     </p>
-                    <p className="text-[13px] font-bold text-[#D32F2F]">{r.rate}</p>
+                    <p className="text-[13px] font-bold text-[#D32F2F]">{r.total_term_interest_rate ?? 0}%</p>
+                    <p className="text-[8px] text-gray-400">~{formatDailyRatePercent(r.total_term_interest_rate, getCycleDays(r))}</p>
                   </div>
                 </div>
 

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
-import { getProjectTermUnit, getProjectTermDurationDisplayValue, formatScheduleTime } from "@/lib/investmentTerms";
+import { getProjectTermUnit, getProjectTermDurationDisplayValue, formatScheduleTime, isDailyAccrualCategory, getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
 import NotificationDetailModal from "@/components/home/NotificationDetailModal";
 
 const TYPE_LABELS = {
@@ -250,6 +250,11 @@ export default function NotificationBell() {
                           <div className="text-center">
                             <p className="text-[10px] font-black text-[#948154]">{n.extra.project_rate ? `${n.extra.project_rate}%` : "-"}</p>
                             <p className="text-[7px] text-gray-400">Lãi suất</p>
+                            {n.extra.project_rate && isDailyAccrualCategory(n.extra.project_category) && (
+                              <p className="text-[6.5px] text-gray-400">
+                                ~{formatDailyRatePercent(n.extra.project_rate, getCycleDays({ term_duration_minutes: n.extra.project_duration_minutes }))}
+                              </p>
+                            )}
                           </div>
                           <div className="text-center border-x border-gray-200">
                             <p className="text-[10px] font-black text-[#948154]">{termValue} {termUnit}</p>

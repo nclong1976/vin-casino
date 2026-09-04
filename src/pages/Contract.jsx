@@ -8,6 +8,7 @@ import ContractDocument from "@/components/projects/ContractDocument";
 import DailyPayoutSchedule from "@/components/profile/DailyPayoutSchedule";
 import SignaturePicker from "@/components/signature/SignaturePicker";
 import BottomNav from "@/components/BottomNav";
+import { formatDailyRatePercent } from "@/lib/investmentTerms";
 
 export default function Contract() {
   const { id } = useParams();
@@ -112,6 +113,7 @@ export default function Contract() {
           total={tx.total || 0}
           user={user}
           signature={signature}
+          dailyRateLabel={tx.payout_model === "DAILY_ACCRUAL" ? formatDailyRatePercent(tx.rate, tx.duration_days) : null}
         />
 
         <DailyPayoutSchedule tx={tx} />

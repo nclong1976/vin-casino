@@ -26,6 +26,7 @@ import BottomNav from "@/components/BottomNav";
 import DepositModal from "@/components/projects/DepositModal";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
+import { getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
 
 // Fallback Vinhomes Land Projects Data
 const DEFAULT_PROPERTIES = [
@@ -230,6 +231,20 @@ export default function LandInvestment() {
     ? `${minTermRate}%`
     : `${minTermRate}% - ${maxTermRate}%`;
 
+  // Quy đổi tương đương lãi suất/ngày (chia đều toàn kỳ theo số ngày kỳ hạn
+  // thật của TỪNG dự án) - chỉ mang tính tham khảo, số tiền thật giải ngân
+  // mỗi ngày do disburse_daily_investment_payouts() (Postgres) tính.
+  const dailyRateValues = properties
+    .map((p) => Number(p.total_term_interest_rate) / getCycleDays(p))
+    .filter((v) => v > 0);
+  const minDailyRate = dailyRateValues.length ? Math.min(...dailyRateValues) : 0;
+  const maxDailyRate = dailyRateValues.length ? Math.max(...dailyRateValues) : 0;
+  const dailyRateRangeLabel = !dailyRateValues.length
+    ? "—"
+    : minDailyRate === maxDailyRate
+    ? `${parseFloat(minDailyRate.toFixed(3))}%/ngày`
+    : `${parseFloat(minDailyRate.toFixed(3))}% - ${parseFloat(maxDailyRate.toFixed(3))}%/ngày`;
+
   // Calculations for Valuation Tool
   const currentValProject = properties[valProjectIndex] || properties[0] || DEFAULT_PROPERTIES[0];
   const calculatedTotalPrice = valArea * (currentValProject?.pricePerM2 || 35000000);
@@ -323,6 +338,7 @@ export default function LandInvestment() {
                 <TrendingUp className="w-3.5 h-3.5 mx-auto text-[#948154] mb-0.5" />
                 <p className="text-[8px] text-gray-400">Lãi suất toàn kỳ</p>
                 <p className="text-[10px] font-bold text-[#D32F2F]">{termRateRangeLabel}</p>
+                <p className="text-[7.5px] text-gray-400">~{dailyRateRangeLabel}</p>
               </div>
               <div className="bg-white rounded-xl p-2 shadow-2xs border border-gray-100 text-center">
                 <ShieldCheck className="w-3.5 h-3.5 mx-auto text-blue-600 mb-0.5" />
@@ -375,6 +391,7 @@ export default function LandInvestment() {
                       <div>
                         <p className="text-[8px] text-gray-400 font-medium">Lãi suất toàn kỳ</p>
                         <p className="text-[10.5px] font-extrabold text-[#D32F2F]">{p.total_term_interest_rate ?? 0}%</p>
+                        <p className="text-[8px] text-gray-400">~{formatDailyRatePercent(p.total_term_interest_rate, getCycleDays(p))}</p>
                       </div>
                       <div>
                         <p className="text-[8px] text-gray-400 font-medium">Diện tích</p>
@@ -475,7 +492,7 @@ export default function LandInvestment() {
                   <TrendingUp className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-[11px] font-bold text-black">Biên độ sinh lời toàn kỳ {termRateRangeLabel}</h4>
+                  <h4 className="text-[11px] font-bold text-black">Biên độ sinh lời toàn kỳ {termRateRangeLabel} (~{dailyRateRangeLabel})</h4>
                   <p className="text-[9.5px] text-gray-500 mt-0.5 leading-relaxed">
                     Hiệu suất lợi nhuận vượt trội so với các kênh gửi tiết kiệm hoặc tích trữ vàng. Biên độ tăng giá đất nền tại các khu vực đô thị vệ tinh Vinhomes đạt mức tối ưu.
                   </p>
@@ -606,7 +623,10 @@ export default function LandInvestment() {
                       </span>
                     </div>
                     <div className="flex justify-between border-t border-gray-200/60 pt-1">
-                      <span className="text-gray-600">Lãi suất toàn kỳ ({currentValProject.total_term_interest_rate ?? 0}%):</span>
+                      <span className="text-gray-600">
+                        Lãi suất toàn kỳ ({currentValProject.total_term_interest_rate ?? 0}% · ~
+                        {formatDailyRatePercent(currentValProject.total_term_interest_rate, getCycleDays(currentValProject))}):
+                      </span>
                       <span className="font-bold text-red-600">
                         +{new Intl.NumberFormat("vi-VN").format(projectedReturn)} ₫
                       </span>

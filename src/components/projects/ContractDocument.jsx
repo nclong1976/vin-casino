@@ -16,7 +16,8 @@ export default function ContractDocument({
   profit,
   total,
   user,
-  signature
+  signature,
+  dailyRateLabel
 }) {
   const today = new Date().toLocaleDateString("vi-VN");
   const [dd, mm, yyyy] = today.split("/");
@@ -67,6 +68,7 @@ export default function ContractDocument({
           ["Số tiền đầu tư", `${fmt(amount)} VNĐ`],
           ["Phương thức", method],
           [rateLabel, rateValStr],
+          ...(dailyRateLabel ? [["Lãi suất/ngày", `~${dailyRateLabel}`]] : []),
           ["Thời gian kỳ hạn", durationLabel],
           ["Lãi dự kiến", `${fmt(profit)} VNĐ`],
           ["Tổng nhận", `${fmt(total)} VNĐ`]
