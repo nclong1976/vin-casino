@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Plus, Minus, Wallet, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalanceStrict, getFreshUserBalance } from "@/lib/balanceSync";
+import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { notifyUser } from "@/lib/notifyUser";
 import BalanceAmount from "@/components/admin/BalanceAmount";
 import { toast } from "sonner";
@@ -37,9 +37,14 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
     try {
       // Cảnh báo sớm cho UX (không phải nguồn sự thật) - việc cộng/trừ thật
       // sự chạy nguyên tử (atomic) trên Postgres bên dưới nên vẫn đúng dù
-      // giá trị đọc ở đây có hơi cũ
-      const currentBalForWarning = getFreshUserBalance(user.id) || balance;
-      if (mode === "subtract" && numAmount > currentBalForWarning) {
+      // giá trị đọc ở đây có hơi cũ. Dùng thẳng "balance" (state khởi tạo từ
+      // user.balance - đã là dữ liệu Postgres mới nhất do UsersTab tự
+      // subscribe realtime) - trước đây "getFreshUserBalance(user.id) ||
+      // balance" dùng "||" nên khi số dư thật đúng là 0, getFreshUserBalance
+      // trả về 0 (giá trị ĐÚNG) nhưng bị "||" coi là falsy rồi rơi về
+      // "balance" (giá trị CŨ lúc mở modal, có thể lớn hơn 0) - khiến cảnh
+      // báo "vượt quá số dư" không hiện dù tài khoản đang thực sự trống.
+      if (mode === "subtract" && numAmount > balance) {
         toast.error("Số trừ vượt quá số dư hiện tại");
         setSaving(false);
         return;

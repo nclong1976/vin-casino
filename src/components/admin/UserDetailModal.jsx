@@ -123,21 +123,16 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
             setBankAccounts(finalBanks);
             setWalletTxs(txs);
             setContracts(ctrs);
-
-            // Ground truth check for balance from transactions
-            const depSum = (txs || [])
-              .filter((t) => t.type === "deposit" && t.status === "completed")
-              .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-            const withSum = (txs || [])
-              .filter((t) => t.type === "withdraw" && t.status === "completed")
-              .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-            const netTx = Math.max(0, depSum - withSum);
-            if (netTx > Number(user.balance || 0)) {
-              setBalance(netTx);
-            }
-            if (depSum > Number(user.total_deposited || 0)) {
-              setTotalDeposited(depSum);
-            }
+            // KHÔNG tự suy diễn lại balance/total_deposited từ tổng 100 giao
+            // dịch gần nhất nữa - trước đây nếu tổng đó (chỉ tính trên 1
+            // trang dữ liệu, có thể thiếu nếu user có >100 giao dịch) LỚN
+            // HƠN user.balance thật thì sẽ ghi đè state balance ở đây, và
+            // "Lưu & Đồng bộ Toàn diện" sẽ đẩy con số bị thổi phồng đó lên
+            // Postgres như sự thật mới - đúng lớp lỗi "lấy giá trị cao nhất
+            // trong nhiều nguồn" mà UsersTab.jsx (dòng 63-68) đã xác nhận
+            // loại bỏ khi chuyển hẳn sang Supabase là nguồn sự thật DUY NHẤT.
+            // user.balance/user.total_deposited (đã set ở effect phía trên)
+            // đã là giá trị Postgres mới nhất, không cần tính lại.
           })
           .finally(() => setLoading(false));
       };
@@ -280,10 +275,20 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
     setSaving(true);
     try {
-      await Promise.allSettled([
+      // base44.entities.User.delete() KHÔNG chạm tới Supabase ("User" không
+      // nằm trong SUPABASE_BACKED_ENTITIES ở base44Client.js) - luôn trả về
+      // {success:true} bất kể kết quả thật. deleteSupabaseUser() mới là lệnh
+      // xóa THẬT, trả về false (không throw) khi Postgres từ chối. Trước đây
+      // Promise.allSettled() không kiểm tra kết quả nên Admin luôn thấy "Đã
+      // xóa vĩnh viễn" ngay cả khi tài khoản vẫn còn nguyên trong database.
+      const [supaResult] = await Promise.allSettled([
         deleteSupabaseUser(user.id),
         base44.entities.User.delete(user.id),
       ]);
+      if (supaResult.status !== "fulfilled" || supaResult.value !== true) {
+        toast.error("Không thể xóa tài khoản khỏi hệ thống. Vui lòng thử lại.");
+        return;
+      }
 
       const rawReg = localStorage.getItem("base44_registered_users");
       if (rawReg) {
@@ -533,17 +538,32 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 pt-1">
-                    {/* Role Access */}
+                    {/* Role Access - CHỈ Super Admin được đổi, vì đây là thao
+                        tác đặc quyền cao nhất (tự cấp quyền Admin cho bất kỳ
+                        ai). Trước đây dropdown này mở cho MỌI admin, không hề
+                        gate isSuperAdmin (khác hẳn nút "Xóa vĩnh viễn" ở dưới
+                        - đã đúng gate từ trước) - 1 admin thường có thể tự
+                        nâng cấp chính mình hoặc người khác lên Admin. Trigger
+                        Postgres protect_privileged_user_fields() cũng đã vá
+                        thêm guard is_super_admin() riêng cho cột role (xem
+                        migration harden_role_escalation_guard), disable ở
+                        đây chỉ là lớp UX rõ ràng thêm, không phải lớp chặn
+                        DUY NHẤT. */}
                     <div>
                       <label className="text-[10px] font-bold text-gray-600 block mb-1">Vai trò hệ thống</label>
                       <select
                         value={role}
                         onChange={(e) => setRole(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[11.5px] font-bold focus:outline-none focus:border-[#948154]"
+                        disabled={!isSuperAdmin}
+                        title={!isSuperAdmin ? "Chỉ Super Admin mới có quyền đổi vai trò hệ thống" : undefined}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[11.5px] font-bold focus:outline-none focus:border-[#948154] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                       >
                         <option value="user">User (Thành viên)</option>
                         <option value="admin">Admin (Quản trị viên)</option>
                       </select>
+                      {!isSuperAdmin && (
+                        <p className="text-[9px] text-gray-400 mt-0.5">Chỉ Super Admin được đổi vai trò</p>
+                      )}
                     </div>
 
                     {/* Tier Level */}

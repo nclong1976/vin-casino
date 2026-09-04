@@ -143,8 +143,8 @@ export default function ContractsTab() {
                   <span className="font-medium text-black">{tx.method || "—"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Lãi/ngày</span>
-                  <span className="font-medium text-black">{tx.rate?.toFixed(2)}%</span>
+                  <span className="text-gray-500">Lãi suất toàn kỳ</span>
+                  <span className="font-medium text-black">{Number(tx.rate ?? 0).toFixed(2)}%</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Tổng nhận</span>

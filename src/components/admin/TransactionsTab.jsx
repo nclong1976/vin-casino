@@ -224,15 +224,13 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
   // ── Fetchers ───────────────────────────────────────────────────
   const fetchUsers = useCallback(async () => {
     try {
-      const [ul, sul] = await Promise.all([
-        base44.entities.User.list().catch(() => []),
-        listSupabaseUsers().catch(() => []),
-      ]);
+      // base44.entities.User.list() nội bộ cũng gọi thẳng listSupabaseUsers()
+      // ("User" nằm trong SUPABASE_READABLE_ENTITIES) - trước đây gọi CẢ 2
+      // song song rồi merge, tức luôn tốn gấp đôi 1 round-trip Postgres cho
+      // đúng 1 tập dữ liệu giống hệt nhau, không mang lại lợi ích gì.
+      const users = await listSupabaseUsers().catch(() => []);
       const map = {};
-      (ul || []).forEach((u) => { if (u?.id) map[u.id] = u; });
-      (sul || []).forEach((su) => {
-        if (su?.id) map[su.id] = { ...(map[su.id] || {}), ...su };
-      });
+      (users || []).forEach((u) => { if (u?.id) map[u.id] = u; });
       setUsers(Object.values(map));
     } catch {}
   }, []);
