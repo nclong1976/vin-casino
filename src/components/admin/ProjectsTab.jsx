@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
@@ -189,13 +190,20 @@ export default function ProjectsTab({ initialCategoryFilter = "ALL" }) {
             <button
               key={key}
               onClick={() => setCategoryFilter(key)}
-              className={`px-2.5 py-1 rounded-lg text-[9.5px] font-bold shrink-0 transition-all cursor-pointer ${
+              className={`relative px-2.5 py-1 rounded-lg text-[9.5px] font-bold shrink-0 transition-colors cursor-pointer ${
                 categoryFilter === key
-                  ? "bg-[#948154] text-white shadow-xs"
+                  ? "text-white"
                   : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-100"
               }`}
             >
-              {label}
+              {categoryFilter === key && (
+                <motion.span
+                  layoutId="projects-category-filter-active-bg"
+                  className="absolute inset-0 bg-[#948154] rounded-lg shadow-xs"
+                  transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                />
+              )}
+              <span className="relative z-10">{label}</span>
             </button>
           ))}
         </div>
