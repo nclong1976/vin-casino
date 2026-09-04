@@ -157,10 +157,21 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
     const confirmName = u.full_name || u.email || u.id;
     setIsDeleting(true);
     try {
-      await Promise.allSettled([
+      // base44.entities.User.delete() KHÔNG chạm tới Supabase ("User" không
+      // nằm trong SUPABASE_BACKED_ENTITIES ở base44Client.js) - nó luôn trả
+      // về {success:true} bất kể kết quả thật. deleteSupabaseUser() mới là
+      // lệnh xóa THẬT, và nó trả về false (không throw) khi Postgres từ chối
+      // (RLS, ràng buộc khóa ngoại...). Trước đây Promise.allSettled() không
+      // hề kiểm tra kết quả, nên Admin luôn thấy "Đã xóa vĩnh viễn" ngay cả
+      // khi tài khoản vẫn còn nguyên trong database.
+      const [supaResult] = await Promise.allSettled([
         deleteSupabaseUser(u.id),
         base44.entities.User.delete(u.id),
       ]);
+      if (supaResult.status !== "fulfilled" || supaResult.value !== true) {
+        toast.error("Không thể xóa tài khoản khỏi hệ thống. Vui lòng thử lại.");
+        return;
+      }
 
       const rawReg = localStorage.getItem('base44_registered_users');
       if (rawReg) {
