@@ -553,11 +553,11 @@ function ProjectEditModal({ project, onClose, onSave }) {
             </div>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">Nhãn hiển thị (chỉ để tham khảo):</label>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Lợi nhuận %/ngày:</label>
             <input
               value={form.rate}
               onChange={(e) => set("rate", e.target.value)}
-              placeholder="vd: 90%/45 ngày"
+              placeholder="vd: 1.25%/ngày"
               className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
             />
           </div>
