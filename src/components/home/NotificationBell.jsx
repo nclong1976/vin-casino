@@ -5,6 +5,7 @@ import { Bell, X, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { getProjectTermUnit, getProjectTermDurationDisplayValue, formatScheduleTime } from "@/lib/investmentTerms";
+import NotificationDetailModal from "@/components/home/NotificationDetailModal";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
@@ -64,6 +65,7 @@ export default function NotificationBell() {
   const [notifs, setNotifs] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
   const ref = useRef(null);
 
   const fetchNotifs = () => {
@@ -135,7 +137,13 @@ export default function NotificationBell() {
       const route = CATEGORY_ROUTES[n.extra.project_category] || "/projects";
       setOpen(false);
       navigate(`${route}?highlight=${n.extra.project_id}`);
+      return;
     }
+    // Thông báo thường (title/content) trước đây bấm vào không có tác dụng
+    // gì ngoài đánh dấu đã đọc, và trong popup chỉ hiện tối đa 2 dòng nội
+    // dung (line-clamp-2 bên dưới) - mở modal để đọc trọn vẹn.
+    setOpen(false);
+    setSelected(n);
   };
 
   return (
@@ -299,6 +307,8 @@ export default function NotificationBell() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <NotificationDetailModal notif={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
