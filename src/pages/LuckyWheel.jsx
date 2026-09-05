@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Gift, RotateCcw, Sparkles, HelpCircle, Wallet } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
+import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 import { useCasinoMaintenance, BankingDowntimeScreen } from "@/hooks/useCasinoMaintenance";
