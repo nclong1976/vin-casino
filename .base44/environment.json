@@ -1,0 +1,42 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "SUPABASE_URL",
+      "description": "Supabase project URL (Dashboard → Project Settings → API). The app's whole backend (Postgres/Auth/Realtime) runs on this external project; no local DB in compose.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SUPABASE_PUBLISHABLE_KEY",
+      "description": "Supabase publishable/anon key. Remapped to VITE_SUPABASE_PUBLISHABLE_KEY for the browser client by .base44/dev.sh.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SUPABASE_SECRET_KEY",
+      "description": "Supabase service_role/secret key (server-only). Remapped to SUPABASE_SERVICE_ROLE_KEY in .base44/dev.sh for the daily-interest batch job in server.ts.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SUPABASE_JWKS_URL",
+      "description": "Supabase JWKS URL. Not read by this app's code; kept because it is stored for the app.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "TELEGRAM_BOT_TOKEN",
+      "description": "Optional. Telegram bot token from @BotFather for the CSKH ↔ Telegram bridge in server.ts. Auto-disables when empty.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "TELEGRAM_CHAT_ID",
+      "description": "Optional. Telegram chat/group ID the support bot posts to. Auto-disables when empty.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "GEMINI_API_KEY",
+      "description": "Optional. Google Gemini key for the /api/market-search endpoint; only errors when that endpoint is called.",
+      "requiredAtBoot": false
+    }
+  ]
+}

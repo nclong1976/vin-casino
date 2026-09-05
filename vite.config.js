@@ -12,5 +12,11 @@ export default defineConfig({
   },
   plugins: [
     react(),
-  ]
+  ],
+  // Base44 preview: the app is served through a proxy hostname that changes
+  // whenever the environment is recreated, so allow all hosts (Vite blocks
+  // unknown Host headers even in middleware mode).
+  server: {
+    allowedHosts: true,
+  },
 });

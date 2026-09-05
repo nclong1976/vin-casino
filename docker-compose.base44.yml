@@ -4,7 +4,7 @@
 # for boot placeholders that the real secrets override).
 services:
   web:
-    image: node:20
+    image: node:22
     working_dir: /app
     # Bind-mount the cloned source so edits are reflected without rebuilds.
     volumes:
@@ -22,9 +22,10 @@ services:
       - BASE44_PUBLIC_HOST_SUFFIX=${BASE44_PUBLIC_HOST_SUFFIX:-preview.example}
     ports:
       - "3000:3000"
-    # Install deps (cached on the bind mount's anonymous volume) then run the
-    # project's own dev command (tsx server.ts — Vite middleware + Express +
-    # socket.io, all on :3000). Frontend HMR is live; server.ts edits need a
-    # `docker compose restart web`.
-    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+    # Dev startup script (repo is bind-mounted at /app): installs deps, remaps
+    # the user's stored Supabase secret names to the names the app's code reads
+    # (see .base44/dev.sh), then runs the project's own dev command (tsx
+    # server.ts — Vite middleware + Express + socket.io, all on :3000).
+    # Frontend HMR is live; server.ts edits need a `docker compose restart web`.
+    command: sh /app/.base44/dev.sh
     restart: unless-stopped
