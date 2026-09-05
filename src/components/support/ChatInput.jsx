@@ -80,7 +80,7 @@ export default function ChatInput({ onSend, sending }) {
   };
 
   return (
-    <div className="w-full bg-white border-t border-gray-200/80 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-40 relative pb-safe">
+    <div className="w-full bg-white border-t border-gray-200/80 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-40 relative pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-4xl mx-auto px-3 pt-2 pb-2.5">
         {/* Quick Topic Chips */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">

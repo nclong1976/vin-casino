@@ -187,10 +187,17 @@
   html, body {
     margin: 0;
     padding: 0;
+    /* Chặn tràn viền ngang trên mọi thiết bị: nếu BẤT KỲ phần tử nào ở BẤT
+       KỲ trang nào (nhiều trang trong app này) rộng hơn viewport dù chỉ vài
+       pixel, thiếu dòng này sẽ khiến CẢ TRANG bị cuộn ngang được, tạo cảm
+       giác "tràn viền"/giật trên điện thoại - đặc biệt rõ trên màn hình hẹp.
+       Đây là lưới an toàn chung, không thay thế việc tự giới hạn chiều rộng
+       đúng cho từng component. */
+    overflow-x: hidden;
     @apply bg-background text-foreground;
-    
+
     font-family: 'Inter', sans-serif;
-    
+
   }
 
   img, video, svg {
