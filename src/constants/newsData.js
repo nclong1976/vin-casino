@@ -195,3 +195,20 @@ export const NEWS_DATA = [
 ];
 
 export const NEWS_CATEGORIES = ["Tất cả", "Đầu tư", "Thị trường", "Ưu đãi", "Chứng khoán", "Tư vấn", "Nghỉ dưỡng"];
+
+/**
+ * Nguồn sắp xếp DUY NHẤT cho mọi nơi hiển thị Tin tức (NewsSection.jsx ở
+ * trang chủ, News.jsx, NewsTab.jsx ở admin) - sắp theo sort_order (giảm dần,
+ * admin chỉnh tay qua nút mũi tên lên/xuống ở NewsTab.jsx), lấy created_date
+ * làm tiêu chí phụ khi 2 bài trùng sort_order (vd. bài cũ chưa từng được
+ * backfill/tạo trước migration thêm cột này). Tách riêng khỏi "date" (ngày
+ * đăng hiển thị, admin có thể sửa riêng) - cho phép ghim 1 bài lên đầu mà
+ * không bắt buộc phải đổi ngày đăng thật của nó.
+ */
+export function sortNewsList(list) {
+  return [...(list || [])].sort((a, b) => {
+    const orderDiff = (Number(b?.sort_order) || 0) - (Number(a?.sort_order) || 0);
+    if (orderDiff !== 0) return orderDiff;
+    return new Date(b?.created_date || 0) - new Date(a?.created_date || 0);
+  });
+}

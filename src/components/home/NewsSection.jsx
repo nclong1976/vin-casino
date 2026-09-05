@@ -4,15 +4,16 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Clock, Eye } from "lucide-react";
 import NewsDetailModal from "@/components/news/NewsDetailModal";
 import { base44 } from "@/api/base44Client";
+import { sortNewsList } from "@/constants/newsData";
 
 export default function NewsSection() {
   const [newsData, setNewsData] = useState([]);
   const [selectedArticle, setSelectedArticle] = useState(null);
 
   useEffect(() => {
-    base44.entities.News.list("-created_date", 200).then(setNewsData).catch(() => {});
+    base44.entities.News.list("-created_date", 200).then((items) => setNewsData(sortNewsList(items))).catch(() => {});
     const unsubscribe = base44.entities.News.subscribe((items) => {
-      if (Array.isArray(items)) setNewsData(items);
+      if (Array.isArray(items)) setNewsData(sortNewsList(items));
     });
     return () => { if (typeof unsubscribe === "function") unsubscribe(); };
   }, []);

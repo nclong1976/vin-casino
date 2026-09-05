@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Pencil, Check, X, Plus, Search, Newspaper, Star, Loader2, Trash2, AlertTriangle } from "lucide-react";
+import { Pencil, Check, X, Plus, Search, Newspaper, Star, Loader2, Trash2, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { NEWS_CATEGORIES } from "@/constants/newsData";
+import { NEWS_CATEGORIES, sortNewsList } from "@/constants/newsData";
 import { toast } from "sonner";
 
 const CATEGORY_OPTIONS = NEWS_CATEGORIES.filter((c) => c !== "Tất cả");
@@ -35,13 +35,17 @@ const todayIsoDate = () => {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
 };
 
-// Mọi danh sách Tin tức (NewsSection.jsx, News.jsx, NewsTab.jsx) đều sắp xếp
-// theo "-created_date" (timestamp thật), KHÔNG theo field "date" (chuỗi hiển
-// thị) - trước đây "Ngày đăng" hiển thị không thể chỉnh sửa nên 2 giá trị này
-// luôn khớp nhau tự nhiên. Giờ cho phép sửa "date", nếu không đồng thời dời
-// created_date theo đúng ngày mới chọn thì bài viết bị lùi ngày hiển thị vẫn
-// nằm nguyên vị trí cũ trong danh sách "mới nhất" - hiển thị sai thứ tự so
-// với ngày đăng thật. Giữ nguyên giờ:phút:giây gốc, chỉ thay phần NGÀY.
+// Mọi danh sách Tin tức (NewsSection.jsx, News.jsx, NewsTab.jsx) đều sắp theo
+// sort_order (xem sortNewsList trong constants/newsData.js) - KHÔNG theo
+// field "date" (chuỗi hiển thị). Trước khi có cột sort_order riêng, "date"
+// và thứ tự hiển thị luôn khớp nhau tự nhiên vì cả 2 đều bám created_date.
+// Giờ cho phép sửa "date" độc lập, nên vẫn cần dời created_date theo ngày
+// mới chọn - nếu không, backfill sort_order (chạy 1 lần lúc thêm cột, xem
+// migration add_manual_sort_order_to_news) đã cố định thứ tự cũ, còn
+// created_date thì KHÔNG còn được dùng để sắp xếp nữa nên sẽ không tự lệch
+// theo, nhưng vẫn nên giữ 2 giá trị nhất quán cho mọi nơi khác đọc created_date
+// (vd. genericListEntity fallback sort mặc định). Giữ nguyên giờ:phút:giây gốc,
+// chỉ thay phần NGÀY.
 const applyDatePart = (originalIso, isoDateOnly) => {
   const base = originalIso ? new Date(originalIso) : new Date();
   const [y, m, d] = String(isoDateOnly || "").split("-").map(Number);
@@ -63,7 +67,7 @@ export default function NewsTab() {
   const fetch = () => {
     base44.entities.News
       .list("-created_date", 200)
-      .then(setNews)
+      .then((items) => setNews(sortNewsList(items)))
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -71,12 +75,34 @@ export default function NewsTab() {
   useEffect(() => {
     fetch();
     const unsubscribe = base44.entities.News.subscribe((updatedItems) => {
-      if (Array.isArray(updatedItems)) setNews(updatedItems);
+      if (Array.isArray(updatedItems)) setNews(sortNewsList(updatedItems));
     });
     return () => {
       if (typeof unsubscribe === "function") unsubscribe();
     };
   }, []);
+
+  // Dời tin tức lên/xuống 1 vị trí - chỉ cần đổi sort_order của CHÍNH bài
+  // đang di chuyển (vượt qua/ đứng sau đúng 1 người hàng xóm), không cần đổi
+  // cả 2 bài như kiểu "hoán đổi" - nhiều bài tin cũ (tạo trước khi có cột
+  // sort_order) đang bị TRÙNG giá trị sort_order do backfill từ cùng 1
+  // created_date, hoán đổi 2 giá trị trùng nhau sẽ không tạo ra thay đổi gì
+  // (nút bấm trông như không hoạt động). +1/-1 so với hàng xóm luôn đảm bảo
+  // di chuyển thấy được, kể cả khi đang có nhiều bài trùng thứ tự.
+  const moveNews = async (id, direction) => {
+    const idx = news.findIndex((n) => n.id === id);
+    if (idx === -1) return;
+    const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= news.length) return;
+    const neighborOrder = Number(news[neighborIdx].sort_order) || 0;
+    const newOrder = direction === "up" ? neighborOrder + 1 : neighborOrder - 1;
+    try {
+      await base44.entities.News.update(id, { sort_order: newOrder });
+      fetch();
+    } catch (e) {
+      toast.error("Không thể đổi thứ tự tin tức");
+    }
+  };
 
   const handleDelete = async () => {
     if (!deleting) return;
@@ -150,6 +176,12 @@ export default function NewsTab() {
         )}
       </div>
 
+      {search && (
+        <p className="text-[9px] text-gray-400 -mt-1.5">
+          Xóa ô tìm kiếm để sắp xếp lại thứ tự bài viết bằng nút mũi tên.
+        </p>
+      )}
+
       {filtered.length === 0 ? (
         <div className="text-center py-8 text-[12px] text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
           Không tìm thấy tin tức phù hợp
@@ -190,6 +222,26 @@ export default function NewsTab() {
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
+              {!search && (
+                <div className="flex items-center gap-1 ml-auto">
+                  <button
+                    onClick={() => moveNews(n.id, "up")}
+                    disabled={news.findIndex((x) => x.id === n.id) === 0}
+                    title="Đưa lên trên"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => moveNews(n.id, "down")}
+                    disabled={news.findIndex((x) => x.id === n.id) === news.length - 1}
+                    title="Đưa xuống dưới"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))
@@ -287,6 +339,11 @@ function NewsEditModal({ item, onClose, onSave }) {
       created_date: applyDatePart(item?.created_date, form.publishDate),
       time: item?.time || "Vừa đăng",
       views: item?.views || "0",
+      // Bài mới lên đầu danh sách (đúng hành vi "mới nhất" cũ). Bài đang sửa
+      // GIỮ NGUYÊN vị trí thủ công hiện có - nếu gán lại Date.now() ở đây,
+      // mỗi lần admin chỉ sửa lỗi chính tả cũng vô tình đẩy bài lên đầu,
+      // xoá mất thứ tự đã sắp xếp tay bằng nút mũi tên lên/xuống.
+      sort_order: item?.sort_order ?? Date.now(),
     });
   };
 

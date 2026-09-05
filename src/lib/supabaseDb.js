@@ -886,7 +886,7 @@ const ENTITY_COLUMNS = {
   Signature: ['id', 'user_id', 'type', 'content', 'label', 'created_date'],
   Transaction: ['id', 'user_id', 'user_email', 'user_name', 'project_id', 'project_name', 'project_title', 'category', 'amount', 'shares', 'method', 'rate', 'duration_days', 'profit', 'total', 'status', 'payout_status', 'contract_status', 'signature_type', 'signature_content', 'note', 'created_date'],
   AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
-  News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date'],
+  News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date', 'sort_order'],
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
 };
 
