@@ -356,7 +356,7 @@ declare
 begin
   return jsonb_build_object('rank', ranks[r_idx], 'value', vals[r_idx], 'suit', suits[s_idx], 'is_red', reds[s_idx]);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._baicao_hand_score(hand jsonb)
@@ -365,7 +365,7 @@ CREATE OR REPLACE FUNCTION public._baicao_hand_score(hand jsonb)
  IMMUTABLE
 AS $function$
   select coalesce((select sum((c->>'value')::int) from jsonb_array_elements(hand) c), 0) % 10;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._baicao_is_cao(hand jsonb)
@@ -376,7 +376,7 @@ AS $function$
   select
     coalesce((select bool_and((c->>'rank') in ('J','Q','K')) from jsonb_array_elements(hand) c), false)
     or coalesce((select bool_and((c->>'rank') = 'A') from jsonb_array_elements(hand) c), false);
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._tb_deal_card()
@@ -396,7 +396,7 @@ begin
     'suit', suits[s_idx], 'is_red', reds[s_idx]
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._tb_score(hand jsonb)
@@ -405,7 +405,7 @@ CREATE OR REPLACE FUNCTION public._tb_score(hand jsonb)
  IMMUTABLE
 AS $function$
   select coalesce((select sum((c->>'value')::int) from jsonb_array_elements(hand) c), 0) % 10;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._xito_draw_card()
@@ -422,7 +422,7 @@ declare
 begin
   return jsonb_build_object('rank', ranks[r_idx], 'value', vals[r_idx], 'suit', suits[s_idx], 'is_red', reds[s_idx]);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public._xito_evaluate(hand jsonb)
@@ -479,7 +479,7 @@ begin
 
   return jsonb_build_object('rank_name', rank_name, 'score', score, 'multiplier', multiplier);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.check_username_unique()
@@ -499,7 +499,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.compute_transaction_interest()
@@ -528,7 +528,7 @@ begin
 
   return new;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.contribute_to_savings_goal(p_goal_id text, p_amount bigint)
@@ -572,7 +572,7 @@ BEGIN
 
   RETURN v_goal;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.credit_daily_interest_batch()
@@ -647,7 +647,7 @@ BEGIN
   )
   SELECT * FROM updated;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.delete_savings_goal(p_goal_id text)
@@ -673,7 +673,7 @@ BEGIN
   DELETE FROM public.savings_goals WHERE id = p_goal_id;
   RETURN true;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -702,7 +702,7 @@ BEGIN
     email = EXCLUDED.email;
   RETURN NEW;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.increment_user_balance(p_user_id text, p_delta bigint, p_total_deposited_delta bigint DEFAULT 0)
@@ -737,7 +737,7 @@ begin
   where id = p_user_id
   returning public.users.balance, public.users.total_deposited, public.users.balance_version;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -749,7 +749,7 @@ AS $function$
   SELECT
     COALESCE((SELECT role IN ('admin','ADMIN') FROM public.users WHERE id = auth.uid()::text), false)
     OR lower(COALESCE((auth.jwt() ->> 'email'), '')) = ANY (ARRAY['nclong1976@gmail.com','leo1102@vinclub.com']);
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.place_tiger_baccarat_bet(p_game_slug text, p_bets jsonb)
@@ -809,7 +809,7 @@ begin
 
   return v_round_id;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.play_baicao_round(p_bet_amount bigint)
@@ -903,7 +903,7 @@ begin
     'balance_version', v_version
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.process_withdrawal(p_tx_id text, p_action text, p_reason text DEFAULT NULL::text)
@@ -981,7 +981,7 @@ begin
 
   return v_tx;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.protect_privileged_user_fields()
@@ -1003,7 +1003,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.protect_transaction_financial_fields()
@@ -1033,7 +1033,7 @@ begin
   end if;
   return new;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.raise_xitobala_round(p_round_id uuid)
@@ -1079,7 +1079,7 @@ begin
 
   return jsonb_build_object('pot', v_new_pot, 'bet_amount', v_new_bet, 'balance', v_balance);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.reconcile_my_stale_casino_round(p_game_slug text)
@@ -1117,7 +1117,7 @@ begin
 
   return jsonb_build_object('refunded', true, 'amount', v_round.total_wagered, 'balance', v_balance, 'balance_version', v_version);
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.resolve_project_maturity_payout(p_tx_id text)
@@ -1187,7 +1187,7 @@ begin
     'balance_version', v_new_version
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.resolve_tiger_baccarat_round(p_round_id uuid)
@@ -1399,7 +1399,7 @@ begin
     'balance_version', v_new_version
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.reveal_xitobala_round(p_round_id uuid)
@@ -1461,7 +1461,7 @@ begin
     'balance_version', v_version
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.rls_auto_enable()
@@ -1492,7 +1492,7 @@ BEGIN
      END IF;
   END LOOP;
 END;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.set_updated_at()
@@ -1504,7 +1504,7 @@ begin
   new.updated_at = now();
   return new;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.set_user_balance_absolute(p_user_id text, p_balance bigint, p_total_deposited bigint)
@@ -1530,7 +1530,7 @@ begin
   where id = p_user_id
   returning public.users.balance, public.users.total_deposited, public.users.balance_version;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.settle_matured_investments()
@@ -1581,7 +1581,7 @@ begin
 
   return v_count;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.spin_lucky_wheel()
@@ -1667,7 +1667,7 @@ begin
     'balance_version', v_version
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.start_xitobala_round(p_bet_amount bigint)
@@ -1717,7 +1717,7 @@ begin
     'round_id', v_round_id, 'player_hand', v_player, 'pot', v_pot, 'bet_amount', p_bet_amount, 'balance', v_balance
   );
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.withdraw_from_savings_goal(p_goal_id text, p_amount bigint)
@@ -1756,7 +1756,7 @@ BEGIN
 
   RETURN v_goal;
 END;
-$function$
+$function$;
 
 -- ─── Khoá quyền thực thi cho các hàm nội bộ / chỉ service_role ─────────────
 -- (mặc định Postgres cấp EXECUTE cho PUBLIC khi tạo hàm - các hàm dưới đây
