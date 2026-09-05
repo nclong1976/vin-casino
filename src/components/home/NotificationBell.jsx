@@ -9,6 +9,7 @@ import NotificationDetailModal from "@/components/home/NotificationDetailModal";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
+  withdraw: { label: "Rút tiền", color: "text-orange-500", bg: "bg-orange-50" },
   contract: { label: "Hợp đồng", color: "text-[#948154]", bg: "bg-[#948154]/10" },
   wallet: { label: "Ví", color: "text-blue-500", bg: "bg-blue-50" },
   admin: { label: "Thông báo", color: "text-orange-500", bg: "bg-orange-50" },
@@ -73,15 +74,18 @@ export default function NotificationBell() {
     base44.entities.Notification
       .list("-created_date", 50)
       .then((list) => {
-        // Chuông thông báo CHỈ hiển thị tin CHUNG toàn hệ thống (không gắn
-        // user_id) hoặc broadcast tới admin ("admin" là giá trị đặc biệt,
-        // không phải id thật) - mọi thông tin gắn với 1 tài khoản cụ thể giờ
-        // đã được gửi thẳng vào khung chat CSKH riêng (xem lib/notifyUser.js)
-        // thay vì tạo Notification theo user_id như trước, nên các bản ghi
-        // user_id === user.id cũ (nếu còn sót) cũng không hiển thị ở đây nữa.
+        // Chuông thông báo hiển thị: tin CHUNG toàn hệ thống (không gắn
+        // user_id), broadcast tới admin ("admin" là giá trị đặc biệt, không
+        // phải id thật), VÀ tin riêng của chính tài khoản này (n.user_id ===
+        // user.id) - nhóm cuối này trước đây bị loại hẳn khỏi chuông (mọi
+        // thông tin gắn 1 tài khoản đều đẩy vào khung chat CSKH, xem
+        // lib/notifyUser.js), nhưng riêng 2 thông báo rút tiền ("đang chờ
+        // phê duyệt" và "Biến động số dư") giờ được tạo thẳng vào bảng
+        // notifications theo user_id để hiện ở đây thay vì làm loãng khung
+        // chat thật với CSKH.
         const readSet = getReadSet(user.id);
         const userNotifs = (list || [])
-          .filter(n => !n.user_id || (n.user_id === "admin" && user.role === "admin"))
+          .filter(n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin"))
           .map(n => ({ ...n, is_read: readSet.has(n.id) }));
         setNotifs(userNotifs);
       })

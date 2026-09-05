@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { notifyUser } from "@/lib/notifyUser";
 import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { toast } from "sonner";
 import { getBankLogo } from "@/constants/banks";
@@ -207,12 +206,20 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       setLiveStatus("pending");
       setStep("tracking");
 
-      // Gửi tin nhắn riêng cho người dùng (không dùng chuông thông báo chung)
-      await notifyUser(user?.id, {
-        title: "Yêu cầu rút tiền đang chờ phê duyệt",
-        content: `Dạ em đã tiếp nhận lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ. Mã GD: ${code}`,
-        type: "withdraw",
-      });
+      // Báo "đang chờ phê duyệt" qua chuông thông báo riêng của người dùng
+      // (KHÔNG gửi vào khung chat CSKH nữa - theo yêu cầu, 2 tin nhắn tự
+      // động của luồng rút tiền [Yêu cầu rút tiền đang chờ phê duyệt] và
+      // [Biến động số dư] chỉ nên hiện ở icon chuông, không làm loãng cuộc
+      // trò chuyện thật với CSKH).
+      try {
+        await base44.entities.Notification.create({
+          title: "Yêu cầu rút tiền đang chờ phê duyệt",
+          content: `Dạ em đã tiếp nhận lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ. Mã GD: ${code}`,
+          type: "withdraw",
+          user_id: user?.id,
+          is_read: false,
+        });
+      } catch (e) {}
 
       // Send real-time notification to Admin flow
       try {
