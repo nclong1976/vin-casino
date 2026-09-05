@@ -99,6 +99,29 @@ export function calculateExpectedInterest(amount, totalTermInterestRate) {
   return Math.round(amt * (rate / 100));
 }
 
+/**
+ * Lãi ĐÃ THỰC SỰ NHẬN tính tới hiện tại cho 1 giao dịch - KHÁC với tx.profit
+ * (luôn là lãi dự kiến cho TRỌN kỳ hạn, tính sẵn lúc tạo giao dịch, không
+ * đổi cho tới khi đáo hạn). LUMP_SUM (Dự Án/Chứng khoán) chỉ nhận lãi đúng 1
+ * lần khi đáo hạn nên trước đó luôn là 0. DAILY_ACCRUAL (VinHomes/Nghỉ
+ * dưỡng) nhận dần mỗi ngày - công thức dailyBase = floor(profit/cycleDays)
+ * PHẢI khớp đúng disburse_daily_investment_payouts() (SQL, xem migration
+ * 20260904010000) để số hiển thị đúng bằng số tiền thật đã cộng vào ví,
+ * không phải một ước lượng riêng có thể lệch.
+ */
+export function computeInterestReceivedSoFar(tx) {
+  if (!tx) return 0;
+  const profit = Number(tx.profit) || 0;
+  const isPaid = tx.payout_status === "paid" || tx.status === "completed_payout";
+  if (isPaid) return profit;
+  if (tx.payout_model !== "DAILY_ACCRUAL") return 0;
+  const cycleDays = Number(tx.duration_days) || 0;
+  const daysPaid = Math.max(0, Number(tx.daily_payout_days_paid) || 0);
+  if (cycleDays <= 0 || daysPaid <= 0) return 0;
+  const dailyBase = Math.floor(profit / cycleDays);
+  return Math.min(profit, dailyBase * daysPaid);
+}
+
 export function getMaturityDate(startDate, termDurationMinutes) {
   const start = startDate instanceof Date ? startDate : new Date(startDate || Date.now());
   const minutes = Number(termDurationMinutes) || 0;

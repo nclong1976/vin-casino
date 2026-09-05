@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { ArrowRight, FileText, CheckCircle2, Clock, XCircle, TrendingUp } from "lucide-react";
+import { computeInterestReceivedSoFar } from "@/lib/investmentTerms";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
@@ -26,6 +27,23 @@ const formatCompactDate = (dateStr) => {
 export default function TransactionList({ txs = [], loading = false }) {
   const [showAll, setShowAll] = useState(false);
 
+  // Tổng quan toàn bộ lịch sử đầu tư - trả lời trực tiếp "đầu tư bao nhiêu
+  // tiền, lãi bao nhiêu tiền" ở NGAY đầu danh sách thay vì phải cộng tay
+  // từng hợp đồng. totalReceived dùng computeInterestReceivedSoFar() (khớp
+  // đúng số tiền lãi THẬT đã cộng vào ví tới hiện tại, không phải ước lượng)
+  // - khác totalExpected (tổng lãi dự kiến cho TRỌN kỳ hạn mọi hợp đồng).
+  // Đặt TRƯỚC mọi early-return bên dưới - Hooks không được gọi có điều kiện.
+  const { totalInvested, totalReceived, totalExpected } = useMemo(() => {
+    return txs.reduce(
+      (acc, t) => ({
+        totalInvested: acc.totalInvested + (Number(t.amount) || 0),
+        totalReceived: acc.totalReceived + computeInterestReceivedSoFar(t),
+        totalExpected: acc.totalExpected + (Number(t.profit) || 0),
+      }),
+      { totalInvested: 0, totalReceived: 0, totalExpected: 0 }
+    );
+  }, [txs]);
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl p-4 text-center text-[11px] text-gray-400 border border-gray-100">
@@ -46,8 +64,33 @@ export default function TransactionList({ txs = [], loading = false }) {
 
   return (
     <div className="space-y-2 font-heading">
+      {/* Tổng quan đầu tư */}
+      <div className="bg-gradient-to-br from-[#948154] to-[#7d6c43] rounded-xl p-3 text-white shadow-xs">
+        <div className="flex items-center gap-1.5 mb-2">
+          <TrendingUp className="w-3.5 h-3.5" />
+          <h3 className="text-[11px] font-bold">Tổng quan đầu tư của bạn</h3>
+        </div>
+        <div className="grid grid-cols-3 gap-1.5">
+          <div>
+            <span className="text-[9px] text-white/70 block">Tổng đã đầu tư</span>
+            <span className="text-[12px] font-extrabold block">{fmt(totalInvested)} đ</span>
+          </div>
+          <div>
+            <span className="text-[9px] text-white/70 block">Lãi đã nhận</span>
+            <span className="text-[12px] font-extrabold block text-emerald-200">+{fmt(totalReceived)} đ</span>
+          </div>
+          <div>
+            <span className="text-[9px] text-white/70 block">Lãi dự kiến toàn kỳ</span>
+            <span className="text-[12px] font-extrabold block text-amber-200">{fmt(totalExpected)} đ</span>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-xs border border-gray-100 divide-y divide-gray-50 overflow-hidden">
-        {displayList.map((t) => (
+        {displayList.map((t) => {
+          const received = computeInterestReceivedSoFar(t);
+          const expected = Number(t.profit) || 0;
+          return (
           <div key={t.id} className="p-3 hover:bg-gray-50/80 transition-colors">
             {/* Header: Project name & status */}
             <div className="flex items-center justify-between gap-2">
@@ -73,21 +116,30 @@ export default function TransactionList({ txs = [], loading = false }) {
               })()}
             </div>
 
-            {/* Compact grid stats */}
+            {/* Compact grid stats - "Lãi đã nhận" là số tiền lãi THẬT đã
+                cộng vào ví tới hiện tại (computeInterestReceivedSoFar),
+                khác với t.profit (lãi dự kiến cho TRỌN kỳ hạn) - hiện thêm
+                dòng "Dự kiến toàn kỳ" bên dưới khi 2 số này còn lệch nhau,
+                để người dùng thấy rõ đã nhận bao nhiêu / sẽ nhận thêm bao nhiêu. */}
             <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-dashed border-gray-100 text-[10.5px]">
               <div>
                 <span className="text-[9.5px] text-gray-400 block">Đầu tư</span>
                 <span className="font-extrabold text-gray-900">{fmt(t.amount)} đ</span>
               </div>
               <div className="text-center">
-                <span className="text-[9.5px] text-gray-400 block">Lợi nhuận</span>
-                <span className="font-extrabold text-rose-600">+{fmt(t.profit)} đ</span>
+                <span className="text-[9.5px] text-gray-400 block">Lãi đã nhận</span>
+                <span className="font-extrabold text-rose-600">+{fmt(received)} đ</span>
               </div>
               <div className="text-right">
                 <span className="text-[9.5px] text-gray-400 block">Thời hạn</span>
                 <span className="font-semibold text-gray-700">{t.duration_days || 0} ngày</span>
               </div>
             </div>
+            {received < expected && (
+              <p className="text-[9.5px] text-gray-400 mt-1 text-right">
+                Lãi dự kiến toàn kỳ: <span className="font-semibold text-gray-600">{fmt(expected)} đ</span>
+              </p>
+            )}
 
             {/* Daily payout progress - chỉ giao dịch payout_model DAILY_ACCRUAL
                 (VinHomes/Đầu tư nghỉ dưỡng tạo sau khi bật cơ chế trả lãi hàng
@@ -125,7 +177,8 @@ export default function TransactionList({ txs = [], loading = false }) {
               </Link>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {txs.length > 4 && (
