@@ -301,11 +301,16 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
 
     // base44.entities.Message.subscribe() chạy trên Supabase Realtime
     // (ensureSupabaseRealtime trong base44Client.js) - đủ nhanh cho chat,
-    // không cần kênh Firebase RTDB riêng nữa.
-    unsubBase44 = base44.entities.Message.subscribe(() => {
-      const raw = localStorage.getItem("base44_entity_Message");
-      const cached = raw ? JSON.parse(raw) : [];
-      applyMessages(cached);
+    // không cần kênh Firebase RTDB riêng nữa. Dùng THẲNG mảng callback trả
+    // về (đã tải mới từ Supabase hoặc vừa tính lại trong bộ nhớ) thay vì tự
+    // đọc lại localStorage - localStorage["base44_entity_Message"] có thể
+    // CŨ/THIẾU nếu lần ghi trước đó bị lỗi âm thầm (setLocalStore() nuốt lỗi
+    // "vượt hạn mức lưu trữ" khi tin nhắn có ảnh đính kèm base64 dung lượng
+    // lớn) - tự đọc lại từ đây từng khiến toàn bộ hội thoại admin đang xem
+    // bị ghi đè về một danh sách cũ/thiếu ngay sau khi tải đúng đủ, dù dữ
+    // liệu mới vừa được truyền sẵn qua tham số callback.
+    unsubBase44 = base44.entities.Message.subscribe((freshItems) => {
+      applyMessages(freshItems);
     });
 
     // Bootstrap from cache immediately to avoid blank loading state

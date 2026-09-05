@@ -934,6 +934,42 @@ async function genericUpsertEntity(entityName, row) {
   }
 }
 
+/**
+ * UPDATE thật (WHERE id = ...) - KHÁC genericUpsertEntity() (INSERT ... ON
+ * CONFLICT DO UPDATE). Chỉ dùng cho update() vì .update() theo đúng ngữ
+ * nghĩa của nó luôn thao tác trên 1 dòng ĐÃ TỒN TẠI - khi base44Client.js
+ * (LocalEntityClient.update()) không tìm thấy bản ghi trong cache cục bộ,
+ * nó gửi lên đây 1 patch THIẾU field (chỉ {id, ...field-vừa-đổi}, xem ghi
+ * chú trong update()). Với upsert, Postgres vẫn phải dựng thử 1 dòng INSERT
+ * đầy đủ trước khi xét ON CONFLICT, nên patch thiếu cột NOT NULL (vd
+ * messages.conversation_id) sẽ bị từ chối (23502) NGAY CẢ KHI dòng đó đã
+ * tồn tại thật và lẽ ra chỉ cần UPDATE - lỗi thực tế đã xảy ra khi admin
+ * đánh dấu "đã đọc" 1 tin nhắn chưa có trong cache cục bộ của thiết bị đó.
+ * UPDATE thật không có vấn đề này: chỉ SET đúng các cột có trong patch, các
+ * cột NOT NULL khác giữ nguyên giá trị đã có sẵn trên dòng.
+ */
+async function genericUpdateEntity(entityName, id, row) {
+  const table = ENTITY_TABLE_MAP[entityName];
+  if (!table || !id) return null;
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .update(shapeRowForTable(entityName, row))
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.warn(`[SupabaseDb] update ${entityName} error:`, error.message);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn(`[SupabaseDb] update ${entityName} exception:`, e);
+    return null;
+  }
+}
+
 async function genericDeleteEntity(entityName, id) {
   const table = ENTITY_TABLE_MAP[entityName];
   if (!table || !id) return false;
@@ -981,6 +1017,11 @@ async function genericListEntity(entityName, filter = {}, sort = '-created_date'
 /** Ghi (tạo mới hoặc cập nhật) một bản ghi của entityName xuống Postgres. */
 export function upsertSupabaseEntity(entityName, row) {
   return genericUpsertEntity(entityName, row);
+}
+
+/** UPDATE thật 1 bản ghi ĐÃ TỒN TẠI của entityName - xem ghi chú genericUpdateEntity(). */
+export function updateSupabaseEntityById(entityName, id, row) {
+  return genericUpdateEntity(entityName, id, row);
 }
 
 /** Xóa một bản ghi của entityName khỏi Postgres. */
