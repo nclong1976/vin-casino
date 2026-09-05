@@ -23,7 +23,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers } from "@/lib/supabaseDb";
+import { listSupabaseUsers, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
@@ -245,14 +245,24 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Load users once ─────────────────────────────────────────────
+  // ── Load users - KHÔNG chỉ 1 lần lúc mount ──────────────────────
+  // Trước đây usersMap chỉ tải đúng 1 lần khi component mount. Nếu lần tải
+  // đó rơi đúng lúc bảng users tạm thời lỗi (mất mạng, hoặc sự cố RLS như
+  // đệ quy vô hạn từng xảy ra 05/09) thì usersMap kẹt RỖNG VĨNH VIỄN cho
+  // hết phiên làm việc - không có gì kích hoạt tải lại - khiến mọi hội
+  // thoại hiển thị "Khách #xxxxxx" dù dữ liệu tên người dùng thật đã có
+  // sẵn trên server từ lâu. Giờ tự làm mới qua Realtime (ngay khi bảng
+  // users đổi) + poll định kỳ làm lưới an toàn, đúng mẫu đã dùng ở
+  // UsersTab.jsx.
   useEffect(() => {
+    let cancelled = false;
     const loadUsers = async () => {
       try {
         const [usrs, supaUsrs] = await Promise.all([
           base44.entities.User.list().catch(() => []),
           listSupabaseUsers().catch(() => []),
         ]);
+        if (cancelled) return;
         const map = {};
         (Array.isArray(usrs) ? usrs : []).forEach((u) => {
           if (u?.id) map[u.id] = u;
@@ -267,6 +277,15 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       } catch {}
     };
     loadUsers();
+
+    const unsubUsers = subscribeSupabaseUsersTable(() => loadUsers());
+    const retryInterval = setInterval(loadUsers, 30000);
+
+    return () => {
+      cancelled = true;
+      if (typeof unsubUsers === "function") unsubUsers();
+      clearInterval(retryInterval);
+    };
   }, []);
 
   // ── Realtime messages via Supabase Realtime (no polling, push-only) ──
