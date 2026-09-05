@@ -16,6 +16,41 @@ const slugify = (title) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
+// "Ngày đăng" hiển thị cho người dùng (n.date, xem NewsDetailModal.jsx) được
+// lưu dạng chuỗi "dd/mm/yyyy" (đúng định dạng today.toLocaleDateString("vi-VN")
+// đang dùng khi tạo bài mới) - 3 hàm dưới đây chuyển đổi qua lại với "yyyy-mm-dd"
+// mà <input type="date"> bắt buộc, không đổi định dạng lưu trữ hiện có.
+const vnDateToIso = (vnDate) => {
+  const [d, m, y] = String(vnDate || "").split("/");
+  if (!d || !m || !y) return "";
+  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+};
+const isoDateToVn = (iso) => {
+  const [y, m, d] = String(iso || "").split("-");
+  if (!y || !m || !d) return "";
+  return `${d}/${m}/${y}`;
+};
+const todayIsoDate = () => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+};
+
+// Mọi danh sách Tin tức (NewsSection.jsx, News.jsx, NewsTab.jsx) đều sắp xếp
+// theo "-created_date" (timestamp thật), KHÔNG theo field "date" (chuỗi hiển
+// thị) - trước đây "Ngày đăng" hiển thị không thể chỉnh sửa nên 2 giá trị này
+// luôn khớp nhau tự nhiên. Giờ cho phép sửa "date", nếu không đồng thời dời
+// created_date theo đúng ngày mới chọn thì bài viết bị lùi ngày hiển thị vẫn
+// nằm nguyên vị trí cũ trong danh sách "mới nhất" - hiển thị sai thứ tự so
+// với ngày đăng thật. Giữ nguyên giờ:phút:giây gốc, chỉ thay phần NGÀY.
+const applyDatePart = (originalIso, isoDateOnly) => {
+  const base = originalIso ? new Date(originalIso) : new Date();
+  const [y, m, d] = String(isoDateOnly || "").split("-").map(Number);
+  if (!y || !m || !d || Number.isNaN(base.getTime())) return base.toISOString();
+  const combined = new Date(base);
+  combined.setFullYear(y, m - 1, d);
+  return combined.toISOString();
+};
+
 export default function NewsTab() {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -222,6 +257,7 @@ function NewsEditModal({ item, onClose, onSave }) {
     featured: item?.featured || false,
     tags: (item?.tags || []).join(", "),
     content: initialParagraphs,
+    publishDate: vnDateToIso(item?.date) || todayIsoDate(),
   });
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
@@ -247,7 +283,8 @@ function NewsEditModal({ item, onClose, onSave }) {
       featured: form.featured,
       tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       sections: [...paragraphSections, ...nonParagraphSections],
-      date: item?.date || today.toLocaleDateString("vi-VN"),
+      date: isoDateToVn(form.publishDate) || today.toLocaleDateString("vi-VN"),
+      created_date: applyDatePart(item?.created_date, form.publishDate),
       time: item?.time || "Vừa đăng",
       views: item?.views || "0",
     });
@@ -275,6 +312,19 @@ function NewsEditModal({ item, onClose, onSave }) {
               placeholder="Tiêu đề bài viết"
               className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
             />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Ngày đăng:</label>
+            <input
+              type="date"
+              value={form.publishDate}
+              onChange={(e) => set("publishDate", e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+            />
+            <p className="text-[9px] text-gray-400 mt-1">
+              Hiển thị cho người dùng ở trang Tin tức và quyết định luôn thứ tự "mới nhất".
+            </p>
           </div>
 
           <div>
