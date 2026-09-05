@@ -35,6 +35,15 @@ const todayIsoDate = () => {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
 };
 
+// Lượt xem hiển thị cho người dùng chỉ là con số biên tập tĩnh (không có cơ
+// chế đếm view thật ở đâu trong code) - đúng như 6 bài dữ liệu mẫu ban đầu
+// đều được gán sẵn một số ở khoảng vài nghìn (newsData.js). Bài đăng thật
+// đầu tiên qua form này lại bị mặc định "0" (chưa ai nhập gì) - nhìn như
+// chưa ai xem, lạc lõng so với các bài mẫu bên cạnh. Sinh 1 số ngẫu nhiên
+// hợp lý trong khoảng vài nghìn (khớp đúng khoảng 1.890-5.310 của 6 bài
+// mẫu) làm mặc định cho bài MỚI thay vì "0".
+const randomInitialViews = () => (1000 + Math.floor(Math.random() * 5000)).toLocaleString("en-US");
+
 // Mọi danh sách Tin tức (NewsSection.jsx, News.jsx, NewsTab.jsx) đều sắp theo
 // sort_order (xem sortNewsList trong constants/newsData.js) - KHÔNG theo
 // field "date" (chuỗi hiển thị). Trước khi có cột sort_order riêng, "date"
@@ -53,6 +62,19 @@ const applyDatePart = (originalIso, isoDateOnly) => {
   const combined = new Date(base);
   combined.setFullYear(y, m - 1, d);
   return combined.toISOString();
+};
+
+// Mặc định "chưa ai ghim tay" cho sort_order (xem sortNewsList - sắp giảm
+// dần theo sort_order) = ÂM mốc thời gian của "Ngày đăng" (không phải
+// created_date) - để bài có Ngày đăng CŨ hơn tự nhiên có sort_order LỚN
+// hơn (số âm nhỏ hơn về độ lớn), tức tự xếp lên trên khi chưa ai bấm nút
+// mũi tên. Nút mũi tên lên/xuống (moveNews) vẫn hoạt động y hệt sau đó -
+// nó chỉ cần một trục số dùng chung để +1/-1 so với hàng xóm hiện tại,
+// không quan tâm trục đó khởi tạo từ đâu.
+const dateToDefaultSortOrder = (vnDate) => {
+  const iso = vnDateToIso(vnDate);
+  const ms = iso ? new Date(iso).getTime() : NaN;
+  return Number.isFinite(ms) ? -ms : 0;
 };
 
 export default function NewsTab() {
@@ -338,12 +360,14 @@ function NewsEditModal({ item, onClose, onSave }) {
       date: isoDateToVn(form.publishDate) || today.toLocaleDateString("vi-VN"),
       created_date: applyDatePart(item?.created_date, form.publishDate),
       time: item?.time || "Vừa đăng",
-      views: item?.views || "0",
-      // Bài mới lên đầu danh sách (đúng hành vi "mới nhất" cũ). Bài đang sửa
-      // GIỮ NGUYÊN vị trí thủ công hiện có - nếu gán lại Date.now() ở đây,
-      // mỗi lần admin chỉ sửa lỗi chính tả cũng vô tình đẩy bài lên đầu,
-      // xoá mất thứ tự đã sắp xếp tay bằng nút mũi tên lên/xuống.
-      sort_order: item?.sort_order ?? Date.now(),
+      views: item?.views || randomInitialViews(),
+      // Bài mới mặc định xếp theo đúng vị trí thời gian của "Ngày đăng" (cũ
+      // hơn lên trên, mới hơn xuống dưới - xem dateToDefaultSortOrder) thay
+      // vì luôn nhảy lên đầu như trước. Bài đang SỬA vẫn GIỮ NGUYÊN vị trí
+      // thủ công hiện có - nếu tính lại từ ngày ở đây, mỗi lần admin chỉ
+      // sửa lỗi chính tả cũng vô tình dời vị trí, xoá mất thứ tự đã ghim
+      // tay bằng nút mũi tên lên/xuống.
+      sort_order: item?.sort_order ?? dateToDefaultSortOrder(form.publishDate),
     });
   };
 
@@ -380,7 +404,7 @@ function NewsEditModal({ item, onClose, onSave }) {
               className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
             />
             <p className="text-[9px] text-gray-400 mt-1">
-              Hiển thị cho người dùng ở trang Tin tức và quyết định luôn thứ tự "mới nhất".
+              Hiển thị cho người dùng ở trang Tin tức. Với bài chưa từng dùng nút mũi tên lên/xuống bên dưới, ngày này cũng quyết định vị trí mặc định (cũ hơn lên trên).
             </p>
           </div>
 
