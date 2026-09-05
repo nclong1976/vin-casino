@@ -1,0 +1,30 @@
+# Base44 dev environment for VinClub (Vite + React + Express single-origin app).
+# Supabase (Postgres/Auth/Realtime) is an EXTERNAL managed backend — its
+# credentials come from the user via /run/base44/app.env (see .env.base44-defaults
+# for boot placeholders that the real secrets override).
+services:
+  web:
+    image: node:20
+    working_dir: /app
+    # Bind-mount the cloned source so edits are reflected without rebuilds.
+    volumes:
+      - ./:/app
+    # Placeholders first (app boots without credentials), real secrets last so
+    # the dashboard values always win.
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    environment:
+      # Internal infra only — never put user-supplied secrets here.
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=300
+      - BASE44_PUBLIC_HOST_SUFFIX=${BASE44_PUBLIC_HOST_SUFFIX:-preview.example}
+    ports:
+      - "3000:3000"
+    # Install deps (cached on the bind mount's anonymous volume) then run the
+    # project's own dev command (tsx server.ts — Vite middleware + Express +
+    # socket.io, all on :3000). Frontend HMR is live; server.ts edits need a
+    # `docker compose restart web`.
+    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+    restart: unless-stopped
