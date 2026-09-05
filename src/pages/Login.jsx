@@ -7,6 +7,7 @@ import { Loader2, Eye, EyeOff, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import GoogleIcon from "@/components/GoogleIcon";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { toast } from "sonner";
 import { useConfig } from "@/lib/ConfigContext";
 import { useAuth } from "@/lib/AuthContext";
@@ -24,6 +25,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showPushNotification, setShowPushNotification] = useState(false);
+  const [shakeKey, setShakeKey] = useState(0);
 
   const triggerSound = (type) => {
     if (playFx) {
@@ -126,15 +128,26 @@ export default function Login() {
     }
   };
 
-  const handleOtpSubmit = async (e) => {
-    if (e) e.preventDefault();
-    if (otpCode.length < 6) return;
+  // Nhận trực tiếp `codeArg` (từ onComplete của InputOTP khi gõ đủ 6 số) thay
+  // vì luôn đọc qua state `otpCode` - tránh yêu cầu bấm thêm nút "Tiếp tục"
+  // mới xác thực được (trước đây phải tự gõ đủ 6 số RỒI còn phải bấm nút,
+  // trong khi đã đủ dữ liệu để xác thực ngay - không "mượt"). Vẫn giữ nút
+  // "Tiếp tục" làm phương án dự phòng (bấm lại thủ công) nên không truyền gì
+  // -> codeArg undefined -> tự lấy từ state như hành vi cũ.
+  const handleOtpSubmit = async (codeArg) => {
+    if (loading) return; // chặn double-submit khi onComplete + bấm nút gần như cùng lúc
+    const code = codeArg ?? otpCode;
+    if (code.length < 6) return;
     setError("");
 
     // Validate OTP against generatedOtp
-    if (otpCode !== generatedOtp) {
+    if (code !== generatedOtp) {
       setError("Mã OTP không đúng hoặc đã hết hạn");
       triggerSound("click");
+      // Xoá sạch để gõ lại ngay - trước đây giữ nguyên 6 số sai, bắt người
+      // dùng tự xoá tay từng số mới gõ lại được, không "mượt".
+      setOtpCode("");
+      setShakeKey((k) => k + 1);
       return;
     }
 
@@ -290,17 +303,33 @@ export default function Login() {
             </div>
           )}
 
-          {/* 6-Digit OTP Box */}
-          <div className="flex justify-center w-full mb-6">
+          {/* 6-Digit OTP Box - key={shakeKey} để mỗi lần gõ sai (xem
+              handleOtpSubmit) remount và tự chạy lại animation lắc, phản hồi
+              rõ ràng ngay tại chỗ thay vì chỉ có dòng chữ đỏ phía trên. */}
+          <motion.div
+            key={shakeKey}
+            initial={{ x: 0 }}
+            animate={shakeKey ? { x: [0, -8, 8, -8, 8, 0] } : { x: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex justify-center w-full mb-6"
+          >
             <InputOTP
               maxLength={6}
               value={otpCode}
+              // Chỉ nhận đúng chữ số - trước đây không giới hạn, bàn phím máy
+              // tính/paste có thể lọt chữ cái vào 6 ô, không đúng nghĩa "chỉ
+              // ghi con số". Trên di động input-otp đã tự bật bàn phím số
+              // (inputMode="numeric" mặc định của thư viện) nên không cần sửa gì thêm ở đó.
+              pattern={REGEXP_ONLY_DIGITS}
               onChange={(val) => {
                 setOtpCode(val);
                 if (val.length === 6) {
                   setError("");
                 }
               }}
+              // Gõ đủ 6 số là xác thực NGAY - không bắt bấm thêm nút "Tiếp
+              // tục" mới xử lý, đúng nghĩa "mượt mà".
+              onComplete={(val) => handleOtpSubmit(val)}
               autoFocus
             >
               <InputOTPGroup className="gap-2 sm:gap-2.5">
@@ -308,12 +337,12 @@ export default function Login() {
                   <InputOTPSlot
                     key={idx}
                     index={idx}
-                    className="w-11 h-13 sm:w-12 sm:h-14 bg-white/10 border border-white/30 rounded-xl text-white text-xl font-bold shadow-none focus:border-[#d0bfae] focus:ring-1 focus:ring-[#d0bfae] transition-all"
+                    className="w-11 h-12 sm:w-12 sm:h-14 bg-white/10 border border-white/30 rounded-xl text-white text-xl font-bold shadow-none focus:border-[#d0bfae] focus:ring-1 focus:ring-[#d0bfae] transition-all"
                   />
                 ))}
               </InputOTPGroup>
             </InputOTP>
-          </div>
+          </motion.div>
 
           {/* Resend Timer Text */}
           <div className="text-center mb-7 text-sm text-gray-300">
@@ -333,7 +362,7 @@ export default function Login() {
           {/* Submit Button */}
           <button
             type="button"
-            onClick={handleOtpSubmit}
+            onClick={() => handleOtpSubmit()}
             disabled={loading || otpCode.length < 6}
             className="w-full bg-[#948154] hover:bg-[#837045] active:opacity-90 disabled:bg-[#948154]/40 text-white font-semibold text-[17px] rounded-2xl py-4 flex items-center justify-center transition-all shadow-md mb-6 disabled:cursor-not-allowed cursor-pointer"
           >
