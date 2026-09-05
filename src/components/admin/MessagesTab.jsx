@@ -288,9 +288,10 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     };
   }, []);
 
-  // ── Realtime messages via Supabase Realtime (no polling, push-only) ──
+  // ── Realtime messages via Supabase Realtime (push chính) + poll an toàn ──
   useEffect(() => {
     let unsubBase44;
+    let cancelled = false;
 
     const applyMessages = (msgList) => {
       if (!Array.isArray(msgList)) return;
@@ -321,13 +322,32 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       } catch {}
     }
 
-    // One-time initial fetch from API
-    base44.entities.Message.list("-created_date", 300)
-      .then((msgs) => {
-        if (Array.isArray(msgs) && msgs.length > 0) applyMessages(msgs);
-        else setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    // Tải danh sách tin nhắn thật từ Supabase - chỉ áp dụng khi có dữ liệu
+    // thật trả về (length > 0), KHÔNG BAO GIỜ ghi đè hội thoại đang hiện
+    // bằng danh sách rỗng - nếu lượt tải này lỗi/rớt mạng, cứ giữ nguyên
+    // những gì đang có (cache cục bộ hoặc lượt tải trước đó).
+    const fetchMessages = () => {
+      base44.entities.Message.list("-created_date", 300)
+        .then((msgs) => {
+          if (cancelled) return;
+          if (Array.isArray(msgs) && msgs.length > 0) applyMessages(msgs);
+          else setLoading(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+    fetchMessages();
+
+    // Poll an toàn dự phòng (20s) - Realtime (ở trên) là kênh cập nhật
+    // chính, nhưng 1 THIẾT BỊ MỚI (chưa từng mở tab CSKH này, nên không có
+    // cache cục bộ để lùi về) mà đúng lúc lượt tải ban đầu ở trên gặp trục
+    // trặc mạng thoáng qua sẽ bị kẹt hiển thị "chưa có tin nhắn" VĨNH VIỄN
+    // cho tới khi có 1 tin nhắn MỚI kích hoạt lại Realtime - đây chính là
+    // nguyên nhân "đăng nhập ở thiết bị khác mất hết tin nhắn" đã xảy ra
+    // trong thực tế. usersMap ở trên đã có lưới an toàn tương tự (30s) vì
+    // cùng 1 lớp lỗi; áp dụng lại đúng mẫu đó cho tin nhắn.
+    const retryInterval = setInterval(fetchMessages, 20000);
 
     const handleStorage = (e) => {
       if (e.key === "vinclub_msg_update") {
@@ -340,7 +360,9 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     window.addEventListener("storage", handleStorage);
 
     return () => {
+      cancelled = true;
       if (typeof unsubBase44 === "function") unsubBase44();
+      clearInterval(retryInterval);
       window.removeEventListener("storage", handleStorage);
     };
   }, []);

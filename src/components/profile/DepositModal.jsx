@@ -49,7 +49,7 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
 
       await notifyUser(user.id, {
         title: "Yêu cầu nạp tiền đang chờ phê duyệt",
-        content: `Yêu cầu nạp ${fmt(numAmount)} VNĐ vào ví VinClub đang chờ Admin phê duyệt. Mã GD: ${code}`,
+        content: `Dạ em đã tiếp nhận yêu cầu nạp ${fmt(numAmount)} VNĐ vào ví VinClub của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ. Mã GD: ${code}`,
         type: "deposit",
       });
 

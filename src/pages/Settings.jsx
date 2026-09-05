@@ -67,7 +67,7 @@ export default function Settings() {
       <div className="fixed bottom-0 right-1/4 w-[400px] h-[400px] bg-amber-900/10 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Header bar */}
-      <header className="sticky top-0 z-40 bg-[#16181a]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-8 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-[#16181a]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-8 pt-[calc(1rem+env(safe-area-inset-top))] pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div>
             <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2 text-white">

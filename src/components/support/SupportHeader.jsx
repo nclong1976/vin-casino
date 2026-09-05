@@ -7,7 +7,7 @@ export default function SupportHeader() {
   const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-gradient-to-r from-[#948154] via-[#7d6c43] to-[#594c2e] text-white shadow-md">
+    <header className="sticky top-0 z-40 w-full bg-gradient-to-r from-[#948154] via-[#7d6c43] to-[#594c2e] text-white shadow-md pt-[env(safe-area-inset-top)]">
       <div className="w-full max-w-4xl mx-auto px-3.5 py-2.5 flex items-center justify-between gap-2">
         {/* Back Button */}
         <button

@@ -128,7 +128,7 @@ export default function BaiCao() {
       </div>
 
       {/* Header */}
-      <header className="sticky top-0 z-40 w-full bg-[#120d08]/95 backdrop-blur border-b border-[#3a2c14]">
+      <header className="sticky top-0 z-40 w-full bg-[#120d08]/95 backdrop-blur border-b border-[#3a2c14] pt-[env(safe-area-inset-top)]">
         <div className="max-w-3xl mx-auto flex items-center justify-center px-4 py-3 relative">
           <button
             onClick={() => navigate(-1)}

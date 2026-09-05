@@ -238,7 +238,7 @@ export default function DepositModal({ project, onClose }) {
           sender: "admin",
           conversation_id: user.id,
           user_id: user.id,
-          content: `Giao dịch đầu tư đã được xác nhận.\n\nDự án: ${project.title}\nSố tiền: ${fmt(amount)} VNĐ\nPhương thức: ${selectedMethod.label}\nLãi dự kiến: ${fmt(profit)} VNĐ\nTổng nhận: ${fmt(total)} VNĐ\n\nHợp đồng đã được ký và lưu. Cảm ơn bạn đã đầu tư cùng VinClub.`,
+          content: `Dạ em xin xác nhận giao dịch đầu tư của Quý khách đã hoàn tất ạ.\n\nDự án: ${project.title}\nSố tiền: ${fmt(amount)} VNĐ\nPhương thức: ${selectedMethod.label}\nLãi dự kiến: ${fmt(profit)} VNĐ\nTổng nhận: ${fmt(total)} VNĐ\n\nHợp đồng đã được ký và lưu. Cảm ơn Quý khách đã tin tưởng đầu tư cùng VinClub!`,
           attachments: [],
         });
       }

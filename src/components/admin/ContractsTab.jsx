@@ -62,12 +62,12 @@ export default function ContractsTab() {
         await notifyUser(tx.user_id, action === "approved"
           ? {
               title: "Hợp đồng đã được duyệt",
-              content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã được Admin phê duyệt. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ.`,
+              content: `Dạ hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) của Quý khách đã được duyệt thành công. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ. Cảm ơn Quý khách đã tin tưởng đồng hành cùng VinClub!`,
               type: "contract",
             }
           : {
               title: "Hợp đồng bị từ chối",
-              content: `Hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) đã bị Admin từ chối. Vui lòng liên hệ CSKH để biết thêm chi tiết.`,
+              content: `Dạ rất tiếc, hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) của Quý khách chưa thể được duyệt. Quý khách vui lòng liên hệ CSKH để được hỗ trợ thêm ạ.`,
               type: "contract",
             });
       }
