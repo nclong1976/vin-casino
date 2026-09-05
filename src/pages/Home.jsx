@@ -60,7 +60,7 @@ export default function Home() {
         className="relative z-10 flex flex-col h-full pb-20 max-w-4xl mx-auto w-full">
         
         {/* Header */}
-        <motion.header variants={itemVariants} className="flex items-center justify-between px-3.5 pt-[19px]">
+        <motion.header variants={itemVariants} className="flex items-center justify-between px-3.5 pt-[calc(19px+env(safe-area-inset-top))]">
           <div className="flex items-center">
             <p className="text-figma-11 font-normal leading-figma-13 text-[#715f3f] tracking-wide">
               VINCLUB

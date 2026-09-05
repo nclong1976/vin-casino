@@ -736,7 +736,7 @@ export default function TigerBaccarat() {
         <div className="absolute inset-0 bg-black/40 pointer-events-none" />
 
         {/* BEGIN: Header Section */}
-        <header className="relative z-10 w-full max-w-5xl mx-auto flex justify-between items-center px-4 py-3 sm:py-4">
+        <header className="relative z-10 w-full max-w-5xl mx-auto flex justify-between items-center px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:pt-[calc(1rem+env(safe-area-inset-top))] pb-3 sm:pb-4">
           {/* Player Info */}
           <div className="flex items-center gap-3">
             <button
