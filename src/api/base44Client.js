@@ -7,6 +7,7 @@ import {
   updateSupabaseWalletTransaction,
   deleteSupabaseWalletTransaction,
   upsertSupabaseEntity,
+  updateSupabaseEntityById,
   deleteSupabaseEntity,
   getSupabaseUser,
   listSupabaseUsers,
@@ -644,7 +645,7 @@ class LocalEntityClient {
     };
     items.unshift(newItem);
     setLocalStore(this.entityName, items);
-    this.notifySubscribers();
+    this.notifySubscribers(items);
 
     // Đẩy thay đổi lên Supabase Database
     //
@@ -704,12 +705,16 @@ class LocalEntityClient {
     // bộ trong trường hợp này: Admin thấy toast "thành công", tiền đã được
     // cộng/trừ qua adjustUserBalance, nhưng trạng thái giao dịch không được
     // ghi ở đâu cả. Vẫn đẩy đi một bản vá (partial patch) thay vì bỏ qua -
-    // các hàm upsert/merge phía dưới đều an toàn với dữ liệu thiếu field.
+    // dùng updateSupabaseEntityById() (UPDATE WHERE id=... thật) thay vì
+    // upsert bên dưới nên an toàn với dữ liệu thiếu field kể cả khi bảng có
+    // cột NOT NULL (vd. messages.conversation_id) - UPSERT phải dựng thử 1
+    // dòng INSERT đầy đủ trước khi xét ON CONFLICT nên patch thiếu cột NOT
+    // NULL sẽ bị Postgres từ chối (23502) dù dòng đã tồn tại thật.
     if (!updated) {
       updated = { id, ...data };
     }
     setLocalStore(this.entityName, items);
-    this.notifySubscribers();
+    this.notifySubscribers(items);
 
     // Cùng lý do phải await ở create() phía trên: các nơi gọi update() rồi
     // ngay sau đó dùng filter()/list() (đọc thẳng Supabase) để kiểm tra
@@ -725,7 +730,7 @@ class LocalEntityClient {
       }
 
       if (SUPABASE_BACKED_ENTITIES.has(this.entityName)) {
-        const supaResult = await upsertSupabaseEntity(this.entityName, updated).catch(() => null);
+        const supaResult = await updateSupabaseEntityById(this.entityName, id, updated).catch(() => null);
         supabaseSynced = !!supaResult;
       }
       // Firestore & RTDB tổng quát: xem ghi chú tương tự trong create() ở trên.
@@ -741,7 +746,7 @@ class LocalEntityClient {
     let items = getLocalStore(this.entityName);
     items = items.filter(i => i.id !== id);
     setLocalStore(this.entityName, items);
-    this.notifySubscribers();
+    this.notifySubscribers(items);
 
     // "synced" chỉ có ý nghĩa với entity SUPABASE_BACKED - mặc định true cho
     // các entity khác để không đổi hành vi những nơi gọi hiện có (return vẫn
@@ -830,9 +835,17 @@ class LocalEntityClient {
     };
   }
 
-  notifySubscribers() {
+  // freshItems (tuỳ chọn): create()/update()/delete() ở trên đều đã tự tính
+  // sẵn đúng mảng "items" mới nhất trong bộ nhớ TRƯỚC khi gọi hàm này - nếu
+  // không truyền vào, hàm tự đọc lại localStorage như cũ. QUAN TRỌNG: nên
+  // LUÔN truyền freshItems khi có sẵn - setLocalStore() có thể ÂM THẦM ghi
+  // thất bại (bắt lỗi rỗng) nếu vượt hạn mức localStorage (vd. tin nhắn có
+  // đính kèm ảnh base64 dung lượng lớn), khi đó đọc lại bằng getLocalStore()
+  // sẽ trả về dữ liệu CŨ/THIẾU thay vì dữ liệu vừa ghi, khiến toàn bộ
+  // subscriber (kể cả UI đang hiển thị) bị ghi đè ngược về trạng thái cũ.
+  notifySubscribers(freshItems) {
     if (subscribers[this.entityName]) {
-      const items = getLocalStore(this.entityName);
+      const items = Array.isArray(freshItems) ? freshItems : getLocalStore(this.entityName);
       subscribers[this.entityName].forEach(cb => {
         try { cb(items); } catch (e) {}
       });
