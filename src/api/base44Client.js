@@ -568,17 +568,37 @@ const subscribers = {};
 // sẽ khiến màn hình người dùng cập nhật ngay lập tức, không cần đợi poll.
 const supabaseChannelsStarted = {};
 
+// Gộp nhiều sự kiện Realtime đến gần nhau (cách nhau dưới 350ms) của CÙNG 1
+// entity thành ĐÚNG 1 lượt tải lại + phát lại, thay vì mỗi sự kiện tự tải
+// lại toàn bộ danh sách (tới 2000 dòng) và render lại toàn bộ UI riêng.
+// Đây là nguyên nhân khiến khung chat CSKH (cả phía admin lẫn người dùng)
+// bị giật/không mượt mỗi khi gửi tin nhắn: create()/update()/delete() ở
+// dưới đã tự phát dữ liệu mới NGAY LẬP TỨC (notifySubscribers()) cho chính
+// phiên vừa thao tác, nhưng đúng bản ghi đó cũng kích hoạt sự kiện Realtime
+// dội ngược lại chỉ vài trăm mili-giây sau (Postgres xác nhận + broadcast),
+// khiến TOÀN BỘ danh sách bị tải lại và render lại LẦN NỮA gần như ngay sau
+// lần đầu - 2 mảng dữ liệu hoàn toàn mới (không cùng reference) khiến React
+// không thể tối ưu re-render. Gộp lại còn giúp gửi nhiều tin liên tiếp,
+// hoặc nhiều người cùng gửi gần nhau, chỉ tải lại 1 lần thay vì dồn dập.
+const realtimeRefetchTimers = {};
+const REALTIME_REFETCH_DEBOUNCE_MS = 350;
+
 function ensureSupabaseRealtime(entityName) {
   if (supabaseChannelsStarted[entityName]) return;
   if (!SUPABASE_READABLE_ENTITIES.has(entityName)) return;
   supabaseChannelsStarted[entityName] = true;
 
-  const onRealtimeEvent = async () => {
+  const refetchAndBroadcast = async () => {
     const items = await fetchFromSupabase(entityName);
     setLocalStore(entityName, items);
     (subscribers[entityName] || []).forEach((cb) => {
       try { cb(items); } catch (e) {}
     });
+  };
+
+  const onRealtimeEvent = () => {
+    clearTimeout(realtimeRefetchTimers[entityName]);
+    realtimeRefetchTimers[entityName] = setTimeout(refetchAndBroadcast, REALTIME_REFETCH_DEBOUNCE_MS);
   };
 
   if (entityName === 'User') {
