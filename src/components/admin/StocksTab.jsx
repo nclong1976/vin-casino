@@ -116,6 +116,20 @@ export default function StocksTab({ onNavigateToProjects }) {
 
   useEffect(() => {
     fetchData();
+
+    // Đăng ký realtime: trước đây tab này chỉ tải 1 lần lúc mount, không có
+    // subscribe nào nên lệnh giao dịch cổ phiếu mới hoặc thay đổi dự án từ
+    // thiết bị khác không hiện ra cho tới khi Admin tự tải lại trang - đúng
+    // mẫu lỗi đã sửa ở ContractsTab.jsx.
+    const unsubProject = base44.entities.Project.subscribe(() => fetchData());
+    const unsubTx = base44.entities.Transaction.subscribe(() => fetchData());
+    const unsubUser = base44.entities.User.subscribe(() => fetchData());
+
+    return () => {
+      if (typeof unsubProject === "function") unsubProject();
+      if (typeof unsubTx === "function") unsubTx();
+      if (typeof unsubUser === "function") unsubUser();
+    };
   }, []);
 
   const totalStockVolume = stockOrders.reduce((s, o) => s + (Number(o.amount) || 0), 0);
