@@ -210,7 +210,7 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       // Gửi tin nhắn riêng cho người dùng (không dùng chuông thông báo chung)
       await notifyUser(user?.id, {
         title: "Yêu cầu rút tiền đang chờ phê duyệt",
-        content: `Lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) đang chờ Admin phê duyệt. Mã GD: ${code}`,
+        content: `Dạ em đã tiếp nhận lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ. Mã GD: ${code}`,
         type: "withdraw",
       });
 

@@ -80,8 +80,8 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
         title: mode === "add" ? "Ví đã được nạp tiền" : "Ví đã bị trừ tiền",
         content:
           mode === "add"
-            ? `Admin đã cộng ${fmt(numAmount)} VNĐ vào ví của bạn. ${note ? "Lý do: " + note : ""}`
-            : `Admin đã trừ ${fmt(numAmount)} VNĐ từ ví của bạn. ${note ? "Lý do: " + note : ""}`,
+            ? `Dạ em đã cộng ${fmt(numAmount)} VNĐ vào ví của Quý khách ạ. ${note ? "Lý do: " + note : ""}`
+            : `Dạ em đã trừ ${fmt(numAmount)} VNĐ từ ví của Quý khách ạ. ${note ? "Lý do: " + note : ""}`,
         type: "wallet",
       });
       toast.success(
