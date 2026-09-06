@@ -214,7 +214,7 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       try {
         await base44.entities.Notification.create({
           title: "Yêu cầu rút tiền đang chờ phê duyệt",
-          content: `Dạ em đã tiếp nhận lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ. Mã GD: ${code}`,
+          content: `VinClub đã tiếp nhận lệnh rút ${fmt(numAmount)} VNĐ về ${selectedBank.bank_name} (•••• ${selectedBank.account_number.slice(-4)}) của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ. Mã GD: ${code}`,
           type: "withdraw",
           user_id: user?.id,
           is_read: false,

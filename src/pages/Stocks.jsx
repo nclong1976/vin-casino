@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import StockHeader from "@/components/stocks/StockHeader";
 import MarketSummary from "@/components/stocks/MarketSummary";
 import StockCard from "@/components/stocks/StockCard";
@@ -49,8 +48,8 @@ function mapProjectToStock(p) {
   };
 }
 
-async function fetchStocks() {
-  const allProjects = await base44.entities.Project.list().catch(() => []);
+function mapStockList(allProjects) {
+  if (!Array.isArray(allProjects)) return FALLBACK_STOCKS;
   const stockProjects = allProjects.filter(
     (p) => (p.category || "").trim() === "Đầu tư chứng khoán"
   );
@@ -59,18 +58,33 @@ async function fetchStocks() {
 
 export default function Stocks() {
   const [selected, setSelected] = useState(null);
+  const [stocks, setStocks] = useState(FALLBACK_STOCKS);
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
   const [highlightActive, setHighlightActive] = useState(!!highlightId);
 
-  // Đọc trực tiếp danh sách cổ phiếu admin cấu hình trong StocksTab.jsx
-  // (đọc-nhanh khi mount, không polling liên tục vì giá không thay đổi
-  // ngẫu nhiên trong app demo này).
-  const { data: stocks = FALLBACK_STOCKS } = useQuery({
-    queryKey: ["stocks"],
-    queryFn: fetchStocks,
-    staleTime: 30_000,
-  });
+  // Đọc trực tiếp danh sách cổ phiếu admin cấu hình trong StocksTab.jsx qua
+  // Supabase Realtime (giống hệt Projects.jsx/LandInvestment.jsx/Resort.jsx)
+  // - trước đây chỉ đọc 1 lần lúc mount (react-query, staleTime 30s, không
+  // polling/subscribe gì thêm) nên admin sửa giá/bật-tắt cổ phiếu ở
+  // StocksTab.jsx không hề hiện ra cho người dùng đang mở sẵn trang này cho
+  // tới khi họ tự tải lại trang - mâu thuẫn với chính dòng chữ "Cập nhật
+  // trực tiếp" hiển thị ngay trên trang.
+  useEffect(() => {
+    const fetch = () => {
+      base44.entities.Project.list().then((all) => setStocks(mapStockList(all))).catch(() => {});
+    };
+
+    fetch();
+
+    const unsubscribe = base44.entities.Project.subscribe((updatedItems) => {
+      if (Array.isArray(updatedItems) && updatedItems.length > 0) setStocks(mapStockList(updatedItems));
+    });
+
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, []);
 
   // Tới đây từ 1 thông báo "dự án mới mở" (NotificationBell.jsx) - cuộn tới
   // đúng thẻ cổ phiếu đó và nổi bật tạm thời vài giây rồi tự tắt.

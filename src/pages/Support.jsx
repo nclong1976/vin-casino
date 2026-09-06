@@ -37,8 +37,21 @@ export default function Support() {
       const u = currentUser || user;
       const userFullName = u?.full_name || u?.name || u?.display_name || (u?.email ? u.email.split("@")[0] : "Quý khách");
 
+      // list.__fetchDegraded = true nghĩa là lượt tải này KHÔNG thành công
+      // thật sự (rớt mạng/lỗi Postgres), base44Client.js đã phải lùi về cache
+      // cục bộ (có thể rỗng trên 1 thiết bị mới) - "rỗng" trong trường hợp
+      // này không hề chứng minh "khách này chưa từng chat", nên TUYỆT ĐỐI
+      // không được coi là "chưa có lịch sử" rồi tự tạo tin chào mới đè lên.
+      const isDegraded = !!list?.__fetchDegraded;
+      if (isDegraded && isGreetingCheckOwner) {
+        // Nhường lại quyền xét "có cần tạo tin chào không" cho lượt gọi kế
+        // tiếp (poll 8s hoặc Realtime) - lượt này không đủ tin cậy để kết
+        // luận bất cứ điều gì về việc hội thoại có từng tồn tại hay chưa.
+        greetingCreatedRef.current = false;
+      }
+
       // Check if welcome greeting message exists; if not, create it
-      if ((!list || list.length === 0) && isGreetingCheckOwner) {
+      if (!isDegraded && (!list || list.length === 0) && isGreetingCheckOwner) {
         const greetingContent = `Kính chào Quý khách ${userFullName}! CSKH VinClub hân hạnh được đồng hành và hỗ trợ Quý khách 24/7. Quý khách cần hỗ trợ dịch vụ nào hôm nay ạ?`;
         
         try {
@@ -77,6 +90,13 @@ export default function Support() {
       // Không còn "return prev" sớm khi incoming rỗng nữa: nếu Admin xóa
       // TOÀN BỘ hội thoại, incoming sẽ luôn rỗng - phải để logic grace-period
       // bên dưới xử lý (tin cũ hơn 5s sẽ bị loại bỏ đúng như xóa từng tin).
+      //
+      // NHƯNG: quy tắc "thiếu trong incoming + cũ hơn 5s = đã bị xóa thật"
+      // chỉ đúng khi incoming đến từ 1 lượt tải THÀNH CÔNG. Nếu isDegraded
+      // (lượt tải này bị lỗi/rớt mạng, incoming chỉ là cache cục bộ có thể
+      // cũ/thiếu), thì "thiếu trong incoming" không chứng minh được gì cả -
+      // giữ nguyên TOÀN BỘ tin đang hiển thị, không áp hạn 5 giây, để tránh
+      // đúng lỗi "lịch sử biến mất" khi mạng chập chờn.
       const GRACE_MS = 5000;
       setMessages((prev) => {
         const incoming = list || [];
@@ -84,7 +104,7 @@ export default function Support() {
         const now = Date.now();
         const merged = new Map(incoming.map((m) => [m.id, m]));
         prev.forEach((m) => {
-          if (!incomingIds.has(m.id) && now - new Date(m.created_date || 0).getTime() < GRACE_MS) {
+          if (!incomingIds.has(m.id) && (isDegraded || now - new Date(m.created_date || 0).getTime() < GRACE_MS)) {
             merged.set(m.id, m);
           }
         });

@@ -72,6 +72,21 @@ function dedupeById(items) {
 }
 
 /**
+ * Đánh dấu 1 mảng kết quả là "suy giảm" (degraded) - tức KHÔNG phải vừa tải
+ * thành công từ Postgres, mà là dữ liệu lùi về (cache cục bộ) do lượt đọc
+ * thật sự bị lỗi (rớt mạng, RLS lỗi đệ quy...). Thuộc tính không-liệt-kê
+ * (non-enumerable) nên hoàn toàn vô hại với mọi nơi gọi hiện có (JSON.
+ * stringify, .map/.filter, so sánh length...) - chỉ nơi nào CHỦ ĐỘNG kiểm
+ * tra __fetchDegraded (xem ensureSupabaseRealtime và Support.jsx) mới thấy.
+ */
+function markDegraded(items) {
+  try {
+    Object.defineProperty(items, '__fetchDegraded', { value: true, enumerable: false });
+  } catch (e) {}
+  return items;
+}
+
+/**
  * Đọc danh sách bản ghi mới nhất của 1 entity thẳng từ Supabase (không qua
  * cache local). Với 7 entity đi qua listSupabaseEntity() - hàm này NÉM LỖI
  * khi truy vấn Postgres thất bại (vd. RLS policy lỗi đệ quy trên project) -
@@ -85,7 +100,7 @@ async function fetchFromSupabase(entityName) {
     return dedupeById(await listSupabaseEntity(entityName, {}, '-created_date', 2000));
   } catch (e) {
     console.warn(`[base44Client] Supabase read lỗi cho ${entityName}, dùng cache cục bộ:`, e?.message || e);
-    return getLocalStore(entityName);
+    return markDegraded(getLocalStore(entityName));
   }
 }
 
@@ -590,6 +605,15 @@ function ensureSupabaseRealtime(entityName) {
 
   const refetchAndBroadcast = async () => {
     const items = await fetchFromSupabase(entityName);
+    // Lượt tải lại này do Realtime kích hoạt (Postgres báo có thay đổi) -
+    // nếu chính lượt tải lại đó bị lỗi/rớt mạng và phải lùi về cache cục bộ
+    // (fetchFromSupabase đánh dấu __fetchDegraded), TUYỆT ĐỐI không ghi đè
+    // cache dùng chung lẫn không phát cho subscriber - trước đây làm cả 2
+    // việc này vô điều kiện, khiến 1 lần mạng chập chờn đủ để MessagesTab.
+    // jsx (và mọi màn hình khác) ghi đè toàn bộ hội thoại đang hiển thị đúng
+    // bằng đúng dữ liệu lỗi/thiếu đó. Bỏ qua lượt này - giữ nguyên dữ liệu
+    // đang có, đợi sự kiện Realtime/poll tiếp theo tự thử lại.
+    if (items && items.__fetchDegraded) return;
     setLocalStore(entityName, items);
     (subscribers[entityName] || []).forEach((cb) => {
       try { cb(items); } catch (e) {}
@@ -791,6 +815,12 @@ class LocalEntityClient {
 
   async filter(query, sort, limit) {
     let items = await this._sourceItems();
+    // items.filter()/[...items].sort()/.slice() bên dưới đều tạo MẢNG MỚI,
+    // làm mất thuộc tính __fetchDegraded đã gắn trên mảng gốc (nếu lượt tải
+    // của _sourceItems() bị lỗi/rớt mạng) - phải nhớ lại từ đầu để gắn lại
+    // vào kết quả cuối cùng, nếu không nơi gọi (Support.jsx) sẽ không còn
+    // cách nào biết dữ liệu này có đáng tin hay không.
+    const wasDegraded = !!items.__fetchDegraded;
     if (query) {
       items = items.filter(item => {
         if (query.$or && Array.isArray(query.$or)) {
@@ -823,6 +853,7 @@ class LocalEntityClient {
     if (limit) {
       items = items.slice(0, limit);
     }
+    if (wasDegraded) markDegraded(items);
     return items;
   }
 
