@@ -598,6 +598,44 @@ const supabaseChannelsStarted = {};
 const realtimeRefetchTimers = {};
 const REALTIME_REFETCH_DEBOUNCE_MS = 350;
 
+// Áp trực tiếp 1 sự kiện Realtime (INSERT/UPDATE/DELETE) vào cache cục bộ
+// bằng ĐÚNG dữ liệu Postgres gửi kèm trong payload (payload.new/payload.old),
+// THAY VÌ đợi debounce 350ms rồi tải lại toàn bộ bảng qua REST. Dùng cho tin
+// nhắn CSKH để cả 2 phía admin/người dùng thấy tin mới/xóa/sửa NGAY khi
+// Supabase Realtime báo có thay đổi - độ trễ chỉ còn phụ thuộc thời gian lan
+// truyền sự kiện Realtime (thường dưới 1 giây), không cộng thêm debounce lẫn
+// 1 lượt REST round-trip như luồng refetchAndBroadcast() bên dưới.
+// Trả về null nếu payload không dùng được - nơi gọi tự lùi về lượt refetch
+// đầy đủ vẫn được lên lịch sẵn như trước (không đổi hành vi cũ, chỉ thêm 1
+// đường phát tức thời song song).
+function applyRealtimePayloadPatch(entityName, payload) {
+  if (!payload || !payload.eventType) return null;
+  const current = getLocalStore(entityName);
+  let next;
+  if (payload.eventType === 'INSERT' && payload.new) {
+    // Đã có sẵn trong cache (chính thiết bị này vừa create() cục bộ, đã
+    // notifySubscribers() ngay lập tức rồi) - bỏ qua để tránh phát trùng.
+    if (current.some((i) => i.id === payload.new.id)) return null;
+    next = [payload.new, ...current];
+  } else if (payload.eventType === 'UPDATE' && payload.new) {
+    let found = false;
+    next = current.map((i) => {
+      if (i.id === payload.new.id) {
+        found = true;
+        return { ...i, ...payload.new };
+      }
+      return i;
+    });
+    if (!found) next = [payload.new, ...current];
+  } else if (payload.eventType === 'DELETE' && payload.old && payload.old.id != null) {
+    next = current.filter((i) => i.id !== payload.old.id);
+  } else {
+    return null;
+  }
+  setLocalStore(entityName, next);
+  return next;
+}
+
 function ensureSupabaseRealtime(entityName) {
   if (supabaseChannelsStarted[entityName]) return;
   if (!SUPABASE_READABLE_ENTITIES.has(entityName)) return;
@@ -620,7 +658,19 @@ function ensureSupabaseRealtime(entityName) {
     });
   };
 
-  const onRealtimeEvent = () => {
+  const onRealtimeEvent = (payload) => {
+    // Chat CSKH (Message) cần cập nhật 2 chiều admin<->người dùng tức thời -
+    // phát ngay bản vá từ payload thật, song song với lượt refetch đối chiếu
+    // đầy đủ vẫn chạy debounce như cũ bên dưới. Các entity khác giữ nguyên
+    // hành vi debounce-rồi-refetch như trước, chưa mở rộng phạm vi sửa.
+    if (entityName === 'Message') {
+      const patched = applyRealtimePayloadPatch(entityName, payload);
+      if (patched) {
+        (subscribers[entityName] || []).forEach((cb) => {
+          try { cb(patched); } catch (e) {}
+        });
+      }
+    }
     clearTimeout(realtimeRefetchTimers[entityName]);
     realtimeRefetchTimers[entityName] = setTimeout(refetchAndBroadcast, REALTIME_REFETCH_DEBOUNCE_MS);
   };

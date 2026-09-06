@@ -16,24 +16,26 @@ export default function Support() {
   const greetingCreatedRef = useRef(false);
   const prevLastMsgIdRef = useRef(null);
 
-  const loadMessages = async (userId, currentUser) => {
-    if (!userId) return;
-    // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
-    // loadMessages() được gọi từ nhiều nơi gần như đồng thời lúc mount (gọi
-    // trực tiếp, Message.subscribe(), polling...) - nếu chỉ đặt
-    // cờ SAU khi await base44.entities.Message.filter() xong (như code cũ),
-    // nhiều lời gọi có thể cùng thấy "chưa có ai tạo tin chào" tại thời điểm
-    // check và tạo trùng nhiều tin chào. Đặt cờ đồng bộ (synchronous) ở đây
-    // đảm bảo chỉ lời gọi ĐẦU TIÊN được quyền xét tạo tin chào.
-    const isGreetingCheckOwner = !greetingCreatedRef.current;
-    if (isGreetingCheckOwner) greetingCreatedRef.current = true;
-    try {
-      const list = await base44.entities.Message.filter(
-        { conversation_id: userId },
-        "created_date",
-        200
-      );
+  // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
+  // loadMessages()/applyMessageList() được gọi từ nhiều nơi gần như đồng thời
+  // lúc mount (gọi trực tiếp, Message.subscribe(), polling...) - nếu chỉ đặt
+  // cờ SAU khi await xong (như code cũ), nhiều lời gọi có thể cùng thấy "chưa
+  // có ai tạo tin chào" tại thời điểm check và tạo trùng nhiều tin chào. Đặt
+  // cờ đồng bộ (synchronous) ở đây đảm bảo chỉ lời gọi ĐẦU TIÊN được quyền
+  // xét tạo tin chào.
+  const claimGreetingOwnership = () => {
+    const owner = !greetingCreatedRef.current;
+    if (owner) greetingCreatedRef.current = true;
+    return owner;
+  };
 
+  // Hợp nhất 1 danh sách tin nhắn (list) đã có sẵn - tới từ 1 lượt fetch REST
+  // (loadMessages) HOẶC trực tiếp từ dữ liệu Supabase Realtime vừa đẩy tới
+  // qua Message.subscribe() (không cần fetch lại) - vào state hiện tại. Tách
+  // riêng khỏi loadMessages() để nhánh Realtime có thể áp dữ liệu tức thời,
+  // không phải đợi thêm 1 lượt REST round-trip nữa mới cập nhật màn hình -
+  // đây chính là phần gây "độ trễ" khi nhắn tin 2 chiều admin<->người dùng.
+  const applyMessageList = async (list, userId, currentUser, isGreetingCheckOwner) => {
       const u = currentUser || user;
       const userFullName = u?.full_name || u?.name || u?.display_name || (u?.email ? u.email.split("@")[0] : "Quý khách");
 
@@ -112,6 +114,20 @@ export default function Support() {
           (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
         );
       });
+  };
+
+  // Lượt tải qua REST (mount lần đầu, poll 8s dự phòng, sự kiện cross-tab) -
+  // vẫn giữ nguyên hành vi cũ (fetch rồi hợp nhất qua applyMessageList()).
+  const loadMessages = async (userId, currentUser) => {
+    if (!userId) return;
+    const isGreetingCheckOwner = claimGreetingOwnership();
+    try {
+      const list = await base44.entities.Message.filter(
+        { conversation_id: userId },
+        "created_date",
+        200
+      );
+      await applyMessageList(list, userId, currentUser, isGreetingCheckOwner);
     } catch (e) {
       // quiet fallback
     } finally {
@@ -125,9 +141,21 @@ export default function Support() {
     // 1. Initial Load with Greeting Generation
     loadMessages(user.id, user);
 
-    // 2. Real-time Subscription via Supabase Realtime
-    const unsub = base44.entities.Message.subscribe(() => {
-      loadMessages(user.id, user);
+    // 2. Real-time Subscription via Supabase Realtime - base44Client.js giờ
+    // phát thẳng dữ liệu Postgres vừa thay đổi (payload thật, không phải
+    // debounce-rồi-refetch) cho entity Message, nên áp thẳng "freshItems"
+    // nhận được ở đây vào state luôn, KHÔNG gọi loadMessages() (sẽ tự fetch
+    // lại REST 1 lần nữa) - đây chính là 1 lượt round-trip thừa từng cộng
+    // thêm độ trễ mỗi khi có tin nhắn mới/bị xóa từ phía admin lẫn người
+    // dùng, dù dữ liệu mới nhất đã có sẵn ngay trong tay.
+    const unsub = base44.entities.Message.subscribe((freshItems) => {
+      if (!Array.isArray(freshItems)) {
+        loadMessages(user.id, user);
+        return;
+      }
+      const list = freshItems.filter((m) => m.conversation_id === user.id);
+      const isGreetingCheckOwner = claimGreetingOwnership();
+      applyMessageList(list, user.id, user, isGreetingCheckOwner).finally(() => setLoading(false));
     });
 
     // 3. Polling fallback - chỉ là lưới an toàn dự phòng (Message.subscribe()
