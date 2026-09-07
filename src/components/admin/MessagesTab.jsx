@@ -27,6 +27,18 @@ import { listSupabaseUsers, subscribeSupabaseUsersTable } from "@/lib/supabaseDb
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
+import {
+  SUPPORT_STATUS_LABELS,
+  SUPPORT_STATUS_BADGE_CLASSES,
+  DEFAULT_SUPPORT_STATUS,
+} from "@/constants/supportStatus";
+
+const STATUS_FILTERS = [
+  { key: "all", label: "Tất cả" },
+  { key: "open", label: "Đang mở" },
+  { key: "pending", label: "Chờ phản hồi" },
+  { key: "closed", label: "Đã đóng" },
+];
 
 const fileType = (url) => {
   if (!url) return "file";
@@ -209,6 +221,8 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
 
   const [messages, setMessages] = useState([]);
   const [usersMap, setUsersMap] = useState({});
+  const [supportConvMap, setSupportConvMap] = useState({});
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState(initialSelectedUserId);
   const [replyText, setReplyText] = useState("");
   const [files, setFiles] = useState([]);
@@ -284,6 +298,35 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     return () => {
       cancelled = true;
       if (typeof unsubUsers === "function") unsubUsers();
+      clearInterval(retryInterval);
+    };
+  }, []);
+
+  // ── Trạng thái hội thoại (support_conversations) - ticket/status/gán xử lý ──
+  // Cùng mẫu Realtime + poll dự phòng như usersMap/messages ở trên. Hội
+  // thoại nào chưa có dòng trong bảng (chưa admin nào từng đổi trạng thái)
+  // coi như mặc định "open", không gán ai - xử lý ở bước gộp vào convList
+  // bên dưới (useMemo conversations), không cần tạo sẵn dòng rỗng ở đây.
+  useEffect(() => {
+    let cancelled = false;
+    const applyRows = (rows) => {
+      if (cancelled || !Array.isArray(rows)) return;
+      const map = {};
+      rows.forEach((r) => {
+        if (r?.id) map[r.id] = r;
+      });
+      setSupportConvMap(map);
+    };
+
+    base44.entities.SupportConversation.list().then(applyRows).catch(() => {});
+    const unsub = base44.entities.SupportConversation.subscribe(applyRows);
+    const retryInterval = setInterval(() => {
+      base44.entities.SupportConversation.list().then(applyRows).catch(() => {});
+    }, 20000);
+
+    return () => {
+      cancelled = true;
+      if (typeof unsub === "function") unsub();
       clearInterval(retryInterval);
     };
   }, []);
@@ -402,6 +445,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       const cid = String(m.conversation_id || m.user_id || m.sender || "unknown");
       if (!convMap[cid]) {
         const u = usersMap[cid] || usersMap[m.user_id] || null;
+        const supportConv = supportConvMap[cid] || null;
         convMap[cid] = {
           id: cid,
           userName: u?.full_name || u?.name || u?.email || (cid !== "unknown" ? `Khách #${cid.slice(0, 6)}` : "Khách"),
@@ -409,6 +453,9 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           messages: [],
           lastDate: m.created_date || new Date().toISOString(),
           unread: 0,
+          status: supportConv?.status || DEFAULT_SUPPORT_STATUS,
+          assignedAdminId: supportConv?.assigned_admin_id || null,
+          assignedAdminName: supportConv?.assigned_admin_name || null,
         };
       }
       convMap[cid].messages.push(m);
@@ -420,7 +467,12 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       (a, b) => new Date(b.lastDate) - new Date(a.lastDate)
     );
     return { conversations: convMap, convList: list };
-  }, [messages, usersMap]);
+  }, [messages, usersMap, supportConvMap]);
+
+  const filteredConvList = useMemo(
+    () => (statusFilter === "all" ? convList : convList.filter((c) => c.status === statusFilter)),
+    [convList, statusFilter]
+  );
 
   const currentConv = selectedUser ? conversations[selectedUser] : null;
 
@@ -455,6 +507,51 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       } catch {}
     },
     [conversations]
+  );
+
+  // Ghi trạng thái/người phụ trách xuống support_conversations - update()
+  // nếu dòng đã tồn tại thật trên Supabase (đã có trong supportConvMap, lấy
+  // từ list()/subscribe() ở trên), create() (upsert theo id) nếu đây là lần
+  // đầu tiên hội thoại này có ai đổi trạng thái. Optimistic update local
+  // trước để UI đổi ngay, không đợi round-trip Realtime.
+  const patchConversationStatus = useCallback(
+    async (cid, patch) => {
+      setSupportConvMap((prev) => ({
+        ...prev,
+        [cid]: { ...(prev[cid] || { id: cid, status: DEFAULT_SUPPORT_STATUS }), ...patch },
+      }));
+      try {
+        if (supportConvMap[cid]) {
+          await base44.entities.SupportConversation.update(cid, patch);
+        } else {
+          await base44.entities.SupportConversation.create({
+            id: cid,
+            status: DEFAULT_SUPPORT_STATUS,
+            assigned_admin_id: null,
+            assigned_admin_name: null,
+            ...patch,
+          });
+        }
+      } catch {
+        toast.error("Không thể cập nhật trạng thái hội thoại");
+      }
+    },
+    [supportConvMap]
+  );
+
+  const assignToSelf = useCallback(
+    (cid) => {
+      const adminName = user?.full_name || user?.name || user?.email || "Admin CSKH";
+      patchConversationStatus(cid, { assigned_admin_id: user?.id || null, assigned_admin_name: adminName });
+    },
+    [patchConversationStatus, user]
+  );
+
+  const changeConvStatus = useCallback(
+    (cid, status) => {
+      patchConversationStatus(cid, { status });
+    },
+    [patchConversationStatus]
   );
 
   const handleCopy = useCallback((m) => {
@@ -550,6 +647,13 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const handleReply = useCallback(async () => {
     if ((!replyText.trim() && files.length === 0) || !selectedUser || sending) return;
     setSending(true);
+    // Admin vừa trả lời nghĩa là hội thoại không còn "chờ phản hồi" nữa -
+    // tự chuyển về "open". Không đụng tới "closed" (admin tự đóng có chủ ý,
+    // 1 tin nhắn thêm vào sau đó - vd ghi chú - không nên tự ý mở lại) hay
+    // "open" (không có gì đổi).
+    if (supportConvMap[selectedUser]?.status === "pending") {
+      patchConversationStatus(selectedUser, { status: "open" });
+    }
     const optimisticMsg = {
       id: `optimistic_${Date.now()}`,
       sender: "admin",
@@ -608,7 +712,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     } finally {
       setSending(false);
     }
-  }, [replyText, files, selectedUser, sending]);
+  }, [replyText, files, selectedUser, sending, supportConvMap, patchConversationStatus]);
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -646,44 +750,76 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     return (
       <div className="flex flex-col gap-2.5" style={{ height: "calc(100vh - 200px)", minHeight: 460 }}>
         {/* Back + header */}
-        <div className="bg-white rounded-2xl px-3.5 py-2.5 shadow-xs border border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => setSelectedUser(null)}
-              className="flex items-center gap-1 text-[11px] text-[#948154] font-bold hover:underline cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>CSKH</span>
-            </button>
-            <div className="w-px h-4 bg-gray-200" />
-            <Avatar name={currentConv.userName} size="sm" />
-            <div>
-              <p className="text-[12px] font-bold text-black flex items-center gap-1">
-                {currentConv.userName}
-                <UserCheck className="w-3.5 h-3.5 text-blue-500" />
-              </p>
-              <p className="text-[9.5px] text-gray-400">{currentConv.userEmail}</p>
+        <div className="bg-white rounded-2xl px-3.5 py-2.5 shadow-xs border border-gray-100 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="flex items-center gap-1 text-[11px] text-[#948154] font-bold hover:underline cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>CSKH</span>
+              </button>
+              <div className="w-px h-4 bg-gray-200" />
+              <Avatar name={currentConv.userName} size="sm" />
+              <div>
+                <p className="text-[12px] font-bold text-black flex items-center gap-1">
+                  {currentConv.userName}
+                  <UserCheck className="w-3.5 h-3.5 text-blue-500" />
+                </p>
+                <p className="text-[9.5px] text-gray-400">{currentConv.userEmail}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {lastUpdate && (
+                <span className="text-[9px] text-gray-400 flex items-center gap-0.5">
+                  <Clock className="w-2.5 h-2.5" />
+                  {fmtTime(new Date(lastUpdate).toISOString())}
+                </span>
+              )}
+              <span className="text-[8.5px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                ● Realtime
+              </span>
+              {isSuperAdmin && (
+                <button
+                  onClick={confirmDeleteConversation}
+                  className="w-7 h-7 flex items-center justify-center rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                  title="Xóa toàn bộ hội thoại"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {lastUpdate && (
-              <span className="text-[9px] text-gray-400 flex items-center gap-0.5">
-                <Clock className="w-2.5 h-2.5" />
-                {fmtTime(new Date(lastUpdate).toISOString())}
-              </span>
-            )}
-            <span className="text-[8.5px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-              ● Realtime
+
+          {/* Ticket: trạng thái + người phụ trách */}
+          <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-gray-50">
+            <span
+              className={`text-[9px] font-bold px-2 py-1 rounded-full ${SUPPORT_STATUS_BADGE_CLASSES[currentConv.status] || SUPPORT_STATUS_BADGE_CLASSES.open}`}
+            >
+              {SUPPORT_STATUS_LABELS[currentConv.status] || currentConv.status}
             </span>
-            {isSuperAdmin && (
+            {currentConv.assignedAdminName ? (
+              <span className="text-[9px] text-gray-500 font-medium px-2 py-1 rounded-full bg-gray-50 border border-gray-100">
+                Đang xử lý: <span className="text-black font-bold">{currentConv.assignedAdminName}</span>
+              </span>
+            ) : (
               <button
-                onClick={confirmDeleteConversation}
-                className="w-7 h-7 flex items-center justify-center rounded-full bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
-                title="Xóa toàn bộ hội thoại"
+                onClick={() => assignToSelf(currentConv.id)}
+                className="text-[9px] font-bold px-2.5 py-1 rounded-full bg-[#948154] text-white hover:bg-[#7a6c44] transition-colors cursor-pointer"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                Nhận xử lý
               </button>
             )}
+            <select
+              value={currentConv.status}
+              onChange={(e) => changeConvStatus(currentConv.id, e.target.value)}
+              className="ml-auto text-[9.5px] border border-gray-200 rounded-full px-2 py-1 focus:outline-none focus:border-[#948154] cursor-pointer"
+            >
+              <option value="open">Đang mở</option>
+              <option value="pending">Chờ phản hồi</option>
+              <option value="closed">Đã đóng</option>
+            </select>
           </div>
         </div>
 
@@ -889,9 +1025,27 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         </div>
       </div>
 
+      {/* Status filter tabs */}
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setStatusFilter(f.key)}
+            className={`text-[10px] font-bold px-3 py-1.5 rounded-full whitespace-nowrap transition-colors cursor-pointer ${
+              statusFilter === f.key ? "bg-[#948154] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* List */}
       <div className="space-y-2">
-        {convList.map((c) => {
+        {filteredConvList.length === 0 && (
+          <p className="text-center text-[11px] text-gray-400 py-6">Không có hội thoại nào ở trạng thái này</p>
+        )}
+        {filteredConvList.map((c) => {
           const lastMsg = c.messages[c.messages.length - 1];
           const preview = lastMsg?.content || (lastMsg?.attachments?.length > 0 ? "📎 Tệp đính kèm" : "—");
           return (
@@ -929,6 +1083,11 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               <div className="shrink-0 flex flex-col items-end gap-1">
                 <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-bold">
                   {c.messages.length} tin
+                </span>
+                <span
+                  className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded-full ${SUPPORT_STATUS_BADGE_CLASSES[c.status] || SUPPORT_STATUS_BADGE_CLASSES.open}`}
+                >
+                  {SUPPORT_STATUS_LABELS[c.status] || c.status}
                 </span>
               </div>
             </button>

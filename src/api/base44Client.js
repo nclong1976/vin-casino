@@ -21,7 +21,7 @@ import {
 // Các entity được ghi write-through xuống Postgres (Supabase) như một lớp
 // lưu trữ bền vững bổ sung - xem chi tiết trong supabaseDb.js mục 4.
 const SUPABASE_BACKED_ENTITIES = new Set([
-  'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'SavingsGoal',
+  'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'SavingsGoal', 'SupportConversation',
 ]);
 
 // Các entity đọc thẳng từ Supabase thay vì chỉ đọc localStorage riêng của
@@ -44,7 +44,7 @@ const SUPABASE_BACKED_ENTITIES = new Set([
 // thứ 1 (tx.payout_status === "paid" trên Transaction, vốn đã đọc Supabase
 // từ trước) không bị ảnh hưởng bởi thay đổi này.
 const SUPABASE_READABLE_ENTITIES = new Set([
-  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'WalletTransaction', 'SavingsGoal',
+  'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'WalletTransaction', 'SavingsGoal', 'SupportConversation',
 ]);
 
 /**
@@ -116,7 +116,8 @@ const entityNames = [
   'Transaction',
   'User',
   'WalletTransaction',
-  'SavingsGoal'
+  'SavingsGoal',
+  'SupportConversation'
 ];
 
 // Seed initial data if empty
