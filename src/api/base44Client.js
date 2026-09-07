@@ -629,6 +629,16 @@ function applyRealtimePayloadPatch(entityName, payload) {
     if (!found) next = [payload.new, ...current];
   } else if (payload.eventType === 'DELETE' && payload.old && payload.old.id != null) {
     next = current.filter((i) => i.id !== payload.old.id);
+    // Đánh dấu ĐÚNG id vừa bị xóa thật trên Postgres (không phải suy đoán từ
+    // "thiếu trong 1 lượt fetch") - Support.jsx dùng cờ này để bỏ qua hẳn cơ
+    // chế "grace period" (giữ lại tin nhắn mới tạo dưới 5s dù thiếu trong dữ
+    // liệu mới, đề phòng fetch REST bị trễ) cho ĐÚNG tin nhắn này: đây là sự
+    // kiện Realtime xác nhận CHẮC CHẮN đã xóa, không phải suy đoán, nên phải
+    // biến mất ở màn hình người dùng ngay lập tức dù tin đó vừa được gửi
+    // trong vài giây gần đây (vd. Admin xóa nhầm 1 tin vừa gửi xong).
+    try {
+      Object.defineProperty(next, '__deletedId', { value: payload.old.id, enumerable: false });
+    } catch (e) {}
   } else {
     return null;
   }

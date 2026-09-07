@@ -99,6 +99,12 @@ export default function Support() {
       // cũ/thiếu), thì "thiếu trong incoming" không chứng minh được gì cả -
       // giữ nguyên TOÀN BỘ tin đang hiển thị, không áp hạn 5 giây, để tránh
       // đúng lỗi "lịch sử biến mất" khi mạng chập chờn.
+      // confirmedDeletedId: id tin nhắn Realtime vừa BÁO XÁC NHẬN đã bị xóa
+      // thật trên Postgres (xem __deletedId trong applyRealtimePayloadPatch()
+      // ở base44Client.js) - KHÁC với "thiếu trong incoming vì fetch có thể
+      // trễ". Tin nhắn này phải biến mất NGAY LẬP TỨC dù mới tạo dưới 5 giây
+      // (vd. Admin xóa nhầm 1 tin vừa gửi xong) - không được áp grace period.
+      const confirmedDeletedId = list?.__deletedId;
       const GRACE_MS = 5000;
       setMessages((prev) => {
         const incoming = list || [];
@@ -106,6 +112,7 @@ export default function Support() {
         const now = Date.now();
         const merged = new Map(incoming.map((m) => [m.id, m]));
         prev.forEach((m) => {
+          if (m.id === confirmedDeletedId) return;
           if (!incomingIds.has(m.id) && (isDegraded || now - new Date(m.created_date || 0).getTime() < GRACE_MS)) {
             merged.set(m.id, m);
           }
@@ -153,7 +160,17 @@ export default function Support() {
         loadMessages(user.id, user);
         return;
       }
+      // .filter() tạo mảng MỚI, làm mất __deletedId (non-enumerable) đã gắn
+      // trên freshItems - phải gắn lại vào kết quả cuối, không thì tin nhắn
+      // vừa xóa sẽ lại bị grace-period giữ lại nếu vừa tạo dưới 5 giây (xem
+      // ghi chú confirmedDeletedId trong applyMessageList()).
+      const deletedId = freshItems.__deletedId;
       const list = freshItems.filter((m) => m.conversation_id === user.id);
+      if (deletedId !== undefined) {
+        try {
+          Object.defineProperty(list, '__deletedId', { value: deletedId, enumerable: false });
+        } catch (e) {}
+      }
       const isGreetingCheckOwner = claimGreetingOwnership();
       applyMessageList(list, user.id, user, isGreetingCheckOwner).finally(() => setLoading(false));
     });
