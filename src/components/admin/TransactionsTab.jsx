@@ -235,6 +235,24 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
     } catch {}
   }, []);
 
+  // Hợp nhất 1 cặp danh sách (deposits, withdrawals) đã có sẵn - tới từ 1
+  // lượt fetch REST (fetchTxs) HOẶC trực tiếp từ dữ liệu Supabase Realtime
+  // vừa đẩy tới qua WalletTransaction.subscribe() (không cần fetch lại) -
+  // giữ nguyên đúng tin nhắn "đang xử lý cục bộ" (processedIdsRef) như logic
+  // gốc, tách riêng để nhánh Realtime có thể áp dữ liệu tức thời.
+  const applyTxLists = useCallback((deps, wdrs) => {
+    const newDeps = deps.filter((t) => !processedIdsRef.current.has(t.id));
+    setDeposits((prev) => {
+      const processed = prev.filter((t) => processedIdsRef.current.has(t.id));
+      return [...processed, ...newDeps].sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0));
+    });
+    const newWdrs = wdrs.filter((t) => !processedIdsRef.current.has(t.id));
+    setWithdrawals((prev) => {
+      const processed = prev.filter((t) => processedIdsRef.current.has(t.id));
+      return [...processed, ...newWdrs].sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0));
+    });
+  }, []);
+
   const fetchTxs = useCallback(async (full = false) => {
     if (isProcessingRef.current && !full) return;
     try {
@@ -249,16 +267,7 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
         setWithdrawals(wdrs);
         processedIdsRef.current.clear();
       } else {
-        const newDeps = deps.filter((t) => !processedIdsRef.current.has(t.id));
-        setDeposits((prev) => {
-          const processed = prev.filter((t) => processedIdsRef.current.has(t.id));
-          return [...processed, ...newDeps].sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0));
-        });
-        const newWdrs = wdrs.filter((t) => !processedIdsRef.current.has(t.id));
-        setWithdrawals((prev) => {
-          const processed = prev.filter((t) => processedIdsRef.current.has(t.id));
-          return [...processed, ...newWdrs].sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0));
-        });
+        applyTxLists(deps, wdrs);
       }
 
       setAuditLogs(
@@ -268,16 +277,30 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
       );
     } catch {}
     finally { setLoading(false); }
-  }, []);
+  }, [applyTxLists]);
 
   useEffect(() => {
     fetchUsers();
     fetchTxs(true);
-    const unsub = base44.entities.WalletTransaction.subscribe(() => {
-      if (!isProcessingRef.current) fetchTxs(false);
+    // Realtime: base44Client.js giờ phát thẳng dữ liệu WalletTransaction vừa
+    // đổi trên Postgres (payload thật, không debounce/refetch REST) - áp
+    // thẳng freshItems qua applyTxLists() thay vì gọi fetchTxs(false) (vốn
+    // tự làm thêm 2 lượt REST 500 dòng mỗi lần) - loại bỏ 1 round-trip thừa
+    // cộng thêm độ trễ mỗi khi có giao dịch nạp/rút mới hoặc admin khác vừa
+    // duyệt/từ chối một lệnh.
+    const unsub = base44.entities.WalletTransaction.subscribe((freshItems) => {
+      if (isProcessingRef.current) return;
+      if (!Array.isArray(freshItems)) {
+        fetchTxs(false);
+        return;
+      }
+      applyTxLists(
+        freshItems.filter((t) => t.type === "deposit"),
+        freshItems.filter((t) => t.type === "withdraw")
+      );
     });
     return () => unsub();
-  }, [fetchUsers, fetchTxs]);
+  }, [fetchUsers, fetchTxs, applyTxLists]);
 
   // ── Derived data ───────────────────────────────────────────────
   const userMap = useMemo(() => {
