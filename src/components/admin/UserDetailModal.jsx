@@ -20,7 +20,8 @@ import {
   Smartphone,
   CreditCard,
   Edit3,
-  Percent
+  Percent,
+  Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
@@ -30,6 +31,7 @@ import { deleteSupabaseUser, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
 import { getCardTierInfo } from "@/lib/membershipUtils";
+import { BANKS } from "@/constants/banks";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -72,6 +74,18 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
   const [saving, setSaving] = useState(false);
 
+  // Thêm tài khoản ngân hàng thay hội viên (CSKH hỗ trợ khi user không tự
+  // liên kết được, hoặc cần sửa/thêm tài khoản nhận tiền rút) - xem ghi chú
+  // "Tài khoản đã liên kết không thể tự xóa. Vui lòng liên hệ CSKH" ở
+  // BankAccountList.jsx: đây chính là nơi CSKH thực hiện yêu cầu đó.
+  const [showAddBank, setShowAddBank] = useState(false);
+  const [newBankCode, setNewBankCode] = useState("");
+  const [newAccountNumber, setNewAccountNumber] = useState("");
+  const [newAccountHolder, setNewAccountHolder] = useState("");
+  const [newIsDefault, setNewIsDefault] = useState(false);
+  const [addingBank, setAddingBank] = useState(false);
+  const [deletingBankId, setDeletingBankId] = useState(null);
+
   useEffect(() => {
     if (open && user) {
       setFullName(user.full_name || user.name || "");
@@ -90,6 +104,11 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       setAccountNumber(user.account_number || "");
       setAccountHolder(user.account_holder || user.full_name || user.name || "");
       setActiveTab("overview");
+      setShowAddBank(false);
+      setNewBankCode("");
+      setNewAccountNumber("");
+      setNewAccountHolder((user.full_name || user.name || "").toUpperCase());
+      setNewIsDefault(false);
 
       setLoading(true);
       const fetchModalData = () => {
@@ -259,6 +278,130 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
     } catch (e) {
       setDailyInterestEnabled(!next);
       toast.error("Không thể thay đổi trạng thái cộng lãi hàng ngày.");
+    }
+  };
+
+  // Thêm 1 tài khoản ngân hàng mới cho hội viên - dùng ĐÚNG bảng BankAccount
+  // thật (base44.entities.BankAccount.create()) làm nguồn sự thật, giống hệt
+  // BankAccountModal.jsx (luồng tự liên kết của người dùng), đồng thời đồng
+  // bộ lại user.bank_accounts + bank_name/account_number/account_holder trên
+  // User record - đây là 2 lớp dữ liệu mà Profile.jsx/WithdrawModal.jsx lùi
+  // về khi bảng BankAccount không trả về gì (xem fetchModalData() ở trên),
+  // không đồng bộ theo sẽ khiến tài khoản mới thêm không hiện ra ở các màn
+  // hình đó nếu vô tình rơi vào đúng nhánh lùi đó.
+  const handleAddBank = async () => {
+    const bank = BANKS.find((b) => b.code === newBankCode);
+    if (!bank) return toast.error("Vui lòng chọn ngân hàng");
+    if (!newAccountNumber.trim()) return toast.error("Vui lòng nhập số tài khoản");
+    if (!newAccountHolder.trim()) return toast.error("Vui lòng nhập tên chủ tài khoản");
+
+    setAddingBank(true);
+    try {
+      const bankData = {
+        user_id: user.id,
+        created_by_id: user.id,
+        user_email: user.email,
+        user_name: fullName || user.email,
+        bank_name: bank.name,
+        bank_code: bank.code,
+        account_number: newAccountNumber.trim(),
+        account_holder: newAccountHolder.trim().toUpperCase(),
+        is_default: newIsDefault,
+      };
+      const created = await base44.entities.BankAccount.create(bankData);
+
+      const currentBanks = Array.isArray(user.bank_accounts) ? user.bank_accounts : [];
+      const updatedBanks = [created, ...currentBanks.filter((b) => b.account_number !== created.account_number)];
+      const userPatch = { bank_accounts: updatedBanks };
+      // Chỉ ghi đè bank_name/account_number "chính" (field đơn lẻ, cấp cũ)
+      // khi admin đặt làm mặc định, hoặc hội viên chưa có tài khoản nào -
+      // tránh vô tình thay tài khoản nhận tiền rút mặc định hiện tại của
+      // hội viên chỉ vì admin thêm 1 tài khoản phụ.
+      if (newIsDefault || !user.account_number) {
+        userPatch.bank_name = bank.name;
+        userPatch.bank_code = bank.code;
+        userPatch.account_number = newAccountNumber.trim();
+        userPatch.account_holder = newAccountHolder.trim().toUpperCase();
+      }
+      await base44.entities.User.update(user.id, userPatch);
+
+      await base44.entities.AuditLog.create({
+        action: "ADD_USER_BANK_ACCOUNT",
+        user_id: user.id,
+        user_name: fullName || user.email,
+        notes: `Admin đã thêm tài khoản ngân hàng ${bank.name} •••• ${newAccountNumber.trim().slice(-4)} cho hội viên`,
+        created_date: new Date().toISOString(),
+      }).catch(() => {});
+
+      window.dispatchEvent(new CustomEvent("vinclub:bank_updated", { detail: created }));
+      toast.success("Đã thêm tài khoản ngân hàng cho hội viên!");
+      setShowAddBank(false);
+      setNewBankCode("");
+      setNewAccountNumber("");
+      setNewIsDefault(false);
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      toast.error("Không thể thêm tài khoản ngân hàng. Vui lòng thử lại.");
+    } finally {
+      setAddingBank(false);
+    }
+  };
+
+  // Xóa 1 tài khoản ngân hàng đã liên kết của hội viên. Người dùng KHÔNG thể
+  // tự xóa (xem BankAccountList.jsx - "Vui lòng liên hệ CSKH khi cần hỗ
+  // trợ") - đây là nơi CSKH/Admin thực hiện thay. "user_bank_" + id là id
+  // GIẢ do fetchModalData() tự dựng khi hội viên chỉ có dữ liệu ngân hàng cũ
+  // (bank_name/account_number đơn lẻ trên User, chưa từng có dòng BankAccount
+  // thật) - trường hợp này không có gì để xóa trên bảng BankAccount, chỉ cần
+  // xóa field đó khỏi User.
+  const handleDeleteBank = async (bank) => {
+    const label = `${bank.bank_name || "Ngân hàng"} •••• ${String(bank.account_number || "").slice(-4)}`;
+    const ok = window.confirm(
+      `Bạn có chắc chắn muốn XÓA tài khoản ngân hàng "${label}" của hội viên này không?\n\nHội viên sẽ không thể chọn tài khoản này để nhận tiền rút nữa.`
+    );
+    if (!ok) return;
+
+    setDeletingBankId(bank.id);
+    try {
+      const isLegacyFieldOnly = String(bank.id).startsWith("user_bank_");
+      if (!isLegacyFieldOnly) {
+        await base44.entities.BankAccount.delete(bank.id);
+      }
+
+      const currentBanks = Array.isArray(user.bank_accounts) ? user.bank_accounts : [];
+      const remainingBanks = currentBanks.filter(
+        (b) => b.id !== bank.id && b.account_number !== bank.account_number
+      );
+      const userPatch = { bank_accounts: remainingBanks };
+      // Nếu đúng tài khoản vừa xóa là tài khoản "chính" (field đơn lẻ) -
+      // thay bằng tài khoản còn lại đầu tiên (nếu có), hoặc xóa trắng, để
+      // tránh Profile.jsx/WithdrawModal.jsx lùi về đúng tài khoản vừa xóa
+      // qua nhánh fallback bank_name/account_number (xem ghi chú
+      // fetchModalData() phía trên).
+      if (user.account_number === bank.account_number) {
+        const next = remainingBanks[0];
+        userPatch.bank_name = next?.bank_name || "";
+        userPatch.bank_code = next?.bank_code || "";
+        userPatch.account_number = next?.account_number || "";
+        userPatch.account_holder = next?.account_holder || "";
+      }
+      await base44.entities.User.update(user.id, userPatch);
+
+      await base44.entities.AuditLog.create({
+        action: "DELETE_USER_BANK_ACCOUNT",
+        user_id: user.id,
+        user_name: fullName || user.email,
+        notes: `Admin đã xóa tài khoản ngân hàng ${label} của hội viên`,
+        created_date: new Date().toISOString(),
+      }).catch(() => {});
+
+      window.dispatchEvent(new CustomEvent("vinclub:bank_updated"));
+      toast.success("Đã xóa tài khoản ngân hàng!");
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      toast.error("Không thể xóa tài khoản ngân hàng. Vui lòng thử lại.");
+    } finally {
+      setDeletingBankId(null);
     }
   };
 
@@ -670,9 +813,75 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
             {/* TAB 3: LINKED BANK ACCOUNTS */}
             {activeTab === "banks" && (
               <div className="space-y-3">
-                <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-[#948154]" /> Tài khoản Ngân hàng Đã liên kết ({bankAccounts.length})
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[12px] font-bold text-black flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-[#948154]" /> Tài khoản Ngân hàng Đã liên kết ({bankAccounts.length})
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddBank((v) => !v)}
+                    className="text-[10px] font-bold text-[#948154] flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[#948154]/10 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> {showAddBank ? "Đóng" : "Thêm tài khoản"}
+                  </button>
+                </div>
+
+                {showAddBank && (
+                  <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-2.5">
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-600 block mb-1">Ngân hàng</label>
+                      <select
+                        value={newBankCode}
+                        onChange={(e) => setNewBankCode(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[11.5px] font-semibold focus:outline-none focus:border-[#948154]"
+                      >
+                        <option value="">-- Chọn ngân hàng --</option>
+                        {BANKS.map((b) => (
+                          <option key={b.code} value={b.code}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-600 block mb-1">Số tài khoản</label>
+                        <input
+                          type="text"
+                          value={newAccountNumber}
+                          onChange={(e) => setNewAccountNumber(e.target.value.replace(/\D/g, ""))}
+                          placeholder="Nhập số tài khoản"
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[12px] font-mono font-semibold focus:outline-none focus:border-[#948154]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-600 block mb-1">Chủ tài khoản</label>
+                        <input
+                          type="text"
+                          value={newAccountHolder}
+                          onChange={(e) => setNewAccountHolder(e.target.value.toUpperCase())}
+                          placeholder="NGUYEN VAN A"
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[12px] font-bold uppercase focus:outline-none focus:border-[#948154]"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={newIsDefault}
+                        onChange={(e) => setNewIsDefault(e.target.checked)}
+                        className="w-3.5 h-3.5 accent-[#948154]"
+                      />
+                      <span className="text-[10.5px] text-gray-600">Đặt làm tài khoản mặc định nhận tiền rút</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddBank}
+                      disabled={addingBank}
+                      className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837045] disabled:opacity-50 text-white text-[11.5px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> {addingBank ? "Đang thêm..." : "Xác nhận thêm tài khoản"}
+                    </button>
+                  </div>
+                )}
 
                 {loading ? (
                   <p className="text-[11px] text-gray-400 text-center py-4">Đang tải ngân hàng...</p>
@@ -686,11 +895,22 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                       <div key={b.id} className="p-3 bg-white rounded-2xl border border-gray-200 shadow-2xs space-y-1 text-[11px]">
                         <div className="flex items-center justify-between font-bold text-[#948154]">
                           <span>{b.bank_name}</span>
-                          {b.is_default && (
-                            <span className="text-[8.5px] bg-amber-100 text-amber-800 px-2 py-0.2 rounded-full font-extrabold">
-                              Mặc định
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {b.is_default && (
+                              <span className="text-[8.5px] bg-amber-100 text-amber-800 px-2 py-0.2 rounded-full font-extrabold">
+                                Mặc định
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBank(b)}
+                              disabled={deletingBankId === b.id}
+                              title="Xóa tài khoản ngân hàng này"
+                              className="w-6 h-6 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center disabled:opacity-50 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                         <div className="flex items-center justify-between text-gray-700">
                           <span className="font-mono font-bold text-[12px]">{b.account_number}</span>
