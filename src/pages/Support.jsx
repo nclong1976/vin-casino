@@ -6,12 +6,14 @@ import { useAuth } from "@/lib/AuthContext";
 import SupportHeader from "@/components/support/SupportHeader";
 import MessageBubble from "@/components/support/MessageBubble";
 import ChatInput from "@/components/support/ChatInput";
+import { DEFAULT_SUPPORT_STATUS } from "@/constants/supportStatus";
 
 export default function Support() {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [convStatus, setConvStatus] = useState(DEFAULT_SUPPORT_STATUS);
   const scrollRef = useRef(null);
   const greetingCreatedRef = useRef(false);
   const prevLastMsgIdRef = useRef(null);
@@ -197,6 +199,39 @@ export default function Support() {
     };
   }, [user]);
 
+  // Trạng thái hội thoại (đang mở/chờ phản hồi/đã đóng) do Admin đặt bên
+  // MessagesTab.jsx - chỉ để HIỂN THỊ badge ở đây, khách hàng không tự đổi
+  // được (xem policy support_conversations_write_admin_only trong migration
+  // add_support_conversations_status). Không có dòng nào cho user này nghĩa
+  // là coi như mặc định "open" (chưa admin nào từng đổi trạng thái).
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    const applyRow = (row) => {
+      if (cancelled) return;
+      setConvStatus(row?.status || DEFAULT_SUPPORT_STATUS);
+    };
+
+    base44.entities.SupportConversation.filter({ id: user.id })
+      .then((rows) => applyRow(rows?.[0]))
+      .catch(() => {});
+
+    const unsub = base44.entities.SupportConversation.subscribe((rows) => {
+      const mine = Array.isArray(rows) ? rows.find((r) => r.id === user.id) : null;
+      // Không tìm thấy dòng của mình trong payload Realtime không có nghĩa
+      // là đã bị xóa (Realtime ở đây phát TOÀN BỘ bảng, không phải riêng
+      // user này) - chỉ áp dụng khi thật sự tìm thấy, giữ nguyên state hiện
+      // tại nếu không thấy.
+      if (mine) applyRow(mine);
+    });
+
+    return () => {
+      cancelled = true;
+      if (typeof unsub === "function") unsub();
+    };
+  }, [user?.id]);
+
   // Chỉ tự cuộn xuống đáy khi thật sự có tin nhắn mới (so sánh id tin nhắn
   // cuối cùng) - trước đây cuộn lại mỗi khi "messages" đổi tham chiếu (kể cả
   // do poll 2 giây không có gì thay đổi thật), khiến màn hình bị giật/kéo
@@ -217,6 +252,11 @@ export default function Support() {
       toast.error("Vui lòng đăng nhập để gửi tin nhắn");
       return;
     }
+    // Gửi tin nhắn mới luôn tự mở lại hội thoại đã đóng (trigger Postgres
+    // reopen_support_conversation_on_customer_message xử lý phần ghi thật -
+    // khách hàng không có quyền tự sửa support_conversations). Cập nhật
+    // lạc quan ở đây chỉ để badge đổi ngay, không cần đợi Realtime.
+    if (convStatus === "closed") setConvStatus("open");
     setSending(true);
     try {
       const attachments = [];
@@ -271,7 +311,7 @@ export default function Support() {
   return (
     <div className="h-[100dvh] w-full bg-[#f0f2f5] overflow-hidden flex flex-col justify-between font-['Be_Vietnam_Pro',sans-serif]">
       {/* Fixed Header */}
-      <SupportHeader />
+      <SupportHeader status={convStatus} />
 
       {/* Main Messages View - Full Height Scroll Area */}
       <main

@@ -2,8 +2,9 @@ import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Home, ShieldCheck } from "lucide-react";
 import cskhIcon from "@/assets/images/regenerated_image_1786328347646.png";
+import { SUPPORT_STATUS_LABELS } from "@/constants/supportStatus";
 
-export default function SupportHeader() {
+export default function SupportHeader({ status }) {
   const navigate = useNavigate();
 
   return (
@@ -40,6 +41,13 @@ export default function SupportHeader() {
             </span>
           </div>
         </div>
+
+        {/* Status badge (chỉ hiện khi khác trạng thái mặc định "open") */}
+        {status && status !== "open" && (
+          <span className="shrink-0 text-[9px] sm:text-[10px] font-bold px-2 py-1 rounded-full bg-white/20 text-white border border-white/30 whitespace-nowrap">
+            {SUPPORT_STATUS_LABELS[status] || status}
+          </span>
+        )}
 
         {/* Home Button */}
         <Link

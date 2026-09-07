@@ -873,6 +873,7 @@ const ENTITY_TABLE_MAP = {
   AuditLog: 'audit_logs',
   News: 'news',
   SavingsGoal: 'savings_goals',
+  SupportConversation: 'support_conversations',
 };
 
 // Whitelist cột thật của từng bảng - field nào không nằm trong danh sách
@@ -888,6 +889,7 @@ const ENTITY_COLUMNS = {
   AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
   News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date', 'sort_order'],
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
+  SupportConversation: ['id', 'status', 'assigned_admin_id', 'assigned_admin_name', 'updated_at', 'created_date'],
 };
 
 // Cột kiểu timestamptz thật (không phải text) - Postgres từ chối chuỗi rỗng
