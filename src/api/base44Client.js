@@ -598,6 +598,16 @@ const supabaseChannelsStarted = {};
 const realtimeRefetchTimers = {};
 const REALTIME_REFETCH_DEBOUNCE_MS = 350;
 
+// Các entity dùng đường phát tức thời (payload thật, không debounce/refetch)
+// thay vì chỉ chờ refetchAndBroadcast() - đúng 3 entity nuôi trang "Quản lý
+// Hội viên & Giao dịch" (Tin nhắn CSKH, Phê duyệt Giao dịch, Hợp đồng) mà
+// Admin cần thấy cập nhật gần như tức thời khi đang xem. Payload từ cả 3
+// nhánh subscribe (subscribeSupabaseWalletTransactionsTable/
+// subscribeSupabaseEntityTable) đều cùng 1 dạng {eventType, new, old} thô
+// từ Supabase postgres_changes, nên applyRealtimePayloadPatch() dùng chung
+// được cho cả 3 mà không cần phân biệt.
+const INSTANT_PATCH_ENTITIES = new Set(['Message', 'WalletTransaction', 'Transaction']);
+
 // Áp trực tiếp 1 sự kiện Realtime (INSERT/UPDATE/DELETE) vào cache cục bộ
 // bằng ĐÚNG dữ liệu Postgres gửi kèm trong payload (payload.new/payload.old),
 // THAY VÌ đợi debounce 350ms rồi tải lại toàn bộ bảng qua REST. Dùng cho tin
@@ -669,11 +679,15 @@ function ensureSupabaseRealtime(entityName) {
   };
 
   const onRealtimeEvent = (payload) => {
-    // Chat CSKH (Message) cần cập nhật 2 chiều admin<->người dùng tức thời -
-    // phát ngay bản vá từ payload thật, song song với lượt refetch đối chiếu
-    // đầy đủ vẫn chạy debounce như cũ bên dưới. Các entity khác giữ nguyên
-    // hành vi debounce-rồi-refetch như trước, chưa mở rộng phạm vi sửa.
-    if (entityName === 'Message') {
+    // Trang "Quản lý Hội viên & Giao dịch" (Tin nhắn CSKH, Phê duyệt Giao
+    // dịch, Hợp đồng) cần cập nhật gần như tức thời khi Admin đang xem -
+    // phát ngay bản vá từ payload thật (không đợi debounce/refetch REST),
+    // song song với lượt refetch đối chiếu đầy đủ vẫn chạy debounce như cũ
+    // bên dưới để tự sửa sai lệch nếu có. "User" đã có đường patch tức thời
+    // riêng ở UsersTab.jsx (subscribeSupabaseUsersTable trực tiếp) nên không
+    // cần thêm ở đây. Các entity khác giữ nguyên hành vi debounce-rồi-refetch
+    // như trước, chưa mở rộng phạm vi sửa.
+    if (INSTANT_PATCH_ENTITIES.has(entityName)) {
       const patched = applyRealtimePayloadPatch(entityName, payload);
       if (patched) {
         (subscribers[entityName] || []).forEach((cb) => {

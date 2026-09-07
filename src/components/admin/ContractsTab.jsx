@@ -36,8 +36,23 @@ export default function ContractsTab() {
 
     // Đăng ký realtime: trước đây tab này chỉ tải 1 lần lúc mount, không có
     // subscribe nào nên hợp đồng mới từ thiết bị khác không hiện ra cho tới
-    // khi Admin tự tải lại trang
-    const unsub = base44.entities.Transaction.subscribe(() => fetch());
+    // khi Admin tự tải lại trang. base44Client.js giờ phát thẳng dữ liệu
+    // Transaction vừa đổi trên Postgres (payload thật, không debounce/refetch
+    // REST) - áp thẳng freshItems (lọc + sắp xếp + giới hạn đúng như fetch()
+    // ở trên) thay vì tự fetch() lại REST mỗi lần, loại bỏ 1 round-trip thừa
+    // cộng thêm độ trễ mỗi khi có hợp đồng mới/vừa được ký/duyệt.
+    const unsub = base44.entities.Transaction.subscribe((freshItems) => {
+      if (!Array.isArray(freshItems)) {
+        fetch();
+        return;
+      }
+      const filtered = freshItems
+        .filter((t) => t.signature_content !== undefined && t.signature_content !== null && t.signature_content !== "")
+        .sort((a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0))
+        .slice(0, 50);
+      setTxs(filtered);
+      setLoading(false);
+    });
 
     return () => {
       unsub();
@@ -72,7 +87,11 @@ export default function ContractsTab() {
             });
       }
       toast.success(action === "approved" ? "Đã duyệt hợp đồng" : "Đã từ chối hợp đồng");
-      fetch();
+      // Không cần fetch() lại REST ở đây nữa: base44.entities.Transaction.
+      // update() ở trên đã tự phát (notifySubscribers) bản ghi vừa cập nhật
+      // cho chính subscribe() callback đăng ký ở trên NGAY LẬP TỨC (trước cả
+      // khi await ở trên trả về) - fetch() thêm 1 lần nữa chỉ lặp lại đúng
+      // việc đó qua 1 round-trip REST thừa.
     } catch (e) {
       toast.error("Không thể cập nhật");
     } finally {
