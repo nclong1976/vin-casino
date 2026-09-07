@@ -4,6 +4,19 @@
 -- lưu trạng thái (đang mở/chờ phản hồi/đã đóng) hay admin nào đang xử lý -
 -- nhiều admin cùng mở 1 hội thoại dễ trả lời trùng nhau.
 --
+-- LƯU Ý: file này đã được viết lại tại chỗ trước khi apply lần đầu (migration
+-- gốc CHƯA từng chạy lên bất kỳ database nào - xác nhận qua list_migrations()
+-- không có version "20260907000000") - không phải sửa 1 migration đã áp
+-- dụng thật. Bản gốc thiếu: (1) hoàn toàn chưa được apply lên production dù
+-- code client (Support.jsx/MessagesTab.jsx) đã merge và phụ thuộc thẳng vào
+-- bảng này; (2) trigger reopen tin thẳng vào messages.conversation_id không
+-- đối chiếu với messages.user_id - 1 user đã đăng nhập có thể gửi tin với
+-- user_id của chính mình (qua được RLS messages_insert_own_or_admin, policy
+-- đó chỉ kiểm tra user_id) nhưng conversation_id trỏ tới người khác, khiến
+-- trigger mở lại nhầm hội thoại đã đóng của người khác. Bản này vá cả 2, và
+-- gộp thêm vài cột cần cho bước điều phối ticket (routing engine) kế tiếp để
+-- không phải chạy thêm 1 migration ALTER TABLE riêng ngay sau.
+--
 -- 1 dòng = 1 hội thoại = 1 khách hàng (id = user_id, khớp đúng với
 -- messages.conversation_id hiện tại là user.id). Không có dòng cho 1 khách
 -- hàng nghĩa là hội thoại đó coi như đang ở trạng thái mặc định "open",
@@ -17,8 +30,17 @@
 CREATE TABLE public.support_conversations (
   id text PRIMARY KEY,
   status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'pending', 'closed')),
+  priority text NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
   assigned_admin_id text REFERENCES public.users(id) ON DELETE SET NULL,
   assigned_admin_name text,
+  -- last_message_at/last_message_preview/unread_count_admin: giữ sẵn trên
+  -- chính dòng hội thoại (do trigger bên dưới tự cập nhật mỗi khi có tin
+  -- nhắn mới) để Agent Workspace sắp xếp/hiện badge hàng đợi mà không cần
+  -- join/group-by bảng "messages" (có thể hàng chục nghìn dòng) mỗi lần tải
+  -- danh sách hội thoại.
+  last_message_at timestamptz,
+  last_message_preview text,
+  unread_count_admin integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now(),
   created_date timestamptz NOT NULL DEFAULT now(),
   extra jsonb DEFAULT '{}'::jsonb
@@ -49,11 +71,24 @@ CREATE TRIGGER support_conversations_set_updated_at
 -- đúng lúc hội thoại của họ đang "closed" (admin đã đóng trước đó), hội
 -- thoại cần tự mở lại "open" ngay, không được để khách bị kẹt không ai
 -- thấy tin nhắn mới của mình chỉ vì hội thoại cũ đã đóng. Dùng SECURITY
--- DEFINER (cùng mẫu is_admin()/process_withdrawal... đã dùng trong hệ
--- thống) để hàm này có đủ quyền UPDATE support_conversations bất kể RLS
--- của người gọi (khách hàng) - phạm vi hẹp, CHỈ tự động chuyển closed ->
--- open, không cho phép khách chạm vào bất kỳ cột nào khác (assigned_admin_*
--- giữ nguyên).
+-- DEFINER (cùng mẫu is_admin()/process_wallet_transaction... đã dùng trong
+-- hệ thống) để hàm này có đủ quyền UPDATE support_conversations bất kể RLS
+-- của người gọi (khách hàng).
+--
+-- Nhân tiện gộp luôn việc cập nhật last_message_at/last_message_preview/
+-- unread_count_admin cho MỌI tin nhắn (không chỉ lúc reopen) - tránh phải
+-- thêm 1 trigger AFTER INSERT thứ 2 trên "messages" chỉ để làm việc gần như
+-- giống hệt.
+--
+-- BẢO MẬT: chỉ tác động khi new.conversation_id = new.user_id (đúng khách
+-- hàng chủ hội thoại đó tự gửi, khớp quy ước Support.jsx luôn set cả 2 field
+-- này bằng user.id) - policy messages_insert_own_or_admin hiện có CHỈ kiểm
+-- tra user_id = auth.uid(), KHÔNG kiểm tra conversation_id, nên 1 user có
+-- thể chèn tin với conversation_id giả mạo trỏ tới người khác; điều kiện
+-- này chặn đúng trường hợp đó khỏi ảnh hưởng tới support_conversations của
+-- người khác (tin nhắn giả mạo đó vẫn insert được vào "messages" như trước
+-- - đây là giới hạn có sẵn của chính bảng "messages", không thuộc phạm vi
+-- vá của migration này - chỉ đảm bảo nó không lan sang bảng mới này).
 CREATE OR REPLACE FUNCTION public.reopen_support_conversation_on_customer_message()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -61,16 +96,30 @@ CREATE OR REPLACE FUNCTION public.reopen_support_conversation_on_customer_messag
  SET search_path TO 'public'
 AS $function$
 begin
-  if new.sender = 'user' and new.conversation_id is not null then
+  if new.sender = 'user' and new.conversation_id is not null and new.conversation_id = new.user_id then
     update public.support_conversations
-    set status = 'open'
-    where id = new.conversation_id and status = 'closed';
+    set status = 'open',
+        last_message_at = new.created_date,
+        last_message_preview = left(coalesce(new.content, '[Tệp đính kèm]'), 120),
+        unread_count_admin = unread_count_admin + 1
+    where id = new.conversation_id;
+
+    if not found then
+      insert into public.support_conversations (id, status, last_message_at, last_message_preview, unread_count_admin)
+      values (new.conversation_id, 'open', new.created_date, left(coalesce(new.content, '[Tệp đính kèm]'), 120), 1);
+    end if;
+  elsif new.sender = 'admin' and new.conversation_id is not null then
+    update public.support_conversations
+    set last_message_at = new.created_date,
+        last_message_preview = left(coalesce(new.content, '[Tệp đính kèm]'), 120),
+        unread_count_admin = 0
+    where id = new.conversation_id;
   end if;
   return new;
 end;
 $function$;
 
-CREATE TRIGGER trg_reopen_support_conversation_on_customer_message
+CREATE TRIGGER trg_sync_support_conversation_on_message
   AFTER INSERT ON public.messages
   FOR EACH ROW EXECUTE FUNCTION reopen_support_conversation_on_customer_message();
 
