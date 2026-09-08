@@ -171,10 +171,24 @@ export default function Profile() {
     // lệnh rút, Firestore đẩy cập nhật về và gọi notifySubscribers() ở đây
     const unsubWalletTx = base44.entities.WalletTransaction.subscribe(() => fetchData());
 
+    // Trước đây trang này CHỈ subscribe WalletTransaction - "vinclub:bank_
+    // updated" ở trên chỉ là CustomEvent nội bộ cùng 1 tab (do
+    // BankAccountModal.jsx tự dispatch khi CHÍNH người dùng tự liên kết ngân
+    // hàng), không bắn được sang thiết bị/tab khác. Khi Admin tự thêm/xóa
+    // tài khoản ngân hàng thay hội viên (UserDetailModal.jsx) hoặc duyệt/từ
+    // chối 1 hợp đồng đầu tư (ContractsTab.jsx, sửa bảng Transaction) trên
+    // MỘT thiết bị khác, trang Hồ sơ của chính người dùng đó (thiết bị của
+    // họ) không hề hay biết cho tới khi tự tải lại trang - đúng yêu cầu "tự
+    // động cập nhật, không cần tải lại trang".
+    const unsubTx = base44.entities.Transaction.subscribe(() => fetchData());
+    const unsubBank = base44.entities.BankAccount.subscribe(() => fetchData());
+
     return () => {
       window.removeEventListener("vinclub:balance_updated", handleDataUpdate);
       window.removeEventListener("vinclub:bank_updated", handleDataUpdate);
       unsubWalletTx();
+      unsubTx();
+      unsubBank();
     };
   }, [user, location.search]);
 
