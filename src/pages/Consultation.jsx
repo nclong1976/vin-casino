@@ -272,28 +272,34 @@ export default function Consultation() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const me = user;
-      if (me) {
-        const walletTxs = await base44.entities.WalletTransaction.filter(
-          { $or: [{ user_id: me.id }, { created_by_id: me.id }] },
-          "-created_date",
-          100
-        ).catch(() => []);
+    if (!user) return;
+    const me = user;
 
-        // Chỉ tính nạp tiền THẬT đã chốt (không tính thưởng/lãi casino-vòng
-        // quay-lãi VIP dù cũng có type:"deposit", và không tính giao dịch
-        // pending/rejected/failed) - khớp cách total_deposited được cộng ở
-        // phía Admin duyệt nạp, dùng chung logic với MembershipCard.jsx.
-        const sum = walletTxs
-          .filter((t) => resolveTransactionKind(t) === TRANSACTION_KINDS.DEPOSIT && resolveTransactionStatus(t) === "success")
-          .reduce((acc, t) => acc + (Number(t.amount) || 0), 0) + (me?.total_deposited || (me?.role === "admin" ? (me?.balance ?? 0) : 0));
+    const fetchDepositSum = async () => {
+      const walletTxs = await base44.entities.WalletTransaction.filter(
+        { $or: [{ user_id: me.id }, { created_by_id: me.id }] },
+        "-created_date",
+        100
+      ).catch(() => []);
 
-        setDepositSum(sum);
-        const userTierInfo = getCardTierInfo(me?.membership_tier);
-        setSelectedTierKey(userTierInfo.tier);
-      }
-    })();
+      // Chỉ tính nạp tiền THẬT đã chốt (không tính thưởng/lãi casino-vòng
+      // quay-lãi VIP dù cũng có type:"deposit", và không tính giao dịch
+      // pending/rejected/failed) - khớp cách total_deposited được cộng ở
+      // phía Admin duyệt nạp, dùng chung logic với MembershipCard.jsx.
+      const sum = walletTxs
+        .filter((t) => resolveTransactionKind(t) === TRANSACTION_KINDS.DEPOSIT && resolveTransactionStatus(t) === "success")
+        .reduce((acc, t) => acc + (Number(t.amount) || 0), 0) + (me?.total_deposited || (me?.role === "admin" ? (me?.balance ?? 0) : 0));
+
+      setDepositSum(sum);
+    };
+    fetchDepositSum();
+    const userTierInfo = getCardTierInfo(me?.membership_tier);
+    setSelectedTierKey(userTierInfo.tier);
+
+    // Realtime: Admin duyệt nạp tiền trên thiết bị khác trước đây không cập
+    // nhật hạng/quyền lợi hiển thị ở đây cho tới khi tự tải lại trang.
+    const unsub = base44.entities.WalletTransaction.subscribe(() => fetchDepositSum());
+    return () => unsub();
   }, [user]);
 
   const currentTierInfo = getCardTierInfo(user?.membership_tier);

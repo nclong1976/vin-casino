@@ -21,22 +21,35 @@ export default function MembershipCard() {
   const [selectedTierIndex, setSelectedTierIndex] = useState(0);
 
   useEffect(() => {
-    (async () => {
-      const me = user;
-      if (me) {
-        const [wt, t] = await Promise.all([
-          base44.entities.WalletTransaction.filter(
-            { $or: [{ user_id: me.id }, { created_by_id: me.id }] },
-            "-created_date",
-            100
-          ).catch(() => []),
-          base44.entities.Transaction.list("-created_date", 50).catch(() => [])
-        ]);
-        setWalletTxs(wt);
-        setTxs(t);
-      }
+    if (!user) {
       setLoading(false);
-    })();
+      return;
+    }
+    const fetchData = async () => {
+      const [wt, t] = await Promise.all([
+        base44.entities.WalletTransaction.filter(
+          { $or: [{ user_id: user.id }, { created_by_id: user.id }] },
+          "-created_date",
+          100
+        ).catch(() => []),
+        base44.entities.Transaction.list("-created_date", 50).catch(() => [])
+      ]);
+      setWalletTxs(wt);
+      setTxs(t);
+      setLoading(false);
+    };
+    fetchData();
+
+    // Realtime: trước đây trang này chỉ tải 1 lần lúc mount - Admin duyệt
+    // nạp/rút hoặc hợp đồng đầu tư trên thiết bị khác không hề cập nhật
+    // hạng thẻ/tổng nạp/lãi dự kiến ở đây cho tới khi tự tải lại trang.
+    const unsubWalletTx = base44.entities.WalletTransaction.subscribe(() => fetchData());
+    const unsubTx = base44.entities.Transaction.subscribe(() => fetchData());
+
+    return () => {
+      unsubWalletTx();
+      unsubTx();
+    };
   }, [user]);
 
   // Tổng nạp tích luỹ cho hạng thẻ VIP: CHỈ tính nạp tiền THẬT đã chốt
