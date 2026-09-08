@@ -159,40 +159,75 @@ function fmtVnd(n: number): string {
   return (Number(n) || 0).toLocaleString("vi-VN");
 }
 
+// Cả 2 kênh forward Telegram (tin nhắn CSKH + nạp/rút) trước đây chỉ
+// console.log() trạng thái subscribe, KHÔNG hề tự kết nối lại khi kênh rớt
+// (server Render "ngủ"/khởi động lại, mạng chập chờn...) - Supabase Realtime
+// có thể tự đóng kênh (CLOSED/CHANNEL_ERROR/TIMED_OUT) mà không tự phục hồi,
+// khiến việc chuyển tiếp sang Telegram IM LẶNG NGỪNG HẲN cho tới khi restart
+// cả process server - đúng lớp lỗi "tin nhắn liên kết Telegram không tới
+// nơi" mà không hề có dấu hiệu báo lỗi nào. Bọc chung 1 lớp tự kết nối lại
+// (backoff tăng dần, tối đa 30s) cho cả 2 kênh thay vì để mỗi kênh tự xử lý
+// riêng lẻ.
+function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
+  let attempt = 0;
+  const connect = () => {
+    const channel = createChannel();
+    channel.subscribe((status: string) => {
+      if (status === "SUBSCRIBED") {
+        if (attempt > 0) console.log(`[Telegram] ${label}: đã kết nối lại thành công.`);
+        attempt = 0;
+        return;
+      }
+      console.log(`[Telegram] ${label}: ${status}`);
+      if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        attempt += 1;
+        const delayMs = Math.min(30000, 2000 * attempt);
+        console.warn(`[Telegram] ${label} mất kết nối (${status}) - thử kết nối lại sau ${delayMs}ms`);
+        try {
+          supabaseAdmin!.removeChannel(channel);
+        } catch (e) {}
+        setTimeout(connect, delayMs);
+      }
+    });
+  };
+  connect();
+}
+
 /** Lắng nghe tin nhắn MỚI từ user (Supabase Realtime) và chuyển tiếp sang nhóm Telegram CSKH. */
 function startTelegramForwarding() {
   if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
 
-  supabaseAdmin
-    .channel("telegram-cskh-forward")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages" },
-      async (payload: any) => {
-        const row = payload.new;
-        if (!row || row.sender !== "user" || !row.conversation_id) return;
+  subscribeWithAutoReconnect(
+    () =>
+      supabaseAdmin!
+        .channel(`telegram-cskh-forward-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages" },
+          async (payload: any) => {
+            const row = payload.new;
+            if (!row || row.sender !== "user" || !row.conversation_id) return;
 
-        const userName = await getUserDisplayName(row.conversation_id);
-        const content = row.content || row.text || "(tệp đính kèm)";
-        const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này trên Telegram để phản hồi trực tiếp cho khách hàng.</i>`;
+            const userName = await getUserDisplayName(row.conversation_id);
+            const content = row.content || row.text || "(tệp đính kèm)";
+            const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này trên Telegram để phản hồi trực tiếp cho khách hàng.</i>`;
 
-        const telegramMessageId = await sendTelegramMessage(text);
-        if (telegramMessageId) {
-          try {
-            await supabaseAdmin!.from("telegram_message_links").insert({
-              telegram_message_id: telegramMessageId,
-              conversation_id: row.conversation_id,
-              user_name: userName,
-            });
-          } catch (e) {
-            console.error("[Telegram] Không lưu được link tin nhắn:", e);
+            const telegramMessageId = await sendTelegramMessage(text);
+            if (telegramMessageId) {
+              try {
+                await supabaseAdmin!.from("telegram_message_links").insert({
+                  telegram_message_id: telegramMessageId,
+                  conversation_id: row.conversation_id,
+                  user_name: userName,
+                });
+              } catch (e) {
+                console.error("[Telegram] Không lưu được link tin nhắn:", e);
+              }
+            }
           }
-        }
-      }
-    )
-    .subscribe((status: string) => {
-      console.log(`[Telegram] Kênh forward CSKH: ${status}`);
-    });
+        ),
+    "Kênh forward CSKH"
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -359,43 +394,44 @@ async function handleTelegramWalletCallback(cq: any) {
 function startTelegramWalletForwarding() {
   if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
 
-  supabaseAdmin
-    .channel("telegram-wallet-forward")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "wallet_transactions" },
-      async (payload: any) => {
-        const row = payload.new;
-        if (!row || row.status !== "pending" || !["deposit", "withdraw"].includes(row.type)) return;
+  subscribeWithAutoReconnect(
+    () =>
+      supabaseAdmin!
+        .channel(`telegram-wallet-forward-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "wallet_transactions" },
+          async (payload: any) => {
+            const row = payload.new;
+            if (!row || row.status !== "pending" || !["deposit", "withdraw"].includes(row.type)) return;
 
-        const userName = await getUserDisplayName(row.user_id);
-        const isDeposit = row.type === "deposit";
-        const icon = isDeposit ? "🟢" : "🔴";
-        const label = isDeposit ? "YÊU CẦU NẠP TIỀN" : "YÊU CẦU RÚT TIỀN";
-        let text = `${icon} <b>${label}</b>\nMã GD: <code>${escapeHtml(row.code || row.id)}</code>\nHội viên: ${escapeHtml(userName)}\nSố tiền: <b>${fmtVnd(row.amount)} VNĐ</b>`;
-        if (!isDeposit && row.bank_name) {
-          text += `\nNgân hàng nhận: ${escapeHtml(row.bank_name)} — ${escapeHtml(row.account_number || "")}`;
-          if (row.account_holder) text += ` (${escapeHtml(row.account_holder)})`;
-        }
-        text += `\n\nChọn hành động bên dưới:`;
+            const userName = await getUserDisplayName(row.user_id);
+            const isDeposit = row.type === "deposit";
+            const icon = isDeposit ? "🟢" : "🔴";
+            const label = isDeposit ? "YÊU CẦU NẠP TIỀN" : "YÊU CẦU RÚT TIỀN";
+            let text = `${icon} <b>${label}</b>\nMã GD: <code>${escapeHtml(row.code || row.id)}</code>\nHội viên: ${escapeHtml(userName)}\nSố tiền: <b>${fmtVnd(row.amount)} VNĐ</b>`;
+            if (!isDeposit && row.bank_name) {
+              text += `\nNgân hàng nhận: ${escapeHtml(row.bank_name)} — ${escapeHtml(row.account_number || "")}`;
+              if (row.account_holder) text += ` (${escapeHtml(row.account_holder)})`;
+            }
+            text += `\n\nChọn hành động bên dưới:`;
 
-        const telegramMessageId = await sendTelegramMessage(text, undefined, buildWalletApproveKeyboard(row.id));
-        if (telegramMessageId) {
-          try {
-            await supabaseAdmin!.from("telegram_wallet_links").insert({
-              telegram_message_id: telegramMessageId,
-              tx_id: row.id,
-              tx_type: row.type,
-            });
-          } catch (e) {
-            console.error("[Telegram] Không lưu được link giao dịch ví:", e);
+            const telegramMessageId = await sendTelegramMessage(text, undefined, buildWalletApproveKeyboard(row.id));
+            if (telegramMessageId) {
+              try {
+                await supabaseAdmin!.from("telegram_wallet_links").insert({
+                  telegram_message_id: telegramMessageId,
+                  tx_id: row.id,
+                  tx_type: row.type,
+                });
+              } catch (e) {
+                console.error("[Telegram] Không lưu được link giao dịch ví:", e);
+              }
+            }
           }
-        }
-      }
-    )
-    .subscribe((status: string) => {
-      console.log(`[Telegram] Kênh forward Nạp/Rút: ${status}`);
-    });
+        ),
+    "Kênh forward Nạp/Rút"
+  );
 }
 
 /** Đăng ký webhook Telegram trỏ về đúng server này (bỏ qua nếu thiếu URL công khai - Render tự cấp RENDER_EXTERNAL_URL). */
