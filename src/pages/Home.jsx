@@ -8,10 +8,12 @@ import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
 import casinoIcon from "@/assets/images/regenerated_image_1786492435642.png";
+import { useCskhNav } from "@/hooks/useCskhNav";
 
 export default function Home() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const openCskh = useCskhNav();
 
   const displayName = user?.full_name || user?.name || user?.username || user?.email || "KHÁCH HÀNG";
   const avatarLetter = (displayName.trim().charAt(0) || "N").toUpperCase();
@@ -131,7 +133,11 @@ export default function Home() {
               </div>
 
               {/* Support Link */}
-              <Link to="/support" className="flex items-center justify-between w-full group pt-1">
+              <button
+                type="button"
+                onClick={openCskh}
+                className="flex items-center justify-between w-full group pt-1 cursor-pointer"
+              >
                 <div className="flex items-center gap-3">
                   <img className="w-3 h-[11px] object-contain" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/a588e32ba_c04f8f218_daaf308cc39d043be1c7b66084d8eb48afd585a1.png" alt="" />
                   <span className="text-figma-10 font-normal leading-figma-12 text-[#646258]">
@@ -139,7 +145,7 @@ export default function Home() {
                   </span>
                 </div>
                 <img className="w-[5px] h-[9px] object-contain transition-transform group-hover:translate-x-1" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/c30e00dbf_24f6126c1_4983e9683cdee9853f55c41de420fdf2ed8118c2.png" alt="Go" />
-              </Link>
+              </button>
             </div>
           </div>
         </motion.section>
