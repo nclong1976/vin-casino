@@ -1,10 +1,12 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import cskhIcon from "@/assets/images/regenerated_image_1786328347646.png";
+import { useCskhNav } from "@/hooks/useCskhNav";
 
 export default function BottomNav() {
   const location = useLocation();
   const path = location.pathname;
+  const openCskh = useCskhNav();
 
   const isHome = path === "/";
   const isCard = path === "/card" || path === "/membership-card";
@@ -73,9 +75,10 @@ export default function BottomNav() {
         </div>
 
         {/* Floating Action (CSKH) */}
-        <Link
-          to="/support"
-          className="w-[45px] flex flex-col items-center justify-center gap-1 group shrink-0 relative"
+        <button
+          type="button"
+          onClick={openCskh}
+          className="w-[45px] flex flex-col items-center justify-center gap-1 group shrink-0 relative cursor-pointer"
         >
           <img
             className={`w-5 h-5 object-contain transition-all group-active:scale-90 filter drop-shadow-xs ${
@@ -92,7 +95,7 @@ export default function BottomNav() {
           >
             Cskh
           </span>
-        </Link>
+        </button>
       </div>
 
       {/* Home Indicator Bar */}

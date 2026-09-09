@@ -23,12 +23,14 @@ import SignatureList from "@/components/profile/SignatureList";
 import AccountSwitcherModal from "@/components/profile/AccountSwitcherModal";
 import { computeWalletNet } from "@/lib/transactionHistory";
 import { useWithdrawalSync } from "@/hooks/useWithdrawalSync";
+import { useCskhNav } from "@/hooks/useCskhNav";
 
 const fmtVnd = (n) => (n || 0).toLocaleString("vi-VN");
 
 export default function Profile() {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const openCskh = useCskhNav();
 
   const [txs, setTxs] = useState([]);
   const [walletTxs, setWalletTxs] = useState([]);
@@ -212,7 +214,7 @@ export default function Profile() {
     { icon: Shield, label: "Bảo mật & Mã PIN", color: "text-blue-500", onClick: () => setShowSecurity(true) },
     { icon: Bell, label: "Thông báo biến động", color: "text-orange-500", onClick: () => setShowNotification(true) },
     { icon: CreditCard, label: "Thẻ thành viên VIP", color: "text-[#948154]", link: "/card" },
-    { icon: HelpCircle, label: "Hỗ trợ & Chăm sóc KH", color: "text-green-500", link: "/support" },
+    { icon: HelpCircle, label: "Hỗ trợ & Chăm sóc KH", color: "text-green-500", onClick: openCskh },
   ];
 
   const handleLogout = async () => {
