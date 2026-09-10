@@ -70,7 +70,7 @@ export default function Admin() {
       const totalProfit = allTxs.reduce((s, t) => s + (t.profit || 0), 0);
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
       const pendingDepositsCount = dTxs.filter((t) => (t.status || "pending") === "pending").length;
-      const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.is_read).length;
+      const unreadMessagesCount = messages.filter((m) => m.sender === "user" && !m.read_at).length;
       const pendingContractsCount = signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length;
       // "Hợp đồng" giờ là subtab của "Quản lý Hội viên & Giao dịch" - gộp
       // luôn vào tổng badge của tab đó thay vì có badge riêng ở 1 tab đã

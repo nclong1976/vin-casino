@@ -17,9 +17,14 @@ const previewType = (file) => {
   return "file";
 };
 
-export default function ChatInput({ onSend, sending }) {
+export default function ChatInput({ onSend, sending, onTyping }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);
+  // Chủ đề đã chọn (bấm 1 chip QUICK_TOPICS) - đi kèm tin nhắn tiếp theo để
+  // trigger reopen_support_conversation_on_customer_message() ghi vào
+  // support_conversations.topic (xem MessagesTab.jsx dùng để lọc/hiện badge
+  // theo chủ đề). Gõ tay không đặt topic - chỉ chip mới có routing thật.
+  const [topic, setTopic] = useState(null);
   const inputRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -64,9 +69,10 @@ export default function ChatInput({ onSend, sending }) {
 
   const submit = () => {
     if ((!text.trim() && files.length === 0) || sending) return;
-    onSend(text, files);
+    onSend(text, files, topic);
     setText("");
     setFiles([]);
+    setTopic(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "36px";
     }
@@ -79,19 +85,27 @@ export default function ChatInput({ onSend, sending }) {
     }
   };
 
+  const handleTextChange = (e) => {
+    setText(e.target.value);
+    if (typeof onTyping === "function") onTyping();
+  };
+
   return (
     <div className="w-full bg-white border-t border-gray-200/80 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-40 relative pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-4xl mx-auto px-3 pt-2 pb-2.5">
         {/* Quick Topic Chips */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
-          {QUICK_TOPICS.map((topic, idx) => (
+          {QUICK_TOPICS.map((topicLabel, idx) => (
             <button
               key={idx}
               type="button"
-              onClick={() => setText(topic)}
+              onClick={() => {
+                setText(topicLabel);
+                setTopic(topicLabel);
+              }}
               className="px-2.5 py-1 rounded-full bg-amber-50/80 hover:bg-amber-100 border border-amber-200/90 text-[#948154] text-[10px] font-bold whitespace-nowrap transition-colors shrink-0 shadow-2xs cursor-pointer active:scale-95"
             >
-              {topic}
+              {topicLabel}
             </button>
           ))}
         </div>
@@ -132,7 +146,7 @@ export default function ChatInput({ onSend, sending }) {
             ref={inputRef}
             type="file"
             multiple
-            accept="image/*,video/*,.pdf,.doc,.docx"
+            accept="image/*,video/*,.pdf,.doc,.docx,.txt,.log"
             className="hidden"
             onChange={pickFiles}
           />
@@ -151,7 +165,7 @@ export default function ChatInput({ onSend, sending }) {
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder="Nhập tin nhắn..."
