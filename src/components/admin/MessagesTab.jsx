@@ -1,6 +1,7 @@
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useMemo,
   useCallback,
@@ -13,9 +14,12 @@ import {
   Paperclip,
   Copy,
   Check,
+  CheckCheck,
+  AlertCircle,
   Maximize2,
   X,
   FileText,
+  Film,
   UserCheck,
   Trash2,
   Loader2,
@@ -23,7 +27,10 @@ import {
   Pencil,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
+import { listSupabaseUsers, subscribeSupabaseUsersTable, fetchMessagesPage } from "@/lib/supabaseDb";
+import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifecycle";
+import { compressImageFile } from "@/lib/imageCompression";
+import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
@@ -39,6 +46,10 @@ const STATUS_FILTERS = [
   { key: "pending", label: "Chờ phản hồi" },
   { key: "closed", label: "Đã đóng" },
 ];
+
+// "Video quá lớn" chỉ là cảnh báo mềm (không nén được video client-side, xem
+// src/lib/imageCompression.js) - không chặn gửi.
+const LARGE_VIDEO_WARN_BYTES = 15 * 1024 * 1024;
 
 const fileType = (url) => {
   if (!url) return "file";
@@ -94,7 +105,7 @@ const Avatar = React.memo(({ name, size = "md" }) => {
 });
 
 // ─── Message Bubble ───────────────────────────────────────────────
-const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy, onDelete, copiedId, onPreview, isEditing, editText, onEditChange, onStartEdit, onSaveEdit, onCancelEdit }) => (
+const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy, onDelete, copiedId, onPreview, isEditing, editText, onEditChange, onStartEdit, onSaveEdit, onCancelEdit, status, onRetry }) => (
   <div className={`flex ${isAdmin ? "justify-end" : "justify-start"} group`}>
     <div className={`max-w-[78%] flex flex-col ${isAdmin ? "items-end" : "items-start"}`}>
       <div className="flex items-center gap-1.5 mb-1">
@@ -209,7 +220,24 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
       </div>
       )}
 
-      <span className="text-[8px] text-gray-400 mt-0.5">{fmtTime(m.created_date)}</span>
+      <div className="flex items-center gap-1 mt-0.5">
+        <span className="text-[8px] text-gray-400">{fmtTime(m.created_date)}</span>
+        {/* Tick trạng thái - CHỈ trên bubble tin admin đã gửi (isAdmin) */}
+        {status === "sending" && <Loader2 className="w-2.5 h-2.5 text-gray-400 animate-spin" />}
+        {status === "sent" && <Check className="w-3 h-3 text-gray-400" />}
+        {status === "delivered" && <CheckCheck className="w-3 h-3 text-gray-400" />}
+        {status === "read" && <CheckCheck className="w-3 h-3 text-[#948154]" />}
+        {status === "failed" && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="flex items-center gap-0.5 text-red-500 hover:text-red-600 text-[9px] font-bold cursor-pointer"
+          >
+            <AlertCircle className="w-3 h-3" />
+            Gửi lại
+          </button>
+        )}
+      </div>
     </div>
   </div>
 ));
@@ -242,12 +270,24 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const [editText, setEditText] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
 
+  // Cache riêng theo hội thoại (fetchMessagesPage - src/lib/supabaseDb.js,
+  // WHERE conversation_id + LIMIT thật) - KHÔNG thay thế "messages" (mảng
+  // toàn cục nuôi danh sách hội thoại + realtime, xem applyMessages() bên
+  // dưới), chỉ MERGE THÊM vào currentMessages để thấy đủ lịch sử 1 hội thoại
+  // cụ thể thay vì chỉ 300 tin gần nhất TOÀN HỆ THỐNG.
+  const [conversationPageCache, setConversationPageCache] = useState({});
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const hasMoreOlderRef = useRef({});
+  const prependScrollAdjustRef = useRef(null);
+
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const templatesRef = useRef(null);
   const prevMsgCountRef = useRef(0);
   const prevConvRef = useRef(null);
+
+  const { peerTyping, notifyTyping } = useTypingIndicator(selectedUser, "admin");
 
   // Đóng danh sách mẫu khi bấm ra ngoài - cùng cách NotificationBell.jsx
   // đang đóng dropdown của nó.
@@ -456,10 +496,11 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           status: supportConv?.status || DEFAULT_SUPPORT_STATUS,
           assignedAdminId: supportConv?.assigned_admin_id || null,
           assignedAdminName: supportConv?.assigned_admin_name || null,
+          topic: supportConv?.topic || null,
         };
       }
       convMap[cid].messages.push(m);
-      if (m.sender === "user" && !m.is_read) convMap[cid].unread++;
+      if (m.sender === "user" && !m.read_at) convMap[cid].unread++;
       if (m.created_date > convMap[cid].lastDate) convMap[cid].lastDate = m.created_date;
     });
 
@@ -469,22 +510,37 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     return { conversations: convMap, convList: list };
   }, [messages, usersMap, supportConvMap]);
 
-  const filteredConvList = useMemo(
-    () => (statusFilter === "all" ? convList : convList.filter((c) => c.status === statusFilter)),
-    [convList, statusFilter]
+  // Danh sách chủ đề để lọc - lấy TRỰC TIẾP từ dữ liệu thật (topic đã ghi
+  // nhận trên các hội thoại), không hardcode lại y hệt QUICK_TOPICS ở
+  // ChatInput.jsx (2 nơi dễ lệch nhau khi có thêm chủ đề mới).
+  const topicOptions = useMemo(
+    () => Array.from(new Set(convList.map((c) => c.topic).filter(Boolean))),
+    [convList]
   );
+  const [topicFilter, setTopicFilter] = useState("all");
+
+  const filteredConvList = useMemo(() => {
+    let list = statusFilter === "all" ? convList : convList.filter((c) => c.status === statusFilter);
+    if (topicFilter !== "all") list = list.filter((c) => c.topic === topicFilter);
+    return list;
+  }, [convList, statusFilter, topicFilter]);
 
   const currentConv = selectedUser ? conversations[selectedUser] : null;
 
-  const currentMessages = useMemo(
-    () =>
-      currentConv
-        ? [...currentConv.messages].sort(
-            (a, b) => new Date(a.created_date) - new Date(b.created_date)
-          )
-        : [],
-    [currentConv]
-  );
+  // Hợp nhất tin từ "messages" (mảng toàn cục, realtime) VỚI trang riêng đã
+  // tải qua fetchMessagesPage() (conversationPageCache) - dedup theo id, sắp
+  // theo thời gian tăng dần. Không có currentConv (chưa có tin nào trong
+  // "messages" cho hội thoại này) vẫn phải hiện được lịch sử từ page cache.
+  const currentMessages = useMemo(() => {
+    const fromGlobal = currentConv ? currentConv.messages : [];
+    const fromPageCache = (selectedUser && conversationPageCache[selectedUser]) || [];
+    const merged = new Map();
+    fromPageCache.forEach((m) => merged.set(m.id, m));
+    fromGlobal.forEach((m) => merged.set(m.id, m));
+    return Array.from(merged.values()).sort(
+      (a, b) => new Date(a.created_date) - new Date(b.created_date)
+    );
+  }, [currentConv, conversationPageCache, selectedUser]);
 
   // ── Handlers ─────────────────────────────────────────────────────
   const openConversation = useCallback(
@@ -492,14 +548,15 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       setSelectedUser(cid);
       const conv = conversations[cid];
       if (!conv) return;
-      const unreadMsgs = conv.messages.filter((m) => m.sender === "user" && !m.is_read);
+      const unreadMsgs = conv.messages.filter((m) => m.sender === "user" && !m.read_at);
       if (unreadMsgs.length === 0) return;
       try {
+        const now = new Date().toISOString();
         await base44.entities.Message.bulkUpdate(
-          unreadMsgs.map((m) => ({ id: m.id, is_read: true }))
+          unreadMsgs.map((m) => ({ id: m.id, read_at: now }))
         );
         setMessages((prev) =>
-          prev.map((m) => (unreadMsgs.some((u) => u.id === m.id) ? { ...m, is_read: true } : m))
+          prev.map((m) => (unreadMsgs.some((u) => u.id === m.id) ? { ...m, read_at: now } : m))
         );
         // Báo cho MemberHubTab (badge tổng "chưa đọc" ở tab cha) biết ngay
         // trong CÙNG tab, không cần đợi round-trip qua Supabase Realtime.
@@ -508,6 +565,103 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     },
     [conversations]
   );
+
+  // Seed lịch sử ĐÚNG hội thoại đang mở qua fetchMessagesPage() (thật WHERE
+  // conversation_id, không phải slice từ 300 tin gần nhất TOÀN HỆ THỐNG) -
+  // chạy cho cả 2 đường vào 1 hội thoại (bấm chọn qua openConversation() lẫn
+  // initialSelectedUserId truyền thẳng từ nơi khác), vì cả 2 đều đổi
+  // selectedUser. Không đụng "messages" (mảng toàn cục) - chỉ ghi vào
+  // conversationPageCache, merge ở currentMessages phía trên.
+  useEffect(() => {
+    if (!selectedUser) return;
+    hasMoreOlderRef.current[selectedUser] = true;
+    let cancelled = false;
+    fetchMessagesPage(selectedUser, { limit: 50 })
+      .then((page) => {
+        if (cancelled || !page) return;
+        setConversationPageCache((prev) => ({ ...prev, [selectedUser]: page }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUser]);
+
+  // Cursor pagination khi cuộn lên đầu khung chat - tải thêm tin CŨ HƠN tin
+  // cũ nhất đang có (cả trong page cache lẫn "messages" toàn cục) vào
+  // conversationPageCache[selectedUser].
+  const loadOlderMessages = useCallback(async () => {
+    if (!selectedUser || loadingOlder || hasMoreOlderRef.current[selectedUser] === false) return;
+    if (currentMessages.length === 0 || !scrollRef.current) return;
+    const oldest = currentMessages[0];
+    if (!oldest?.created_date) return;
+    setLoadingOlder(true);
+    prependScrollAdjustRef.current = scrollRef.current.scrollHeight;
+    try {
+      const older = await fetchMessagesPage(selectedUser, {
+        beforeCreatedAt: oldest.created_date,
+        limit: 30,
+      });
+      if (!older || older.length === 0) {
+        hasMoreOlderRef.current[selectedUser] = false;
+        prependScrollAdjustRef.current = null;
+        return;
+      }
+      setConversationPageCache((prev) => {
+        const existing = prev[selectedUser] || [];
+        const existingIds = new Set(existing.map((m) => m.id));
+        const toAdd = older.filter((m) => !existingIds.has(m.id));
+        if (toAdd.length === 0) {
+          prependScrollAdjustRef.current = null;
+          return prev;
+        }
+        return { ...prev, [selectedUser]: [...toAdd, ...existing] };
+      });
+    } catch (e) {
+      prependScrollAdjustRef.current = null;
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [selectedUser, loadingOlder, currentMessages]);
+
+  useLayoutEffect(() => {
+    if (prependScrollAdjustRef.current != null && scrollRef.current) {
+      const prevHeight = prependScrollAdjustRef.current;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight - prevHeight;
+      prependScrollAdjustRef.current = null;
+    }
+  }, [currentMessages]);
+
+  const handleScroll = useCallback(
+    (e) => {
+      if (e.target.scrollTop < 60) loadOlderMessages();
+    },
+    [loadOlderMessages]
+  );
+
+  // Đánh dấu "Delivered" cho tin khách vừa nhận qua realtime/refetch (chưa
+  // delivered_at) - áp dụng cho TOÀN BỘ "messages" (không chỉ hội thoại đang
+  // mở), vì "delivered" đúng nghĩa là "đã tới 1 thiết bị admin đang mở CSKH",
+  // không cần đúng admin nào đang xem hội thoại đó.
+  useEffect(() => {
+    const undelivered = messages.filter((m) => m.sender === "user" && !m.delivered_at).map((m) => m.id);
+    if (undelivered.length > 0) markDelivered(undelivered);
+  }, [messages]);
+
+  // Đánh dấu "Read" cho tin khách MỚI tới trong khi hội thoại đang thật sự
+  // mở (đối xứng openConversation() ở trên, vốn chỉ chạy 1 lần lúc bấm mở) -
+  // và tab đang visible.
+  useEffect(() => {
+    if (!selectedUser) return;
+    const markVisibleAsRead = () => {
+      if (document.visibilityState !== "visible") return;
+      const unreadIds = currentMessages.filter((m) => m.sender === "user" && !m.read_at).map((m) => m.id);
+      if (unreadIds.length > 0) markRead(unreadIds);
+    };
+    markVisibleAsRead();
+    document.addEventListener("visibilitychange", markVisibleAsRead);
+    return () => document.removeEventListener("visibilitychange", markVisibleAsRead);
+  }, [currentMessages, selectedUser]);
 
   // Ghi trạng thái/người phụ trách xuống support_conversations - update()
   // nếu dòng đã tồn tại thật trên Supabase (đã có trong supportConvMap, lấy
@@ -644,6 +798,28 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
 
   const removeFile = useCallback((idx) => setFiles((f) => f.filter((_, i) => i !== idx)), []);
 
+  // Gửi thật (tạo Message trên Postgres) - tách riêng để retryFailedReply()
+  // (nút "Gửi lại" trên tin lỗi) tái dùng, không phải upload lại file đã
+  // upload thành công trước đó (attachments lúc này đã là URL).
+  const sendReply = useCallback(
+    async (cid, content, attachments) => {
+      await base44.entities.Message.create({
+        sender: "admin",
+        conversation_id: cid,
+        user_id: cid,
+        content,
+        attachments: attachments || [],
+      });
+      // Không tạo thêm Notification "có tin nhắn mới" nữa - tin nhắn admin
+      // vừa gửi ở trên đã tự nó là thông báo (hiển thị trực tiếp qua khung
+      // chat CSKH real-time), tạo thêm Notification riêng theo user_id chỉ
+      // gây trùng lặp và đi ngược quy tắc "chuông chỉ hiện tin chung".
+      localStorage.setItem("vinclub_msg_update", Date.now().toString());
+      window.dispatchEvent(new CustomEvent("vinclub:msg_update"));
+    },
+    []
+  );
+
   const handleReply = useCallback(async () => {
     if ((!replyText.trim() && files.length === 0) || !selectedUser || sending) return;
     setSending(true);
@@ -654,25 +830,21 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     if (supportConvMap[selectedUser]?.status === "pending") {
       patchConversationStatus(selectedUser, { status: "open" });
     }
-    const optimisticMsg = {
-      id: `optimistic_${Date.now()}`,
-      sender: "admin",
-      conversation_id: selectedUser,
-      user_id: selectedUser,
-      content: replyText.trim(),
-      attachments: [],
-      created_date: new Date().toISOString(),
-      is_read: true,
-    };
-    setMessages((prev) => [...prev, optimisticMsg]);
+    const content = replyText.trim();
+    const cid = selectedUser;
     setReplyText("");
+    const pendingFiles = files;
     setFiles([]);
 
     try {
       const attachments = [];
-      for (const file of files) {
+      for (const file of pendingFiles) {
         try {
-          const res = await base44.integrations.Core.UploadFile({ file });
+          if (file.type?.startsWith("video/") && file.size > LARGE_VIDEO_WARN_BYTES) {
+            toast("Video khá nặng, có thể mất thêm thời gian để gửi");
+          }
+          const toUpload = file.type?.startsWith("image/") ? await compressImageFile(file) : file;
+          const res = await base44.integrations.Core.UploadFile({ file: toUpload });
           if (res?.file_url) attachments.push(res.file_url);
         } catch {
           const reader = new FileReader();
@@ -684,35 +856,32 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         }
       }
 
-      // create() ghi Supabase, và Supabase Realtime (base44.entities.Message.
-      // subscribe() ở trên) tự đẩy tin nhắn mới tới mọi phiên đang mở, kể cả
-      // phía user - không cần đẩy tay đi đâu nữa.
-      const created = await base44.entities.Message.create({
-        sender: "admin",
-        conversation_id: selectedUser,
-        user_id: selectedUser,
-        content: optimisticMsg.content,
-        attachments,
-      });
-
-      // Replace optimistic with real
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticMsg.id ? { ...optimisticMsg, ...created, attachments } : m))
-      );
-
-      // Không tạo thêm Notification "có tin nhắn mới" nữa - tin nhắn admin
-      // vừa gửi ở trên đã tự nó là thông báo (hiển thị trực tiếp qua khung
-      // chat CSKH real-time), tạo thêm Notification riêng theo user_id chỉ
-      // gây trùng lặp và đi ngược quy tắc "chuông chỉ hiện tin chung".
-      localStorage.setItem("vinclub_msg_update", Date.now().toString());
-      window.dispatchEvent(new CustomEvent("vinclub:msg_update"));
+      // create() tự đẩy tin optimistic (cờ __status:"sending") vào cache cục
+      // bộ + notify NGAY, rồi tự cập nhật lại thành sent/failed sau khi biết
+      // kết quả ghi Postgres (xem LocalEntityClient.create() trong
+      // base44Client.js) - Message.subscribe() ở trên nhận đủ cả 2 lượt
+      // notify, KHÔNG cần tự quản lý mảng optimistic riêng nữa (cách làm cũ
+      // dễ hiện 2 bubble trùng khi Realtime cũng đẩy tin thật về gần như
+      // cùng lúc).
+      await sendReply(cid, content, attachments);
     } catch {
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
       toast.error("Không thể gửi phản hồi");
     } finally {
       setSending(false);
     }
-  }, [replyText, files, selectedUser, sending, supportConvMap, patchConversationStatus]);
+  }, [replyText, files, selectedUser, sending, supportConvMap, patchConversationStatus, sendReply]);
+
+  // Tin lỗi (message.__status === "failed") được GIỮ LẠI trên màn hình kèm
+  // nút "Gửi lại" thay vì bị xoá như cách làm cũ.
+  const retryFailedReply = useCallback(
+    (failedMsg) => {
+      setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
+      sendReply(failedMsg.conversation_id, failedMsg.content, failedMsg.attachments).catch(() => {
+        toast.error("Không thể gửi lại tin nhắn. Vui lòng thử lại.");
+      });
+    },
+    [sendReply]
+  );
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -826,6 +995,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         {/* Messages scroll area */}
         <div
           ref={scrollRef}
+          onScroll={handleScroll}
           className="flex-1 bg-white rounded-2xl p-4 shadow-xs border border-gray-100 space-y-3 overflow-y-auto scroll-smooth"
           style={{ overscrollBehavior: "contain" }}
         >
@@ -849,13 +1019,16 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               onStartEdit={startEditMessage}
               onSaveEdit={saveEditMessage}
               onCancelEdit={cancelEditMessage}
+              status={deriveMessageStatus(m, m.sender === "admin")}
+              onRetry={m.sender === "admin" && m.__status === "failed" ? () => retryFailedReply(m) : undefined}
             />
           ))}
-          {sending && (
-            <div className="flex justify-end">
-              <div className="bg-[#948154]/20 text-[#948154] rounded-2xl rounded-br-sm px-3 py-2 text-[11px] flex items-center gap-1.5">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Đang gửi...</span>
+
+          {/* Typing indicator - "Khách đang nhập..." */}
+          {peerTyping && (
+            <div className="flex justify-start">
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-bl-sm px-3 py-2 text-[10.5px] text-gray-400 italic">
+                Khách đang nhập...
               </div>
             </div>
           )}
@@ -865,17 +1038,28 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         <div className="relative bg-white rounded-2xl p-2.5 shadow-xs border border-gray-100 space-y-2">
           {files.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto pb-1">
-              {files.map((f, i) => (
-                <div key={i} className="relative w-12 h-12 rounded-lg border overflow-hidden bg-gray-50 shrink-0">
-                  <img src={URL.createObjectURL(f)} alt="" className="w-full h-full object-cover" />
-                  <button
-                    onClick={() => removeFile(i)}
-                    className="absolute top-0.5 right-0.5 bg-black/70 text-white p-0.5 rounded-full cursor-pointer"
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </div>
-              ))}
+              {files.map((f, i) => {
+                const t = f.type || "";
+                const isImage = t.startsWith("image/");
+                const isVideo = t.startsWith("video/");
+                return (
+                  <div key={i} className="relative w-12 h-12 rounded-lg border overflow-hidden bg-gray-50 shrink-0 flex items-center justify-center">
+                    {isImage ? (
+                      <img src={URL.createObjectURL(f)} alt="" className="w-full h-full object-cover" />
+                    ) : isVideo ? (
+                      <Film className="w-5 h-5 text-[#948154]" />
+                    ) : (
+                      <FileText className="w-5 h-5 text-[#948154]" />
+                    )}
+                    <button
+                      onClick={() => removeFile(i)}
+                      className="absolute top-0.5 right-0.5 bg-black/70 text-white p-0.5 rounded-full cursor-pointer"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -884,14 +1068,14 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/*"
+              accept="image/*,video/*,.pdf,.doc,.docx,.txt,.log"
               className="hidden"
               onChange={pickFiles}
             />
             <button
               onClick={() => fileInputRef.current?.click()}
               className="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-              title="Gửi ảnh"
+              title="Gửi ảnh/video/tệp đính kèm"
             >
               <Paperclip className="w-4 h-4" />
             </button>
@@ -930,7 +1114,10 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
             <textarea
               ref={textareaRef}
               value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
+              onChange={(e) => {
+                setReplyText(e.target.value);
+                notifyTyping();
+              }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder="Nhập phản hồi CSKH… (Enter gửi · Shift+Enter xuống dòng · Dán ảnh)"
@@ -1040,6 +1227,31 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         ))}
       </div>
 
+      {/* Topic filter tabs - chỉ hiện khi có ít nhất 1 hội thoại đã gắn chủ đề */}
+      {topicOptions.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          <button
+            onClick={() => setTopicFilter("all")}
+            className={`text-[9.5px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer ${
+              topicFilter === "all" ? "bg-[#948154]/80 text-white" : "bg-amber-50 text-[#948154] hover:bg-amber-100"
+            }`}
+          >
+            Mọi chủ đề
+          </button>
+          {topicOptions.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTopicFilter(t)}
+              className={`text-[9.5px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer ${
+                topicFilter === t ? "bg-[#948154]/80 text-white" : "bg-amber-50 text-[#948154] hover:bg-amber-100"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* List */}
       <div className="space-y-2">
         {filteredConvList.length === 0 && (
@@ -1078,6 +1290,11 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
                   {lastMsg?.sender === "admin" && <span className="text-[#948154] font-semibold">Admin: </span>}
                   {preview}
                 </p>
+                {c.topic && (
+                  <span className="inline-block mt-0.5 text-[8.5px] font-bold text-[#948154] bg-amber-50 border border-amber-200/80 px-1.5 py-0.2 rounded-full">
+                    {c.topic}
+                  </span>
+                )}
               </div>
 
               <div className="shrink-0 flex flex-col items-end gap-1">

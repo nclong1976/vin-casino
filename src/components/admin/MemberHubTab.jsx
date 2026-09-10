@@ -32,7 +32,7 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
       // đang chờ duyệt để hiện badge y hệt cách 3 subtab kia đang làm.
       base44.entities.Transaction.filter({ signature_content: { $exists: true } }, "-created_date", 100).catch(() => []),
     ]).then(([msgs, pendingTxs, users, signedTxs]) => {
-      const unread = (msgs || []).filter((m) => m.sender === "user" && !m.is_read).length;
+      const unread = (msgs || []).filter((m) => m.sender === "user" && !m.read_at).length;
       setUnreadMsgCount(unread);
       setPendingTxCount((pendingTxs || []).length);
       setTotalUsersCount((users || []).length);

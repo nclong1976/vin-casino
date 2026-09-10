@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { FileText, Copy, Check, Maximize2, X, Download, ExternalLink } from "lucide-react";
+import { FileText, Copy, Check, CheckCheck, Maximize2, X, Download, ExternalLink, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { deriveMessageStatus } from "@/lib/messageLifecycle";
 
 const fileType = (url) => {
   if (!url) return "file";
@@ -19,11 +20,12 @@ const fileName = (url) => {
   }
 };
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, onRetry }) {
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
 
   const isUser = message.sender === "user";
+  const status = deriveMessageStatus(message, isUser);
   const time = new Date(message.created_date || Date.now()).toLocaleTimeString("vi-VN", {
     hour: "2-digit",
     minute: "2-digit",
@@ -138,8 +140,24 @@ export default function MessageBubble({ message }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 mt-0.5 px-1">
+          <div className="flex items-center gap-1 mt-0.5 px-1">
             <span className="text-[8px] text-gray-400 font-medium">{time}</span>
+            {/* Tick trạng thái - CHỈ hiện trên bubble tin CHÍNH MÌNH gửi đi
+                (deriveMessageStatus trả null cho tin của đối phương) */}
+            {status === "sending" && <Loader2 className="w-2.5 h-2.5 text-gray-400 animate-spin" />}
+            {status === "sent" && <Check className="w-3 h-3 text-gray-400" />}
+            {status === "delivered" && <CheckCheck className="w-3 h-3 text-gray-400" />}
+            {status === "read" && <CheckCheck className="w-3 h-3 text-[#948154]" />}
+            {status === "failed" && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="flex items-center gap-0.5 text-red-500 hover:text-red-600 text-[9px] font-bold cursor-pointer"
+              >
+                <AlertCircle className="w-3 h-3" />
+                Gửi lại
+              </button>
+            )}
           </div>
         </div>
       </div>

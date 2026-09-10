@@ -1,10 +1,12 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import cskhIcon from "@/assets/images/regenerated_image_1786328347646.png";
+import { useCskhUnreadCount } from "@/hooks/useCskhUnreadCount";
 
 export default function BottomNav() {
   const location = useLocation();
   const path = location.pathname;
+  const unreadCskh = useCskhUnreadCount();
 
   const isHome = path === "/";
   const isCard = path === "/card" || path === "/membership-card";
@@ -77,6 +79,11 @@ export default function BottomNav() {
           to="/support"
           className="w-[45px] flex flex-col items-center justify-center gap-1 group shrink-0 relative"
         >
+          {unreadCskh > 0 && (
+            <span className="absolute top-0 right-1.5 min-w-[13px] h-[13px] px-0.5 rounded-full bg-red-500 text-white text-[7px] font-bold flex items-center justify-center z-10">
+              {unreadCskh > 9 ? "9+" : unreadCskh}
+            </span>
+          )}
           <img
             className={`w-5 h-5 object-contain transition-all group-active:scale-90 filter drop-shadow-xs ${
               isSupport ? "scale-110 brightness-110" : "opacity-85 hover:opacity-100"
@@ -106,4 +113,4 @@ export default function BottomNav() {
       </div>
     </div>
   );
-}
+}

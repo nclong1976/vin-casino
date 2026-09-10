@@ -531,20 +531,17 @@ export async function saveCasinoMaintenanceConfig(config) {
 }
 
 export function subscribeCasinoMaintenanceConfig(callback) {
-  const channel = supabase
-    .channel(nextChannelName('public:casino_maintenance_config'))
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'casino_maintenance_config', filter: `id=eq.default` },
-      (payload) => {
-        if (typeof callback === 'function') callback(payload?.new?.config || null);
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName('public:casino_maintenance_config'))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'casino_maintenance_config', filter: `id=eq.default` },
+        (payload) => {
+          if (typeof callback === 'function') callback(payload?.new?.config || null);
+        }
+      )
+  );
 }
 
 /**
@@ -766,23 +763,73 @@ export async function deleteSupabaseWalletTransaction(id) {
 let channelSeq = 0;
 const nextChannelName = (prefix) => `${prefix}:${Date.now()}:${++channelSeq}`;
 
-export function subscribeSupabaseUsersTable(callback) {
-  const channel = supabase
-    .channel(nextChannelName('public:users'))
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'users' },
-      (payload) => {
-        if (typeof callback === 'function') {
-          callback(payload);
-        }
+// Tự động kết nối lại 1 kênh Realtime khi bị đóng/lỗi (CLOSED/CHANNEL_ERROR/
+// TIMED_OUT). Trước đây mỗi hàm subscribeSupabase*() dưới đây chỉ gọi
+// .subscribe() một lần duy nhất, không theo dõi trạng thái kênh sau đó - nếu
+// kết nối WebSocket Realtime bị ngắt (khoá màn hình điện thoại, đổi mạng
+// wifi/4G, tab bị trình duyệt tạm dừng ở nền...), kênh rơi vào CLOSED/
+// CHANNEL_ERROR và không có gì tự nối lại: người dùng/admin ngừng nhận tin
+// nhắn CSKH và mọi cập nhật realtime khác cho tới khi tự tải lại trang - đúng
+// lớp lỗi "đường truyền/kết nối" đã gặp. Cùng mẫu với subscribeWithAutoReconnect()
+// đã thêm ở server.ts (PR #45) cho luồng forward Telegram, áp dụng lại ở đây
+// cho phía trình duyệt. buildChannel() phải tạo VÀ gắn .on(...) cho 1 channel
+// MỚI mỗi lần gọi (chưa .subscribe()) - hàm này tự gọi .subscribe() và theo
+// dõi trạng thái.
+// onStatusChange (tuỳ chọn) - gọi lại mỗi lần trạng thái kênh đổi, dùng để
+// hiện banner "Đang kết nối lại..." phía UI (Support.jsx) mà không chặn
+// luồng chính - tham số tuỳ chọn nên mọi nơi gọi cũ (5 hàm subscribeSupabase*
+// còn lại) không truyền vẫn chạy y hệt trước giờ.
+function subscribeChannelWithAutoReconnect(buildChannel, onStatusChange) {
+  let channel = null;
+  let retryTimer = null;
+  let attempt = 0;
+  let stopped = false;
+
+  const connect = () => {
+    channel = buildChannel().subscribe((status) => {
+      if (stopped) return;
+      if (typeof onStatusChange === 'function') {
+        try { onStatusChange(status); } catch (e) {}
       }
-    )
-    .subscribe();
+      if (status === 'SUBSCRIBED') {
+        attempt = 0;
+        return;
+      }
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        const dead = channel;
+        channel = null;
+        if (dead) supabase.removeChannel(dead);
+        const delay = Math.min(30000, 1000 * 2 ** attempt);
+        attempt += 1;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(connect, delay);
+      }
+    });
+  };
+
+  connect();
 
   return () => {
-    supabase.removeChannel(channel);
+    stopped = true;
+    clearTimeout(retryTimer);
+    if (channel) supabase.removeChannel(channel);
   };
+}
+
+export function subscribeSupabaseUsersTable(callback) {
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName('public:users'))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'users' },
+        (payload) => {
+          if (typeof callback === 'function') {
+            callback(payload);
+          }
+        }
+      )
+  );
 }
 
 // Kênh realtime lọc theo đúng 1 user_id - dùng cho AuthContext để nhận cập
@@ -790,41 +837,35 @@ export function subscribeSupabaseUsersTable(callback) {
 // thay cho subscribeUserFromRTDB (RTDB không còn là nguồn số dư đáng tin).
 export function subscribeSupabaseUserRow(userId, callback) {
   if (!userId) return () => {};
-  const channel = supabase
-    .channel(nextChannelName(`public:users:id=eq.${userId}`))
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'users', filter: `id=eq.${userId}` },
-      (payload) => {
-        if (typeof callback === 'function') {
-          callback(payload);
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName(`public:users:id=eq.${userId}`))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'users', filter: `id=eq.${userId}` },
+        (payload) => {
+          if (typeof callback === 'function') {
+            callback(payload);
+          }
         }
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+      )
+  );
 }
 
 export function subscribeSupabaseWalletTransactionsTable(callback) {
-  const channel = supabase
-    .channel(nextChannelName('public:wallet_transactions'))
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'wallet_transactions' },
-      (payload) => {
-        if (typeof callback === 'function') {
-          callback(payload);
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName('public:wallet_transactions'))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'wallet_transactions' },
+        (payload) => {
+          if (typeof callback === 'function') {
+            callback(payload);
+          }
         }
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+      )
+  );
 }
 
 // Kênh realtime lọc theo đúng 1 user_id cho wallet_transactions - dùng cho
@@ -833,22 +874,19 @@ export function subscribeSupabaseWalletTransactionsTable(callback) {
 // ở trên) rồi tự lọc user_id ở client.
 export function subscribeSupabaseWalletTransactionsForUser(userId, callback) {
   if (!userId) return () => {};
-  const channel = supabase
-    .channel(nextChannelName(`public:wallet_transactions:user_id=eq.${userId}`))
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'wallet_transactions', filter: `user_id=eq.${userId}` },
-      (payload) => {
-        if (typeof callback === 'function') {
-          callback(payload);
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName(`public:wallet_transactions:user_id=eq.${userId}`))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'wallet_transactions', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (typeof callback === 'function') {
+            callback(payload);
+          }
         }
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+      )
+  );
 }
 
 // ==========================================
@@ -880,7 +918,7 @@ const ENTITY_TABLE_MAP = {
 // này sẽ được gom vào cột JSONB "extra" thay vì làm hỏng câu lệnh upsert
 // với lỗi "column does not exist" khi phía client gửi field lạ/mới.
 const ENTITY_COLUMNS = {
-  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'is_read', 'created_date'],
+  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'delivered_at', 'read_at', 'topic', 'created_date'],
   Notification: ['id', 'user_id', 'title', 'content', 'image', 'type', 'is_read', 'created_date'],
   Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'total_term_interest_rate', 'term_duration_minutes', 'scale', 'is_active', 'description', 'created_date', 'stock_symbol', 'daily_change_percent', 'legal_status', 'growth_history', 'monthly_transactions', 'tag', 'scheduled_open_at', 'scheduled_close_at'],
   BankAccount: ['id', 'user_id', 'bank_name', 'bank_code', 'account_number', 'account_holder', 'is_default', 'created_date'],
@@ -889,7 +927,7 @@ const ENTITY_COLUMNS = {
   AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
   News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date', 'sort_order'],
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
-  SupportConversation: ['id', 'status', 'assigned_admin_id', 'assigned_admin_name', 'updated_at', 'created_date'],
+  SupportConversation: ['id', 'status', 'assigned_admin_id', 'assigned_admin_name', 'topic', 'updated_at', 'created_date'],
 };
 
 // Cột kiểu timestamptz thật (không phải text) - Postgres từ chối chuỗi rỗng
@@ -1042,23 +1080,55 @@ export function listSupabaseEntity(entityName, filter, sort, limit) {
  * Dùng chung mẫu với subscribeSupabaseUsersTable/subscribeSupabaseWalletTransactionsTable
  * ở trên - callback nhận payload sự kiện thô, bên gọi tự quyết định tải lại gì.
  */
-export function subscribeSupabaseEntityTable(entityName, callback) {
+export function subscribeSupabaseEntityTable(entityName, callback, onStatusChange) {
   const table = ENTITY_TABLE_MAP[entityName];
   if (!table) return () => {};
-  const channel = supabase
-    .channel(nextChannelName(`public:${table}`))
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table },
-      (payload) => {
-        if (typeof callback === 'function') {
-          callback(payload);
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName(`public:${table}`))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table },
+        (payload) => {
+          if (typeof callback === 'function') {
+            callback(payload);
+          }
         }
-      }
-    )
-    .subscribe();
+      ),
+    onStatusChange
+  );
+}
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
+// ==========================================
+// 4. CSKH MESSAGE PAGINATION (cursor thật theo hội thoại)
+// ==========================================
+// fetchFromSupabase('Message') (base44Client.js) chỉ fetch "2000 tin mới
+// nhất TOÀN HỆ THỐNG" (không WHERE conversation_id) rồi cache/lọc ở JS -
+// đủ cho luồng real-time "hot" (patch tức thời qua subscribe(), đã
+// hardening qua nhiều PR) nhưng KHÔNG phải pagination thật: hội thoại nào
+// có lịch sử cũ hơn ngưỡng 2000 tin chung đó sẽ mất hẳn khỏi tầm nhìn,
+// không có cách nào tải thêm. Hàm này là đường ĐỘC LẬP, chỉ dùng để seed
+// lần đầu 1 hội thoại cụ thể và tải thêm khi cuộn lên đầu (Support.jsx,
+// MessagesTab.jsx) - KHÔNG thay thế, không đụng vào cơ chế cache/real-time
+// toàn cục ở trên.
+/**
+ * @param {string} conversationId
+ * @param {{beforeCreatedAt?: string, limit?: number}} [options]
+ */
+export async function fetchMessagesPage(conversationId, { beforeCreatedAt, limit = 50 } = {}) {
+  if (!conversationId) return [];
+  let query = supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_date', { ascending: false })
+    .limit(limit);
+  if (beforeCreatedAt) query = query.lt('created_date', beforeCreatedAt);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[SupabaseDb] fetchMessagesPage error:', error.message);
+    throw new Error(error.message);
+  }
+  return data || [];
 }

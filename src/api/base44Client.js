@@ -597,6 +597,32 @@ const supabaseChannelsStarted = {};
 // không thể tối ưu re-render. Gộp lại còn giúp gửi nhiều tin liên tiếp,
 // hoặc nhiều người cùng gửi gần nhau, chỉ tải lại 1 lần thay vì dồn dập.
 const realtimeRefetchTimers = {};
+
+// Trạng thái kênh Realtime hiện tại theo entity (SUBSCRIBED/CLOSED/
+// CHANNEL_ERROR/TIMED_OUT/...) - dùng để hiện banner "Đang kết nối lại..."
+// phía UI (Support.jsx cho entity 'Message') mà KHÔNG đụng vào cơ chế
+// auto-reconnect đã có (subscribeChannelWithAutoReconnect - supabaseDb.js),
+// chỉ đơn thuần phát lại đúng trạng thái kênh đó cho subscriber quan tâm.
+const connectionStatus = {};
+const connectionStatusListeners = {};
+
+/** Gọi callback(status) mỗi khi trạng thái kênh Realtime của entityName đổi. Trả về hàm huỷ đăng ký. */
+export function subscribeToConnectionStatus(entityName, callback) {
+  if (typeof callback !== 'function') return () => {};
+  if (!connectionStatusListeners[entityName]) connectionStatusListeners[entityName] = [];
+  connectionStatusListeners[entityName].push(callback);
+  if (connectionStatus[entityName]) callback(connectionStatus[entityName]);
+  return () => {
+    connectionStatusListeners[entityName] = (connectionStatusListeners[entityName] || []).filter((cb) => cb !== callback);
+  };
+}
+
+function reportConnectionStatus(entityName, status) {
+  connectionStatus[entityName] = status;
+  (connectionStatusListeners[entityName] || []).forEach((cb) => {
+    try { cb(status); } catch (e) {}
+  });
+}
 const REALTIME_REFETCH_DEBOUNCE_MS = 350;
 
 // Các entity dùng đường phát tức thời (payload thật, không debounce/refetch)
@@ -705,7 +731,7 @@ function ensureSupabaseRealtime(entityName) {
   } else if (entityName === 'WalletTransaction') {
     subscribeSupabaseWalletTransactionsTable(onRealtimeEvent);
   } else {
-    subscribeSupabaseEntityTable(entityName, onRealtimeEvent);
+    subscribeSupabaseEntityTable(entityName, onRealtimeEvent, (status) => reportConnectionStatus(entityName, status));
   }
 }
 
@@ -757,12 +783,19 @@ class LocalEntityClient {
 
   async create(data) {
     const items = getLocalStore(this.entityName);
+    const isMessage = this.entityName === 'Message';
     const newItem = {
       id: 'id_' + Math.random().toString(36).substr(2, 9),
       created_date: new Date().toISOString(),
       ...data
     };
-    items.unshift(newItem);
+    // Cờ tạm "đang gửi" CHỈ gắn vào bản cục bộ/notify của Message (không gửi
+    // lên Postgres - ENTITY_COLUMNS.Message không có __status nên
+    // shapeRowForTable() sẽ nhét nhầm vào cột extra nếu lỡ gửi lên) - dùng
+    // cho trạng thái Sending/Sent/Failed hiện trên bubble CSKH, xem
+    // src/lib/messageLifecycle.js. Entity khác không có field này.
+    const localItem = isMessage ? { ...newItem, __status: 'sending' } : newItem;
+    items.unshift(localItem);
     setLocalStore(this.entityName, items);
     this.notifySubscribers(items);
 
@@ -804,7 +837,18 @@ class LocalEntityClient {
     // chắc chắn Postgres đã nhận ghi (không chỉ tin toast "thành công") thì
     // tự kiểm tra `result?.__supabaseSynced === false` - xem ContractsTab/
     // StocksTab/NotificationsTab để biết cách dùng.
-    return { ...newItem, __supabaseSynced: supabaseSynced };
+    const finalItem = { ...newItem, __supabaseSynced: supabaseSynced };
+    if (isMessage) {
+      // Gỡ cờ "sending", chuyển sang "failed" nếu ghi Postgres không thành
+      // công - notify LẦN NỮA để bubble tự đổi tick ngay, Support.jsx/
+      // MessagesTab.jsx không cần tự quản lý optimistic state riêng nữa.
+      if (!supabaseSynced) finalItem.__status = 'failed';
+      const current = getLocalStore(this.entityName);
+      const patched = current.map((i) => (i.id === newItem.id ? finalItem : i));
+      setLocalStore(this.entityName, patched);
+      this.notifySubscribers(patched);
+    }
+    return finalItem;
   }
 
   async update(id, data) {
