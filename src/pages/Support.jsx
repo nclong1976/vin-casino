@@ -9,6 +9,17 @@ import ChatInput from "@/components/support/ChatInput";
 import { DEFAULT_SUPPORT_STATUS } from "@/constants/supportStatus";
 import { fetchMessagesPage } from "@/lib/supabaseDb";
 import { markDelivered, markRead } from "@/lib/messageLifecycle";
+import { subscribeToConnectionStatus } from "@/api/base44Client";
+import { compressImageFile } from "@/lib/imageCompression";
+import { useTypingIndicator } from "@/hooks/useTypingIndicator";
+import { useIdleSessionTimeout } from "@/hooks/useIdleSessionTimeout";
+
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const IDLE_WARNING_MS = 60 * 1000;
+// "Video quá lớn" chỉ là cảnh báo mềm (không nén được video client-side, xem
+// src/lib/imageCompression.js) - báo trước để người dùng biết base64 sẽ nặng,
+// không chặn gửi.
+const LARGE_VIDEO_WARN_BYTES = 15 * 1024 * 1024;
 
 export default function Support() {
   const { user } = useAuth();
@@ -16,12 +27,31 @@ export default function Support() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [convStatus, setConvStatus] = useState(DEFAULT_SUPPORT_STATUS);
+  const [connStatus, setConnStatus] = useState(null);
+  const [idleExpired, setIdleExpired] = useState(false);
   const scrollRef = useRef(null);
   const greetingCreatedRef = useRef(false);
   const prevLastMsgIdRef = useRef(null);
   const loadingOlderRef = useRef(false);
   const hasMoreOlderRef = useRef(true);
   const prependScrollAdjustRef = useRef(null);
+
+  const { peerTyping, notifyTyping } = useTypingIndicator(user?.id, "user");
+
+  const { resume: resumeIdleSession } = useIdleSessionTimeout({
+    timeoutMs: IDLE_TIMEOUT_MS,
+    warningMs: IDLE_WARNING_MS,
+    onWarning: () => toast("Phiên chat sẽ tạm nghỉ sau 1 phút do không hoạt động"),
+    onTimeout: () => setIdleExpired(true),
+  });
+
+  // Banner "Đang kết nối lại..." - subscribeChannelWithAutoReconnect
+  // (supabaseDb.js, PR #49) đã tự kết nối lại ngầm, đây chỉ là phát trạng
+  // thái kênh cho UI biết, không đổi hành vi reconnect đã có.
+  useEffect(() => {
+    const unsub = subscribeToConnectionStatus("Message", setConnStatus);
+    return unsub;
+  }, []);
 
   // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
   // loadMessages()/applyMessageList() được gọi từ nhiều nơi gần như đồng thời
@@ -346,13 +376,14 @@ export default function Support() {
   // retryFailedMessage() (bấm "Gửi lại" trên tin lỗi) tái dùng được mà
   // không phải upload lại file đính kèm đã upload thành công trước đó
   // (attachments lúc này đã là URL, không phải File object nữa).
-  const resendMessage = async (content, attachments) => {
+  const resendMessage = async (content, attachments, topic) => {
     await base44.entities.Message.create({
       sender: "user",
       conversation_id: user.id,
       user_id: user.id,
       content,
       attachments: attachments || [],
+      ...(topic ? { topic } : {}),
     });
     localStorage.setItem("vinclub_msg_update", Date.now().toString());
   };
@@ -363,12 +394,12 @@ export default function Support() {
   // gửi lại đúng nội dung/đính kèm đó dưới 1 id mới.
   const retryFailedMessage = (failedMsg) => {
     setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
-    resendMessage(failedMsg.content, failedMsg.attachments).catch(() => {
+    resendMessage(failedMsg.content, failedMsg.attachments, failedMsg.topic).catch(() => {
       toast.error("Không thể gửi lại tin nhắn. Vui lòng thử lại.");
     });
   };
 
-  const handleSend = async (text, files) => {
+  const handleSend = async (text, files, topic) => {
     if (!user) {
       toast.error("Vui lòng đăng nhập để gửi tin nhắn");
       return;
@@ -383,7 +414,11 @@ export default function Support() {
       const attachments = [];
       for (const file of files) {
         try {
-          const res = await base44.integrations.Core.UploadFile({ file });
+          if (file.type?.startsWith("video/") && file.size > LARGE_VIDEO_WARN_BYTES) {
+            toast("Video khá nặng, có thể mất thêm thời gian để gửi");
+          }
+          const toUpload = file.type?.startsWith("image/") ? await compressImageFile(file) : file;
+          const res = await base44.integrations.Core.UploadFile({ file: toUpload });
           if (res?.file_url) attachments.push(res.file_url);
         } catch (err) {
           const reader = new FileReader();
@@ -395,7 +430,7 @@ export default function Support() {
         }
       }
 
-      await resendMessage(text.trim(), attachments);
+      await resendMessage(text.trim(), attachments, topic);
 
       // Send real-time notification to Admin flow
       try {
@@ -421,9 +456,17 @@ export default function Support() {
   const userFullName = user?.full_name || user?.name || user?.display_name || (user?.email ? user.email.split("@")[0] : "Quý khách");
 
   return (
-    <div className="h-[100dvh] w-full bg-[#f0f2f5] overflow-hidden flex flex-col justify-between font-['Be_Vietnam_Pro',sans-serif]">
+    <div className="relative h-[100dvh] w-full bg-[#f0f2f5] overflow-hidden flex flex-col justify-between font-['Be_Vietnam_Pro',sans-serif]">
       {/* Fixed Header */}
       <SupportHeader status={convStatus} />
+
+      {/* Banner "Đang kết nối lại..." - không chặn UI, chỉ báo trạng thái
+          kênh Realtime đang tự nối lại (đã có sẵn từ PR #49) */}
+      {connStatus && connStatus !== "SUBSCRIBED" && (
+        <div className="w-full bg-amber-50 border-b border-amber-200 text-amber-700 text-[10px] font-semibold text-center py-1.5">
+          Đang kết nối lại...
+        </div>
+      )}
 
       {/* Main Messages View - Full Height Scroll Area */}
       <main
@@ -461,10 +504,41 @@ export default function Support() {
             onRetry={m.sender === "user" && m.__status === "failed" ? () => retryFailedMessage(m) : undefined}
           />
         ))}
+
+        {/* Typing indicator - "CSKH đang nhập..." */}
+        {peerTyping && (
+          <div className="flex justify-start">
+            <div className="bg-white border border-gray-100 rounded-2xl rounded-bl-xs px-3 py-2 text-[11px] text-gray-400 shadow-xs italic">
+              CSKH đang nhập...
+            </div>
+          </div>
+        )}
       </main>
 
+      {/* Overlay tự đóng phiên khi rảnh - thuần UI, không đổi trạng thái vé */}
+      {idleExpired && (
+        <div
+          className="absolute inset-0 z-30 bg-black/40 backdrop-blur-xs flex items-center justify-center p-6 cursor-pointer"
+          onClick={() => {
+            setIdleExpired(false);
+            resumeIdleSession();
+          }}
+        >
+          <div className="bg-white rounded-2xl p-5 max-w-xs text-center space-y-2 shadow-xl">
+            <p className="text-sm font-bold text-gray-900">Phiên chat đã tạm nghỉ</p>
+            <p className="text-[11px] text-gray-500">Do không có hoạt động trong 1 thời gian. Chạm vào đây để tiếp tục trò chuyện.</p>
+            <button
+              type="button"
+              className="mt-1 px-4 py-2 rounded-xl bg-[#948154] text-white text-[11px] font-bold cursor-pointer"
+            >
+              Tiếp tục trò chuyện
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Fixed Fullscreen Chat Input */}
-      <ChatInput onSend={handleSend} sending={sending} />
+      <ChatInput onSend={handleSend} sending={sending} onTyping={notifyTyping} />
     </div>
   );
 }

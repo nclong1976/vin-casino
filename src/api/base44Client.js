@@ -597,6 +597,32 @@ const supabaseChannelsStarted = {};
 // không thể tối ưu re-render. Gộp lại còn giúp gửi nhiều tin liên tiếp,
 // hoặc nhiều người cùng gửi gần nhau, chỉ tải lại 1 lần thay vì dồn dập.
 const realtimeRefetchTimers = {};
+
+// Trạng thái kênh Realtime hiện tại theo entity (SUBSCRIBED/CLOSED/
+// CHANNEL_ERROR/TIMED_OUT/...) - dùng để hiện banner "Đang kết nối lại..."
+// phía UI (Support.jsx cho entity 'Message') mà KHÔNG đụng vào cơ chế
+// auto-reconnect đã có (subscribeChannelWithAutoReconnect - supabaseDb.js),
+// chỉ đơn thuần phát lại đúng trạng thái kênh đó cho subscriber quan tâm.
+const connectionStatus = {};
+const connectionStatusListeners = {};
+
+/** Gọi callback(status) mỗi khi trạng thái kênh Realtime của entityName đổi. Trả về hàm huỷ đăng ký. */
+export function subscribeToConnectionStatus(entityName, callback) {
+  if (typeof callback !== 'function') return () => {};
+  if (!connectionStatusListeners[entityName]) connectionStatusListeners[entityName] = [];
+  connectionStatusListeners[entityName].push(callback);
+  if (connectionStatus[entityName]) callback(connectionStatus[entityName]);
+  return () => {
+    connectionStatusListeners[entityName] = (connectionStatusListeners[entityName] || []).filter((cb) => cb !== callback);
+  };
+}
+
+function reportConnectionStatus(entityName, status) {
+  connectionStatus[entityName] = status;
+  (connectionStatusListeners[entityName] || []).forEach((cb) => {
+    try { cb(status); } catch (e) {}
+  });
+}
 const REALTIME_REFETCH_DEBOUNCE_MS = 350;
 
 // Các entity dùng đường phát tức thời (payload thật, không debounce/refetch)
@@ -705,7 +731,7 @@ function ensureSupabaseRealtime(entityName) {
   } else if (entityName === 'WalletTransaction') {
     subscribeSupabaseWalletTransactionsTable(onRealtimeEvent);
   } else {
-    subscribeSupabaseEntityTable(entityName, onRealtimeEvent);
+    subscribeSupabaseEntityTable(entityName, onRealtimeEvent, (status) => reportConnectionStatus(entityName, status));
   }
 }
 

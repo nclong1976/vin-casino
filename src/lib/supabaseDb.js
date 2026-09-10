@@ -775,7 +775,11 @@ const nextChannelName = (prefix) => `${prefix}:${Date.now()}:${++channelSeq}`;
 // cho phía trình duyệt. buildChannel() phải tạo VÀ gắn .on(...) cho 1 channel
 // MỚI mỗi lần gọi (chưa .subscribe()) - hàm này tự gọi .subscribe() và theo
 // dõi trạng thái.
-function subscribeChannelWithAutoReconnect(buildChannel) {
+// onStatusChange (tuỳ chọn) - gọi lại mỗi lần trạng thái kênh đổi, dùng để
+// hiện banner "Đang kết nối lại..." phía UI (Support.jsx) mà không chặn
+// luồng chính - tham số tuỳ chọn nên mọi nơi gọi cũ (5 hàm subscribeSupabase*
+// còn lại) không truyền vẫn chạy y hệt trước giờ.
+function subscribeChannelWithAutoReconnect(buildChannel, onStatusChange) {
   let channel = null;
   let retryTimer = null;
   let attempt = 0;
@@ -784,6 +788,9 @@ function subscribeChannelWithAutoReconnect(buildChannel) {
   const connect = () => {
     channel = buildChannel().subscribe((status) => {
       if (stopped) return;
+      if (typeof onStatusChange === 'function') {
+        try { onStatusChange(status); } catch (e) {}
+      }
       if (status === 'SUBSCRIBED') {
         attempt = 0;
         return;
@@ -911,7 +918,7 @@ const ENTITY_TABLE_MAP = {
 // này sẽ được gom vào cột JSONB "extra" thay vì làm hỏng câu lệnh upsert
 // với lỗi "column does not exist" khi phía client gửi field lạ/mới.
 const ENTITY_COLUMNS = {
-  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'delivered_at', 'read_at', 'created_date'],
+  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'delivered_at', 'read_at', 'topic', 'created_date'],
   Notification: ['id', 'user_id', 'title', 'content', 'image', 'type', 'is_read', 'created_date'],
   Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'total_term_interest_rate', 'term_duration_minutes', 'scale', 'is_active', 'description', 'created_date', 'stock_symbol', 'daily_change_percent', 'legal_status', 'growth_history', 'monthly_transactions', 'tag', 'scheduled_open_at', 'scheduled_close_at'],
   BankAccount: ['id', 'user_id', 'bank_name', 'bank_code', 'account_number', 'account_holder', 'is_default', 'created_date'],
@@ -920,7 +927,7 @@ const ENTITY_COLUMNS = {
   AuditLog: ['id', 'action', 'tx_code', 'amount', 'user_id', 'user_name', 'admin_email', 'notes', 'created_date'],
   News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date', 'sort_order'],
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
-  SupportConversation: ['id', 'status', 'assigned_admin_id', 'assigned_admin_name', 'updated_at', 'created_date'],
+  SupportConversation: ['id', 'status', 'assigned_admin_id', 'assigned_admin_name', 'topic', 'updated_at', 'created_date'],
 };
 
 // Cột kiểu timestamptz thật (không phải text) - Postgres từ chối chuỗi rỗng
@@ -1073,7 +1080,7 @@ export function listSupabaseEntity(entityName, filter, sort, limit) {
  * Dùng chung mẫu với subscribeSupabaseUsersTable/subscribeSupabaseWalletTransactionsTable
  * ở trên - callback nhận payload sự kiện thô, bên gọi tự quyết định tải lại gì.
  */
-export function subscribeSupabaseEntityTable(entityName, callback) {
+export function subscribeSupabaseEntityTable(entityName, callback, onStatusChange) {
   const table = ENTITY_TABLE_MAP[entityName];
   if (!table) return () => {};
   return subscribeChannelWithAutoReconnect(() =>
@@ -1087,7 +1094,8 @@ export function subscribeSupabaseEntityTable(entityName, callback) {
             callback(payload);
           }
         }
-      )
+      ),
+    onStatusChange
   );
 }
 
