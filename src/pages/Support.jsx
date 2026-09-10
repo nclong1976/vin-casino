@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Headphones, Sparkles } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
@@ -7,6 +7,8 @@ import SupportHeader from "@/components/support/SupportHeader";
 import MessageBubble from "@/components/support/MessageBubble";
 import ChatInput from "@/components/support/ChatInput";
 import { DEFAULT_SUPPORT_STATUS } from "@/constants/supportStatus";
+import { fetchMessagesPage } from "@/lib/supabaseDb";
+import { markDelivered, markRead } from "@/lib/messageLifecycle";
 
 export default function Support() {
   const { user } = useAuth();
@@ -17,6 +19,9 @@ export default function Support() {
   const scrollRef = useRef(null);
   const greetingCreatedRef = useRef(false);
   const prevLastMsgIdRef = useRef(null);
+  const loadingOlderRef = useRef(false);
+  const hasMoreOlderRef = useRef(true);
+  const prependScrollAdjustRef = useRef(null);
 
   // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
   // loadMessages()/applyMessageList() được gọi từ nhiều nơi gần như đồng thời
@@ -47,6 +52,16 @@ export default function Support() {
       // này không hề chứng minh "khách này chưa từng chat", nên TUYỆT ĐỐI
       // không được coi là "chưa có lịch sử" rồi tự tạo tin chào mới đè lên.
       const isDegraded = !!list?.__fetchDegraded;
+
+      // Báo "Delivered" cho tin admin vừa nhận được (không phải mình gửi,
+      // chưa có delivered_at) - chỉ khi lượt tải này đáng tin (không degraded),
+      // xem src/lib/messageLifecycle.js. Không áp dụng cho lượt applyMessageList
+      // gọi từ nhánh "tạo tin chào" bên dưới (list rỗng, không có gì để đánh dấu).
+      if (!isDegraded && Array.isArray(list) && list.length > 0) {
+        const undelivered = list.filter((m) => m.sender !== "user" && !m.delivered_at).map((m) => m.id);
+        if (undelivered.length > 0) markDelivered(undelivered);
+      }
+
       if (isDegraded && isGreetingCheckOwner) {
         // Nhường lại quyền xét "có cần tạo tin chào không" cho lượt gọi kế
         // tiếp (poll 8s hoặc Realtime) - lượt này không đủ tin cậy để kết
@@ -112,10 +127,22 @@ export default function Support() {
         const incoming = list || [];
         const incomingIds = new Set(incoming.map((m) => m.id));
         const now = Date.now();
+        // Tin cũ hơn TIN CŨ NHẤT trong "incoming" nằm NGOÀI cửa sổ mà lượt
+        // fetch này quan sát được (vd tin đã tải thêm qua loadOlderMessages()
+        // - fetchMessagesPage() theo trang, nằm ngoài 200 tin gần nhất mà
+        // loadMessages() thấy) - "thiếu trong incoming" ở trường hợp này
+        // KHÔNG chứng minh được gì, phải luôn giữ lại, không áp reconciliation
+        // xóa như tin nằm TRONG cửa sổ quan sát.
+        const incomingOldestTime = incoming.length > 0
+          ? Math.min(...incoming.map((m) => new Date(m.created_date || 0).getTime()))
+          : null;
         const merged = new Map(incoming.map((m) => [m.id, m]));
         prev.forEach((m) => {
           if (m.id === confirmedDeletedId) return;
-          if (!incomingIds.has(m.id) && (isDegraded || now - new Date(m.created_date || 0).getTime() < GRACE_MS)) {
+          if (incomingIds.has(m.id)) return;
+          const mTime = new Date(m.created_date || 0).getTime();
+          const outsideObservedWindow = incomingOldestTime != null && mTime < incomingOldestTime;
+          if (outsideObservedWindow || isDegraded || now - mTime < GRACE_MS) {
             merged.set(m.id, m);
           }
         });
@@ -232,6 +259,22 @@ export default function Support() {
     };
   }, [user?.id]);
 
+  // Đánh dấu "Read" cho tin admin gửi mà khách CHƯA xem, mỗi khi danh sách
+  // tin nhắn đổi VÀ tab đang thật sự mở (document visible) - đối xứng với
+  // đúng pattern đánh dấu đã đọc đã có ở MessagesTab.jsx (openConversation(),
+  // phía admin), phía khách trước giờ chưa có gì tương đương.
+  useEffect(() => {
+    if (!user?.id) return;
+    const markVisibleAsRead = () => {
+      if (document.visibilityState !== "visible") return;
+      const unreadIds = messages.filter((m) => m.sender !== "user" && !m.read_at).map((m) => m.id);
+      if (unreadIds.length > 0) markRead(unreadIds);
+    };
+    markVisibleAsRead();
+    document.addEventListener("visibilitychange", markVisibleAsRead);
+    return () => document.removeEventListener("visibilitychange", markVisibleAsRead);
+  }, [messages, user?.id]);
+
   // Chỉ tự cuộn xuống đáy khi thật sự có tin nhắn mới (so sánh id tin nhắn
   // cuối cùng) - trước đây cuộn lại mỗi khi "messages" đổi tham chiếu (kể cả
   // do poll 2 giây không có gì thay đổi thật), khiến màn hình bị giật/kéo
@@ -246,6 +289,84 @@ export default function Support() {
       });
     }
   }, [messages]);
+
+  // Khôi phục đúng vị trí cuộn sau khi thêm tin CŨ vào ĐẦU danh sách (cuộn
+  // lên xem lịch sử) - nếu không, trình duyệt tự giữ nguyên scrollTop (tính
+  // bằng px từ đỉnh), khiến khung nhìn bị "nhảy" xuống đúng bằng chiều cao
+  // đám tin vừa chèn thêm phía trên. useLayoutEffect (không phải useEffect)
+  // vì cần chỉnh TRƯỚC khi trình duyệt vẽ khung hình tiếp theo.
+  useLayoutEffect(() => {
+    if (prependScrollAdjustRef.current != null && scrollRef.current) {
+      const prevHeight = prependScrollAdjustRef.current;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight - prevHeight;
+      prependScrollAdjustRef.current = null;
+    }
+  }, [messages]);
+
+  // Cursor-based pagination thật (fetchMessagesPage - src/lib/supabaseDb.js)
+  // khi cuộn lên đầu khung chat, ĐỘC LẬP với loadMessages()/applyMessageList()
+  // ở trên (không đụng vào cơ chế cache/grace-period đang chạy cho tin mới) -
+  // chỉ thêm tin CŨ HƠN tin cũ nhất đang có vào đầu danh sách.
+  const loadOlderMessages = async () => {
+    if (loadingOlderRef.current || !hasMoreOlderRef.current || !user?.id || messages.length === 0) return;
+    const oldest = messages[0];
+    if (!oldest?.created_date || !scrollRef.current) return;
+    loadingOlderRef.current = true;
+    prependScrollAdjustRef.current = scrollRef.current.scrollHeight;
+    try {
+      const older = await fetchMessagesPage(user.id, { beforeCreatedAt: oldest.created_date, limit: 30 });
+      if (!older || older.length === 0) {
+        hasMoreOlderRef.current = false;
+        prependScrollAdjustRef.current = null;
+        return;
+      }
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const toAdd = older.filter((m) => !existingIds.has(m.id));
+        if (toAdd.length === 0) {
+          prependScrollAdjustRef.current = null;
+          return prev;
+        }
+        return [...toAdd, ...prev].sort(
+          (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
+        );
+      });
+    } catch (e) {
+      prependScrollAdjustRef.current = null;
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  };
+
+  const handleScroll = (e) => {
+    if (e.target.scrollTop < 60) loadOlderMessages();
+  };
+
+  // Gửi thật (tạo Message trên Postgres) - tách riêng khỏi handleSend() để
+  // retryFailedMessage() (bấm "Gửi lại" trên tin lỗi) tái dùng được mà
+  // không phải upload lại file đính kèm đã upload thành công trước đó
+  // (attachments lúc này đã là URL, không phải File object nữa).
+  const resendMessage = async (content, attachments) => {
+    await base44.entities.Message.create({
+      sender: "user",
+      conversation_id: user.id,
+      user_id: user.id,
+      content,
+      attachments: attachments || [],
+    });
+    localStorage.setItem("vinclub_msg_update", Date.now().toString());
+  };
+
+  // Tin lỗi (message.__status === "failed", gắn bởi LocalEntityClient.create()
+  // khi ghi Postgres thất bại - xem base44Client.js) được GIỮ LẠI trên màn
+  // hình (không xoá như trước) kèm nút "Gửi lại" - bấm vào xoá tin lỗi cũ,
+  // gửi lại đúng nội dung/đính kèm đó dưới 1 id mới.
+  const retryFailedMessage = (failedMsg) => {
+    setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
+    resendMessage(failedMsg.content, failedMsg.attachments).catch(() => {
+      toast.error("Không thể gửi lại tin nhắn. Vui lòng thử lại.");
+    });
+  };
 
   const handleSend = async (text, files) => {
     if (!user) {
@@ -274,13 +395,7 @@ export default function Support() {
         }
       }
 
-      await base44.entities.Message.create({
-        sender: "user",
-        conversation_id: user.id,
-        user_id: user.id,
-        content: text.trim(),
-        attachments,
-      });
+      await resendMessage(text.trim(), attachments);
 
       // Send real-time notification to Admin flow
       try {
@@ -294,10 +409,7 @@ export default function Support() {
         });
       } catch (e) {}
 
-      // Trigger cross-tab event
-      localStorage.setItem("vinclub_msg_update", Date.now().toString());
-
-      // Immediate reload
+      // Immediate reload (resendMessage() ở trên đã tự bắn "vinclub_msg_update")
       await loadMessages(user.id, user);
     } catch (e) {
       toast.error("Không thể gửi tin nhắn. Vui lòng thử lại.");
@@ -316,6 +428,7 @@ export default function Support() {
       {/* Main Messages View - Full Height Scroll Area */}
       <main
         ref={scrollRef}
+        onScroll={handleScroll}
         className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto scroll-smooth px-3.5 py-4 space-y-3"
         style={{ overscrollBehavior: "contain" }}
       >
@@ -342,7 +455,11 @@ export default function Support() {
 
         {/* Message Bubble List */}
         {messages.map((m) => (
-          <MessageBubble key={m.id || Math.random()} message={m} />
+          <MessageBubble
+            key={m.id || Math.random()}
+            message={m}
+            onRetry={m.sender === "user" && m.__status === "failed" ? () => retryFailedMessage(m) : undefined}
+          />
         ))}
       </main>
 

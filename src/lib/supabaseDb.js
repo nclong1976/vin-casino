@@ -911,7 +911,7 @@ const ENTITY_TABLE_MAP = {
 // này sẽ được gom vào cột JSONB "extra" thay vì làm hỏng câu lệnh upsert
 // với lỗi "column does not exist" khi phía client gửi field lạ/mới.
 const ENTITY_COLUMNS = {
-  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'is_read', 'created_date'],
+  Message: ['id', 'user_id', 'sender', 'content', 'attachments', 'conversation_id', 'delivered_at', 'read_at', 'created_date'],
   Notification: ['id', 'user_id', 'title', 'content', 'image', 'type', 'is_read', 'created_date'],
   Project: ['id', 'title', 'name', 'category', 'location', 'image', 'price_per_m2', 'price_str', 'rate', 'annual_yield', 'area', 'progress', 'min_amount', 'duration', 'total_term_interest_rate', 'term_duration_minutes', 'scale', 'is_active', 'description', 'created_date', 'stock_symbol', 'daily_change_percent', 'legal_status', 'growth_history', 'monthly_transactions', 'tag', 'scheduled_open_at', 'scheduled_close_at'],
   BankAccount: ['id', 'user_id', 'bank_name', 'bank_code', 'account_number', 'account_holder', 'is_default', 'created_date'],
@@ -1089,4 +1089,38 @@ export function subscribeSupabaseEntityTable(entityName, callback) {
         }
       )
   );
+}
+
+// ==========================================
+// 4. CSKH MESSAGE PAGINATION (cursor thật theo hội thoại)
+// ==========================================
+// fetchFromSupabase('Message') (base44Client.js) chỉ fetch "2000 tin mới
+// nhất TOÀN HỆ THỐNG" (không WHERE conversation_id) rồi cache/lọc ở JS -
+// đủ cho luồng real-time "hot" (patch tức thời qua subscribe(), đã
+// hardening qua nhiều PR) nhưng KHÔNG phải pagination thật: hội thoại nào
+// có lịch sử cũ hơn ngưỡng 2000 tin chung đó sẽ mất hẳn khỏi tầm nhìn,
+// không có cách nào tải thêm. Hàm này là đường ĐỘC LẬP, chỉ dùng để seed
+// lần đầu 1 hội thoại cụ thể và tải thêm khi cuộn lên đầu (Support.jsx,
+// MessagesTab.jsx) - KHÔNG thay thế, không đụng vào cơ chế cache/real-time
+// toàn cục ở trên.
+/**
+ * @param {string} conversationId
+ * @param {{beforeCreatedAt?: string, limit?: number}} [options]
+ */
+export async function fetchMessagesPage(conversationId, { beforeCreatedAt, limit = 50 } = {}) {
+  if (!conversationId) return [];
+  let query = supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_date', { ascending: false })
+    .limit(limit);
+  if (beforeCreatedAt) query = query.lt('created_date', beforeCreatedAt);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[SupabaseDb] fetchMessagesPage error:', error.message);
+    throw new Error(error.message);
+  }
+  return data || [];
 }
