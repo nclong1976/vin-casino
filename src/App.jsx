@@ -151,8 +151,23 @@ const AuthenticatedApp = () => {
     );
   }
 
+  // Bảo trì vẫn cho phép xem trang cá nhân và nhắn tin CSKH (đúng yêu cầu -
+  // không khoá hẳn 2 kênh này, khách vẫn cần liên hệ được trong lúc bảo
+  // trì). Chuông thông báo bình thường chỉ nằm trong Home.jsx nên được gắn
+  // trực tiếp vào AppMaintenanceScreen để vẫn "xem được thông báo" mà
+  // không cần mở lại toàn bộ Trang chủ (Trang chủ có nạp/rút/đầu tư... vẫn
+  // phải chặn).
   if (appMaintenance.enabled) {
-    return <AppMaintenanceScreen message={appMaintenance.message} />;
+    return (
+      <>
+        <PushNotificationBanner />
+        <Routes>
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/support" element={<Support />} />
+          <Route path="*" element={<AppMaintenanceScreen message={appMaintenance.message} />} />
+        </Routes>
+      </>
+    );
   }
 
   return (
