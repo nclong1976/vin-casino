@@ -399,6 +399,20 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
 
     const applyMessages = (msgList) => {
       if (!Array.isArray(msgList)) return;
+      // __deletedId: xác nhận xóa ĐÚNG 1 dòng (từ Message.delete() cục bộ
+      // hoặc sự kiện Realtime DELETE thật, xem base44Client.js) - chỉ lọc bỏ
+      // đúng id đó khỏi state HIỆN CÓ, KHÔNG ghi đè toàn bộ bằng msgList (có
+      // thể là snapshot cũ/thiếu tin nhắn mới lấy từ cache localStorage - xem
+      // ghi chú ở LocalEntityClient.delete()). Mọi lượt khác (REST fetch thật
+      // qua fetchMessages(), Realtime INSERT/UPDATE) vẫn ghi đè như cũ vì đó
+      // luôn là danh sách đầy đủ/mới nhất.
+      const deletedId = msgList.__deletedId;
+      if (deletedId !== undefined) {
+        setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+        setLastUpdate(Date.now());
+        setLoading(false);
+        return;
+      }
       setMessages(msgList);
       setLastUpdate(Date.now());
       setLoading(false);
@@ -763,11 +777,27 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     setDeleteConfirm(null);
     if (type === "msg") {
       setMessages((prev) => prev.filter((m) => m.id !== target.id));
+      // currentMessages (mảng thật sự render lên màn hình) hợp nhất "messages"
+      // (toàn cục) VỚI conversationPageCache (lịch sử tải qua fetchMessagesPage) -
+      // chỉ lọc "messages" ở trên KHÔNG đủ, vì mọi tin nhắn từng hiển thị đều
+      // đã được nạp vào conversationPageCache khi mở hội thoại/cuộn lên xem
+      // lịch sử cũ. Không dọn ở đây, tin nhắn "đã xóa" vẫn tiếp tục hiển thị
+      // vĩnh viễn vì phần cache này không có cơ chế nào khác để loại bỏ nó.
+      const cid = target.conversation_id;
+      if (cid) {
+        setConversationPageCache((prev) =>
+          prev[cid] ? { ...prev, [cid]: prev[cid].filter((m) => m.id !== target.id) } : prev
+        );
+      }
       try { await base44.entities.Message.delete(target.id); }
       catch { toast.error("Không thể xóa tin nhắn"); }
     } else {
       const ids = target.messages.map((m) => m.id);
-      setMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
+      const idSet = new Set(ids);
+      setMessages((prev) => prev.filter((m) => !idSet.has(m.id)));
+      setConversationPageCache((prev) =>
+        prev[target.id] ? { ...prev, [target.id]: prev[target.id].filter((m) => !idSet.has(m.id)) } : prev
+      );
       setSelectedUser(null);
       try {
         await Promise.all(ids.map((id) => base44.entities.Message.delete(id)));
