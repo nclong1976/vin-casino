@@ -16,16 +16,17 @@
  */
 
 // Các category đánh dấu 1 bản ghi type:"deposit" là THƯỞNG/LÃI (casino
-// thắng, vòng quay, lãi VIP, đáo hạn dự án) chứ không phải nạp tiền ngân
-// hàng thật - khớp đúng field `category` mà các luồng tương ứng đang ghi
-// (BaiCao.jsx, TigerBaccarat.jsx, XiToBaLa.jsx, LuckyWheel.jsx,
-// dailyYieldEngine.js). Nạp tiền ngân hàng thật / admin cộng ví không có
+// thắng, vòng quay, lãi ngày dự án, đáo hạn dự án) chứ không phải nạp tiền
+// ngân hàng thật - khớp đúng field `category` mà các luồng tương ứng đang
+// ghi (BaiCao.jsx, TigerBaccarat.jsx, XiToBaLa.jsx, LuckyWheel.jsx, và các
+// hàm Postgres credit_daily_interest_batch()/daily_accrual_payout ở
+// supabase/migrations). Nạp tiền ngân hàng thật / admin cộng ví không có
 // category nên rơi vào nhánh mặc định "Nạp tiền".
 const BONUS_CATEGORIES = new Set([
   "Thắng Casino",
   "Thưởng Vòng Quay",
-  "Lãi VIP Hằng Ngày",
   "Đáo Hạn Dự Án",
+  "Lãi Ngày Dự Án",
 ]);
 
 export const TRANSACTION_KINDS = /** @type {const} */ ({
@@ -44,15 +45,21 @@ const KIND_META = {
 
 /**
  * Suy ra loại giao dịch chuẩn hoá từ `type`/`category` thô của
- * WalletTransaction. type gốc trong DB có 4 giá trị: deposit, withdraw,
- * investment (đầu tư dự án/chứng khoán), withdrawal (đặt cược casino) -
- * "investment" và "withdrawal" đều gộp vào 1 nhóm hiển thị "Đầu tư/Đặt cược"
- * vì cùng bản chất (tiền RA để tham gia 1 hoạt động, không phải rút ví).
+ * WalletTransaction. type gốc trong DB có 5 giá trị: deposit, withdraw,
+ * investment (đầu tư dự án/chứng khoán), withdrawal (đặt cược casino), bonus
+ * (lãi hàng ngày theo cấp VIP - credit_daily_interest_batch()) - "investment"
+ * và "withdrawal" đều gộp vào 1 nhóm hiển thị "Đầu tư/Đặt cược" vì cùng bản
+ * chất (tiền RA để tham gia 1 hoạt động, không phải rút ví).
+ *
+ * type:"bonus" trước đây KHÔNG được kiểm tra riêng ở đây - rơi thẳng xuống
+ * nhánh mặc định DEPOSIT ("Nạp tiền"), khiến lãi hàng ngày theo cấp VIP hiện
+ * sai thành "Nạp tiền" dù đã đúng type ở tầng dữ liệu.
  */
 export function resolveTransactionKind(raw) {
   const type = raw?.type;
   if (type === "withdraw") return TRANSACTION_KINDS.WITHDRAW;
   if (type === "investment" || type === "withdrawal") return TRANSACTION_KINDS.INVESTMENT;
+  if (type === "bonus") return TRANSACTION_KINDS.BONUS;
   if (type === "deposit" && BONUS_CATEGORIES.has(raw?.category)) return TRANSACTION_KINDS.BONUS;
   return TRANSACTION_KINDS.DEPOSIT;
 }
