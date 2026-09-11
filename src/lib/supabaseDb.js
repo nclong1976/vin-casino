@@ -1034,10 +1034,32 @@ async function genericDeleteEntity(entityName, id) {
 // xóa hết", xóa sạch luôn dữ liệu cache cục bộ đang có. listSupabaseEntity()
 // hiện không có nơi gọi nào khác ngoài base44Client.js nên đổi hành vi ở đây
 // an toàn, không ảnh hưởng chỗ khác.
+// "messages" là bảng DÙNG CHUNG với 1 tính năng khác hoàn toàn không liên
+// quan (thread_id/sender_id/body/ai_summary...) - base44.entities.Message
+// (CSKH) không bao giờ đọc/ghi các cột đó (xem ENTITY_COLUMNS.Message ở
+// trên, đã rà lại toàn bộ nơi gọi base44.entities.Message trong src/ để
+// xác nhận). "support_conversations" cũng có vài cột không nơi nào trong
+// src/ đọc tới (priority, last_message_at, last_message_preview,
+// unread_count_admin - có thể phục vụ 1 tính năng dashboard chưa nối UI).
+// Trước đây genericListEntity()/fetchMessagesPage() đều select('*'), nghĩa
+// là MỌI lượt tải tin nhắn/hội thoại CSKH (mount lần đầu + poll fallback
+// 8-20s ở CẢ Support.jsx lẫn MessagesTab.jsx) đều kéo thêm các cột không
+// dùng tới - tốn băng thông vô ích trên 1 bảng vốn đã nặng vì cột
+// "attachments" lưu ảnh base64. Chỉ 2 entity đã rà soát kỹ này được projection
+// - CHỦ Ý dùng allowlist tường minh thay vì "mọi entity có trong
+// ENTITY_COLUMNS" để không lỡ cắt mất field mà 1 entity khác (Project,
+// Transaction...) đang đọc nhưng chưa được kiểm chứng ở đây.
+const READ_PROJECTED_ENTITIES = new Set(['Message', 'SupportConversation']);
+
+function selectColumnsFor(entityName) {
+  const columns = ENTITY_COLUMNS[entityName];
+  return READ_PROJECTED_ENTITIES.has(entityName) && columns?.length > 0 ? columns.join(',') : '*';
+}
+
 async function genericListEntity(entityName, filter = {}, sort = '-created_date', limit = 500) {
   const table = ENTITY_TABLE_MAP[entityName];
   if (!table) return [];
-  let query = supabase.from(table).select('*');
+  let query = supabase.from(table).select(selectColumnsFor(entityName));
   Object.entries(filter || {}).forEach(([key, value]) => {
     if (value !== undefined && value !== null) query = query.eq(key, value);
   });
@@ -1119,7 +1141,7 @@ export async function fetchMessagesPage(conversationId, { beforeCreatedAt, limit
   if (!conversationId) return [];
   let query = supabase
     .from('messages')
-    .select('*')
+    .select(selectColumnsFor('Message'))
     .eq('conversation_id', conversationId)
     .order('created_date', { ascending: false })
     .limit(limit);
