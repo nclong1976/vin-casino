@@ -588,6 +588,27 @@ async function registerTelegramWebhook() {
   }
 }
 
+// Gói Render Free tự cho service "ngủ" sau ~15 phút không có request HTTP nào
+// tới - khi đó TOÀN BỘ tiến trình Node (kể cả kênh Realtime lắng nghe tin
+// nhắn CSKH/nạp-rút để forward Telegram ở trên) bị dừng hẳn, không phải chỉ
+// chạy chậm. Vì tin nhắn CSKH được trình duyệt khách ghi THẲNG vào Supabase
+// (không đi qua server này), khách hàng vẫn gửi tin bình thường ngay cả khi
+// server đang ngủ - hậu quả là tin "biến mất" khỏi Telegram cho tới khi có ai
+// đó ghé trang đánh thức server dậy (thường mất 30-60s cold-start). Tự ping
+// lại chính mình mỗi 10 phút (dưới ngưỡng 15 phút) để giữ server luôn thức -
+// CHỈ bật khi có RENDER_EXTERNAL_URL (Render tự cấp, không có ở máy dev) nên
+// không ảnh hưởng gì khi chạy local.
+function startSelfPing() {
+  const publicUrl = process.env.RENDER_EXTERNAL_URL;
+  if (!publicUrl) return;
+  const pingUrl = publicUrl.replace(/\/$/, "") + "/";
+  setInterval(() => {
+    fetch(pingUrl).catch((err: any) => {
+      console.warn("[SelfPing] Không ping được chính server (bỏ qua):", err?.message || err);
+    });
+  }, 10 * 60 * 1000);
+}
+
 // Create HTTP server
 const httpServer = http.createServer(app);
 
@@ -1001,6 +1022,7 @@ async function startServer() {
   startTelegramForwarding();
   startTelegramWalletForwarding();
   registerTelegramWebhook();
+  startSelfPing();
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
