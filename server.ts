@@ -141,6 +141,63 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string, showA
   }
 }
 
+// Admin trả lời CSKH bằng ảnh trên Telegram (gửi Photo hoặc File ảnh) -
+// Telegram chỉ gửi kèm `file_id` trong webhook, phải gọi thêm getFile để lấy
+// đường dẫn tải, rồi tự tải file đó về. Encode base64 thành data URL và lưu
+// thẳng vào `messages.attachments` - ĐÚNG pattern base64-trong-Postgres mà
+// client (UploadFile trong base44Client.js) đã dùng cho ảnh user tự gửi lên,
+// nên MessageBubble.jsx render lại không cần sửa gì thêm.
+const TELEGRAM_MAX_IMAGE_BYTES = 8 * 1024 * 1024; // ~8MB - đủ cho ảnh, tránh phình quá cỡ 1 dòng Postgres
+
+async function fetchTelegramFileAsDataUrl(fileId: string): Promise<string | null> {
+  if (!TELEGRAM_API || !TELEGRAM_BOT_TOKEN) return null;
+  try {
+    const infoResp = await fetch(`${TELEGRAM_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    const infoData: any = await infoResp.json();
+    if (!infoData.ok || !infoData.result?.file_path) {
+      console.error("[Telegram] getFile lỗi:", infoData.description);
+      return null;
+    }
+    const filePath: string = infoData.result.file_path;
+
+    const fileResp = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`);
+    if (!fileResp.ok) {
+      console.error("[Telegram] Tải file ảnh thất bại, status:", fileResp.status);
+      return null;
+    }
+    const buf = Buffer.from(await fileResp.arrayBuffer());
+    if (buf.length > TELEGRAM_MAX_IMAGE_BYTES) {
+      console.warn(`[Telegram] Ảnh admin gửi quá lớn (${buf.length} bytes) - bỏ qua, không lưu vào hội thoại.`);
+      return null;
+    }
+
+    const ext = (filePath.split(".").pop() || "jpg").toLowerCase();
+    const mime =
+      ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch (err: any) {
+    console.error("[Telegram] fetchTelegramFileAsDataUrl exception:", err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Lấy `file_id` ảnh trong 1 tin nhắn Telegram - hỗ trợ cả 2 cách Admin có thể
+ * gửi: (a) Photo (Telegram tự nén, kèm nhiều size - lấy size lớn nhất/phần
+ * tử cuối) và (b) File ảnh gửi ở dạng Document (giữ nguyên chất lượng gốc,
+ * Admin chọn "Gửi dưới dạng file" trên Telegram) - chỉ nhận khi mime_type bắt
+ * đầu bằng "image/", bỏ qua các loại file khác.
+ */
+function extractTelegramImageFileId(message: any): string | null {
+  const photoSizes = message?.photo;
+  if (Array.isArray(photoSizes) && photoSizes.length > 0) {
+    return photoSizes[photoSizes.length - 1]?.file_id ?? null;
+  }
+  const doc = message?.document;
+  if (doc?.mime_type?.startsWith("image/")) return doc.file_id ?? null;
+  return null;
+}
+
 /** Thoát các ký tự đặc biệt của HTML parse_mode (Telegram) để nội dung user gõ không phá format tin nhắn. */
 function escapeHtml(s: string): string {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -278,7 +335,7 @@ function startTelegramForwarding() {
 
             const userName = await getUserDisplayName(row.conversation_id);
             const content = row.content || row.text || "(tệp đính kèm)";
-            const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này - hoặc gõ thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
+            const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này bằng chữ hoặc ảnh - hoặc gõ/gửi ảnh thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
 
             // Mỗi khách 1 Forum Topic riêng (xem ensureForumTopic()) - null
             // nếu nhóm chưa bật Forum Topics, sendTelegramMessage() vẫn gửi
@@ -777,16 +834,20 @@ app.post("/api/telegram-webhook", async (req, res) => {
     const message = req.body?.message;
     const replyToId = message?.reply_to_message?.message_id;
     const messageThreadId = message?.message_thread_id;
-    const text = message?.text;
-    if (!text) return;
+    // Ảnh Admin gửi (Photo hoặc File ảnh) dùng "caption" thay cho "text" -
+    // content lấy 1 trong 2, có thể rỗng nếu Admin gửi ảnh không kèm chú thích.
+    const text = message?.text || message?.caption || "";
+    const imageFileId = extractTelegramImageFileId(message);
+    if (!text && !imageFileId) return;
     // Bỏ qua tin nhắn của chính bot (tránh vòng lặp nếu bot tự phản hồi gì đó)
     if (message.from?.is_bot) return;
 
     const adminName = message.from?.username || message.from?.first_name || "Admin";
 
     // Ưu tiên kiểm tra REPLY nhập tay lý do từ chối nạp/rút trước (luôn cần
-    // replyToId - nạp/rút không dùng Forum Topics).
-    if (replyToId) {
+    // replyToId - nạp/rút không dùng Forum Topics, và luôn cần gõ CHỮ làm lý
+    // do - ảnh không hợp lệ cho luồng này nên bỏ qua nếu Admin lỡ gửi ảnh).
+    if (replyToId && text) {
       const { data: walletLink } = await supabaseAdmin
         .from("telegram_wallet_links")
         .select("tx_id, awaiting_custom_reason")
@@ -842,6 +903,23 @@ app.post("/api/telegram-webhook", async (req, res) => {
       return;
     }
 
+    // Chỉ tải ảnh về SAU KHI đã khớp được đúng hội thoại - tránh tốn băng
+    // thông tải ảnh cho những tin nhắn/ảnh chat chit thường trong nhóm không
+    // khớp cuộc hội thoại nào.
+    const attachments: string[] = [];
+    if (imageFileId) {
+      const dataUrl = await fetchTelegramFileAsDataUrl(imageFileId);
+      if (dataUrl) {
+        attachments.push(dataUrl);
+      } else {
+        await sendTelegramMessage(
+          "⚠️ Không gửi được ảnh này cho khách (ảnh quá lớn hoặc tải thất bại). Vui lòng thử lại với ảnh nhỏ hơn.",
+          message.message_id
+        );
+        if (!text) return; // ảnh là nội dung duy nhất và đã lỗi - không có gì để gửi tiếp
+      }
+    }
+
     // Dùng ĐÚNG "message.date" mà Telegram gắn cho tin nhắn (Unix giây, thời
     // điểm admin thật sự bấm gửi trên Telegram) làm created_date, KHÔNG dùng
     // giờ server xử lý xong webhook (new Date()) - nếu có độ trễ xử lý (mạng,
@@ -854,7 +932,7 @@ app.post("/api/telegram-webhook", async (req, res) => {
       user_id: conversationId,
       conversation_id: conversationId,
       content: text,
-      attachments: [],
+      attachments,
       created_date: sentAt,
     });
 
@@ -864,7 +942,7 @@ app.post("/api/telegram-webhook", async (req, res) => {
       return;
     }
 
-    console.log(`[Telegram] Admin ${adminName} đã trả lời hội thoại ${conversationId}`);
+    console.log(`[Telegram] Admin ${adminName} đã trả lời hội thoại ${conversationId}${attachments.length ? " (kèm ảnh)" : ""}`);
   } catch (err: any) {
     console.error("[Telegram] Lỗi xử lý webhook:", err?.message || err);
   }
