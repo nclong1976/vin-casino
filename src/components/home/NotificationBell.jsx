@@ -101,9 +101,21 @@ export default function NotificationBell() {
       const handleBalanceUpdate = () => fetchNotifs();
       window.addEventListener("vinclub:balance_updated", handleBalanceUpdate);
 
+      // Poll dự phòng - CÙNG lý do đã thêm cho khung chat CSKH (Support.jsx):
+      // subscribe() ở trên là kênh chính, nhưng nếu lượt fetchNotifs() lúc
+      // mount thất bại (mạng chập chờn đúng lúc mở trang) HOẶC kênh Realtime
+      // rớt rồi tự kết nối lại (subscribeChannelWithAutoReconnect) mà không
+      // có thay đổi Postgres mới nào xảy ra SAU khi kết nối lại, callback ở
+      // subscribe() không có gì để bắn - chuông kẹt ở trạng thái trống/cũ
+      // vĩnh viễn trên đúng thiết bị đó tới khi người dùng tự tải lại trang,
+      // dù dữ liệu/quyền phía server hoàn toàn đúng. 20s là đủ nhẹ cho 1
+      // component hiện diện trên mọi trang, không cần nhanh như chat.
+      const pollInterval = setInterval(fetchNotifs, 20000);
+
       return () => {
         unsub();
         window.removeEventListener("vinclub:balance_updated", handleBalanceUpdate);
+        clearInterval(pollInterval);
       };
     }
   }, [user]);
