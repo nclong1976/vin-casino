@@ -908,6 +908,18 @@ class LocalEntityClient {
   async delete(id) {
     let items = getLocalStore(this.entityName);
     items = items.filter(i => i.id !== id);
+    // Đánh dấu ĐÚNG id vừa xóa (cùng quy ước __deletedId đã dùng cho sự kiện
+    // Realtime DELETE thật ở applyRealtimePayloadPatch() bên dưới) - subscriber
+    // cần phân biệt được "đây là xác nhận xóa đúng 1 dòng" để áp XÓA CÓ MỤC
+    // TIÊU (lọc theo id khỏi state đang có) thay vì GHI ĐÈ TOÀN BỘ bằng mảng
+    // "items" này - mảng này lấy từ cache localStorage, có thể THIẾU tin nhắn
+    // mới hơn nếu 1 lần ghi cache trước đó thất bại âm thầm (vượt hạn mức lưu
+    // trữ do ảnh base64 lớn) - ghi đè mù quáng từng khiến MessagesTab.jsx mất
+    // tạm thời các tin nhắn mới sau khi Admin xóa 1 tin, phải đợi tới lượt
+    // poll dự phòng (20s) mới thấy lại.
+    try {
+      Object.defineProperty(items, '__deletedId', { value: id, enumerable: false });
+    } catch (e) {}
     setLocalStore(this.entityName, items);
     this.notifySubscribers(items);
 
