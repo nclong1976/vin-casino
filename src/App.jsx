@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import { Toaster } from "sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
@@ -8,39 +8,63 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { ConfigProvider } from '@/lib/ConfigContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppErrorBoundary from '@/components/AppErrorBoundary';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import OAuthConsent from './pages/OAuthConsent';
-import Home from './pages/Home';
-import Settings from './pages/Settings';
-import Projects from './pages/Projects';
-import Stocks from './pages/Stocks';
-import Casino from './pages/Casino';
-import BaiCao from './pages/BaiCao';
-import XiToBaLa from './pages/XiToBaLa';
-import TigerBaccarat from './pages/TigerBaccarat';
-import Signature from './pages/Signature';
-import Support from './pages/Support';
-import Profile from './pages/Profile';
-import Contract from './pages/Contract';
-import Admin from './pages/Admin';
 import AdminRoute from '@/components/AdminRoute';
 import isAdminUser from '@/lib/isAdminUser';
-import Consultation from './pages/Consultation';
-import Benefits from './pages/Benefits';
-import Goals from './pages/Goals';
-import LandInvestment from './pages/LandInvestment';
-import LuckyWheel from './pages/LuckyWheel';
-import Resort from './pages/Resort';
-import News from './pages/News';
-import MembershipCard from './pages/MembershipCard';
 import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
 import WelcomeIntroPlayer from '@/components/WelcomeIntroPlayer';
 import AppMaintenanceScreen from '@/components/AppMaintenanceScreen';
 import { useDailyPayoutToast } from '@/hooks/useDailyPayoutToast';
 import { useAppMaintenance } from '@/hooks/useAppMaintenance';
+
+// Mỗi trang tách thành 1 chunk JS riêng (code-splitting theo route) thay vì
+// gộp chung vào 1 bundle duy nhất ~2MB tải hết ngay từ lần mở app đầu tiên
+// dù người dùng chỉ vào Trang chủ - đây là nguyên nhân chính khiến app tải
+// chậm. Với React.lazy(), trình duyệt chỉ tải đúng chunk của trang đang
+// điều hướng tới; các trang khác (game casino, các tab đầu tư, Admin...)
+// chỉ tải khi thật sự cần. Route hiện hữu/thứ tự khai báo giữ nguyên 100%
+// - chỉ đổi cách import.
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const OAuthConsent = lazy(() => import('./pages/OAuthConsent'));
+const Home = lazy(() => import('./pages/Home'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Projects = lazy(() => import('./pages/Projects'));
+const Stocks = lazy(() => import('./pages/Stocks'));
+const Casino = lazy(() => import('./pages/Casino'));
+const BaiCao = lazy(() => import('./pages/BaiCao'));
+const XiToBaLa = lazy(() => import('./pages/XiToBaLa'));
+const TigerBaccarat = lazy(() => import('./pages/TigerBaccarat'));
+const Signature = lazy(() => import('./pages/Signature'));
+const Support = lazy(() => import('./pages/Support'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Contract = lazy(() => import('./pages/Contract'));
+const Admin = lazy(() => import('./pages/Admin'));
+const Consultation = lazy(() => import('./pages/Consultation'));
+const Benefits = lazy(() => import('./pages/Benefits'));
+const Goals = lazy(() => import('./pages/Goals'));
+const LandInvestment = lazy(() => import('./pages/LandInvestment'));
+const LuckyWheel = lazy(() => import('./pages/LuckyWheel'));
+const Resort = lazy(() => import('./pages/Resort'));
+const News = lazy(() => import('./pages/News'));
+const MembershipCard = lazy(() => import('./pages/MembershipCard'));
+
+// Fallback hiển thị trong lúc chờ tải chunk của trang đích - cùng giao
+// diện với splash loader lúc xác thực (ngắn, không nháy layout lạ).
+const RouteLoadingFallback = () => (
+  <div className="fixed inset-0 bg-[#0c0a09] flex flex-col items-center justify-center gap-4 z-[99999]">
+    <div className="relative flex items-center justify-center">
+      <div className="w-16 h-16 rounded-full border-2 border-[#948154]/30 border-t-[#d4af37] animate-spin" />
+      <img
+        src="/logo.png"
+        alt="VinClub"
+        className="w-10 h-10 rounded-full object-cover absolute"
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
+    </div>
+  </div>
+);
 
 const AuthenticatedApp = () => {
   const { isAuthenticated, user, isLoadingAuth, isLoadingPublicSettings, authError, otpPending } = useAuth();
@@ -217,7 +241,9 @@ function App() {
         <AuthProvider>
           <QueryClientProvider client={queryClientInstance}>
             <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <AuthenticatedApp />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <AuthenticatedApp />
+              </Suspense>
             </Router>
             <Toaster />
           </QueryClientProvider>
