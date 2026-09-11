@@ -188,10 +188,14 @@ export default function Support() {
     if (!userId) return;
     const isGreetingCheckOwner = claimGreetingOwnership();
     try {
+      // Chỉ tải 10 tin gần nhất mỗi lượt (mount + poll 8s) thay vì 200 - nhẹ
+      // hơn, tải nhanh hơn cho khách hàng. Muốn xem lịch sử cũ hơn thì cuộn
+      // lên đầu khung chat, đã có loadOlderMessages()/fetchMessagesPage() lo
+      // phần đó (cursor pagination thật, không phụ thuộc giới hạn này).
       const list = await base44.entities.Message.filter(
         { conversation_id: userId },
-        "created_date",
-        200
+        "-created_date",
+        10
       );
       await applyMessageList(list, userId, currentUser, isGreetingCheckOwner);
     } catch (e) {
