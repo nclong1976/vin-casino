@@ -276,6 +276,385 @@ function escapeHtml(s: string): string {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Cầu nối Telegram Business <-> CSKH (xem ghi chú đầy đủ trong migration
+// telegram_business_bridge.sql). Khác hẳn kênh "1 nhóm chung + Forum Topic"
+// ở trên (luôn gửi vào 1 chat_id cố định TELEGRAM_CHAT_ID) - kênh này gửi
+// tới ĐÚNG chat_id của từng khách hàng, kèm business_connection_id để
+// Telegram biết gửi "thay mặt" tài khoản Business nào.
+
+/** Gửi tin nhắn text tới 1 chat_id BẤT KỲ, KHÔNG qua Business Connection -
+ * dùng cho đoạn chat trực tiếp giữa khách và chính con bot (bước liên kết
+ * /start, xem handleBusinessLinkStart()) - khác hẳn sendTelegramMessage() ở
+ * trên (luôn gửi vào nhóm cố định) và sendTelegramBusinessMessage() bên dưới
+ * (gửi thay mặt tài khoản Business). */
+async function sendPlainTelegramMessage(chatId: number, text: string): Promise<number | null> {
+  if (!TELEGRAM_API) return null;
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) {
+      console.error("[Telegram] sendMessage(plain) lỗi:", data.description);
+      return null;
+    }
+    return data.result?.message_id ?? null;
+  } catch (err: any) {
+    console.error("[Telegram] sendMessage(plain) exception:", err?.message || err);
+    return null;
+  }
+}
+
+async function sendTelegramBusinessMessage(
+  businessConnectionId: string,
+  chatId: number,
+  text: string
+): Promise<number | null> {
+  if (!TELEGRAM_API) return null;
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        business_connection_id: businessConnectionId,
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+      }),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) {
+      console.error("[TelegramBusiness] sendMessage lỗi:", data.description);
+      return null;
+    }
+    return data.result?.message_id ?? null;
+  } catch (err: any) {
+    console.error("[TelegramBusiness] sendMessage exception:", err?.message || err);
+    return null;
+  }
+}
+
+async function sendTelegramBusinessPhoto(
+  businessConnectionId: string,
+  chatId: number,
+  buffer: Buffer,
+  filename: string
+): Promise<number | null> {
+  if (!TELEGRAM_API) return null;
+  try {
+    const form = new FormData();
+    form.append("business_connection_id", businessConnectionId);
+    form.append("chat_id", String(chatId));
+    form.append("photo", new Blob([buffer]), filename);
+    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: "POST", body: form });
+    const data: any = await resp.json();
+    if (!data.ok) {
+      console.error("[TelegramBusiness] sendPhoto lỗi:", data.description);
+      return null;
+    }
+    return data.result?.message_id ?? null;
+  } catch (err: any) {
+    console.error("[TelegramBusiness] sendPhoto exception:", err?.message || err);
+    return null;
+  }
+}
+
+/** Sửa nội dung 1 tin nhắn Business đã gửi - dùng khi Admin bấm "Sửa tin nhắn" trong Admin Panel. */
+async function editTelegramBusinessMessageText(
+  businessConnectionId: string,
+  chatId: number,
+  messageId: number,
+  text: string
+) {
+  if (!TELEGRAM_API) return;
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        business_connection_id: businessConnectionId,
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: "HTML",
+      }),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) console.error("[TelegramBusiness] editMessageText lỗi:", data.description);
+  } catch (err: any) {
+    console.error("[TelegramBusiness] editMessageText exception:", err?.message || err);
+  }
+}
+
+/** Xóa thật 1 hoặc nhiều tin nhắn Business - dùng khi Admin xóa (từng tin hoặc xóa hàng loạt) trong Admin Panel. */
+async function deleteTelegramBusinessMessages(businessConnectionId: string, messageIds: number[]) {
+  if (!TELEGRAM_API || messageIds.length === 0) return;
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/deleteBusinessMessages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ business_connection_id: businessConnectionId, message_ids: messageIds }),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) console.error("[TelegramBusiness] deleteBusinessMessages lỗi:", data.description);
+  } catch (err: any) {
+    console.error("[TelegramBusiness] deleteBusinessMessages exception:", err?.message || err);
+  }
+}
+
+/** Lưu/cập nhật trạng thái kết nối Business hiện tại - Telegram gửi update
+ * "business_connection" mỗi khi Admin bật/tắt/đổi quyền cho bot trong Cài
+ * đặt > Telegram Business > Chatbots. */
+async function upsertTelegramBusinessConnection(conn: any) {
+  if (!supabaseAdmin || !conn?.id) return;
+  try {
+    await supabaseAdmin.from("telegram_business_connection").upsert({
+      id: "default",
+      business_connection_id: conn.id,
+      business_user_id: conn.user?.id ?? null,
+      is_enabled: !!conn.is_enabled,
+      can_reply: !!conn.can_reply,
+      updated_date: new Date().toISOString(),
+    });
+    console.log(
+      `[TelegramBusiness] Kết nối ${conn.is_enabled ? "BẬT" : "TẮT"} (connection_id=${conn.id}, can_reply=${conn.can_reply})`
+    );
+  } catch (e) {
+    console.error("[TelegramBusiness] Không lưu được trạng thái kết nối:", e);
+  }
+}
+
+async function getActiveTelegramBusinessConnection(): Promise<{
+  businessConnectionId: string;
+  businessUserId: number | null;
+} | null> {
+  if (!supabaseAdmin) return null;
+  try {
+    const { data } = await supabaseAdmin
+      .from("telegram_business_connection")
+      .select("business_connection_id, business_user_id, is_enabled")
+      .eq("id", "default")
+      .maybeSingle();
+    if (!data?.is_enabled || !data.business_connection_id) return null;
+    return { businessConnectionId: data.business_connection_id, businessUserId: data.business_user_id ?? null };
+  } catch (e) {
+    console.error("[TelegramBusiness] Không đọc được trạng thái kết nối:", e);
+    return null;
+  }
+}
+
+/**
+ * Bước liên kết AN TOÀN 1 lần: khách bấm link "t.me/<bot>?start=<mã>" TỪ
+ * TRONG APP (đang đăng nhập) - Telegram mở 1 đoạn chat TRỰC TIẾP với chính
+ * con bot (KHÁC HẲN đoạn chat với tài khoản Business - 2 chat riêng biệt),
+ * gửi lệnh "/start <mã>" làm tin nhắn đầu tiên. Mã chính là user.id thật
+ * (dấu "-" đã đổi thành "_" cho hợp lệ với start_param) - không cần khách tự
+ * gõ số điện thoại/email (dễ gõ nhầm/giả mạo người khác trên 1 nền tảng tài
+ * chính). Sau khi khớp, lưu telegram_business_links để nhận diện ĐÚNG khách
+ * đó ở MỌI tin nhắn Business sau này - Telegram user id CỐ ĐỊNH, giống nhau
+ * dù họ nhắn cho bot hay cho tài khoản Business.
+ * Trả về true nếu đây đúng là 1 lượt /start (đã xử lý xong, dù thành công
+ * hay báo lỗi) để nơi gọi biết dừng lại, không xử lý tiếp như tin nhắn khác.
+ */
+async function handleBusinessLinkStart(message: any): Promise<boolean> {
+  const text: string = message?.text || "";
+  const match = text.match(/^\/start(?:@\S+)?\s+(\S+)/);
+  const telegramUserId = message?.from?.id;
+  if (!match) return false;
+  if (!supabaseAdmin || !telegramUserId) return true;
+
+  const userId = match[1].replace(/_/g, "-");
+  try {
+    const { data: userRow } = await supabaseAdmin
+      .from("users")
+      .select("id, full_name, name")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (!userRow) {
+      await sendPlainTelegramMessage(
+        telegramUserId,
+        '⚠️ Không tìm thấy tài khoản VinClub tương ứng. Vui lòng bấm lại nút "Liên hệ CSKH" ngay trong ứng dụng VinClub để lấy đúng link liên kết.'
+      );
+      return true;
+    }
+
+    await supabaseAdmin.from("telegram_business_links").upsert({
+      telegram_user_id: telegramUserId,
+      user_id: userRow.id,
+      verified: true,
+      linked_at: new Date().toISOString(),
+    });
+
+    const businessUsername = (process.env.TELEGRAM_BUSINESS_USERNAME || "").replace(/^@/, "");
+    const contactLine = businessUsername
+      ? `\n\nBây giờ bạn nhắn tin trực tiếp cho CSKH VinClub tại: https://t.me/${businessUsername}`
+      : "\n\nBây giờ bạn có thể nhắn tin trực tiếp cho CSKH VinClub qua Telegram.";
+    await sendPlainTelegramMessage(
+      telegramUserId,
+      `✅ Đã liên kết tài khoản Telegram của bạn với VinClub (${escapeHtml(userRow.full_name || userRow.name || "")}).${contactLine}`
+    );
+    console.log(`[TelegramBusiness] Đã liên kết telegram_user_id=${telegramUserId} với user_id=${userId}`);
+  } catch (e) {
+    console.error("[TelegramBusiness] Lỗi xử lý /start liên kết:", e);
+  }
+  return true;
+}
+
+/** Quy đổi telegram_user_id của người gửi 1 business_message thành user_id
+ * VinClub tương ứng. Trả về null nếu chính chủ tài khoản Business (Admin) tự
+ * gõ trả lời trên Telegram cá nhân của họ - nơi gọi tự xử lý riêng nhánh đó
+ * (sender="admin", ghi thẳng vào conversation đang có, không tra bảng liên
+ * kết khách hàng). "verified":false = khách nhắn thẳng cho tài khoản Business
+ * mà CHƯA từng bấm link liên kết trong app - vẫn ghi nhận để Admin không bỏ
+ * sót (dùng user_id giả "tgbiz_<id>", không khớp auth.uid() của ai - đúng
+ * bằng cơ chế "Khách #xxxxxx" MessagesTab.jsx đã có sẵn khi usersMap không
+ * tìm thấy user thật, không cần thêm code hiển thị riêng). */
+async function resolveBusinessSender(
+  telegramUserId: number,
+  businessUserId: number | null
+): Promise<{ userId: string; verified: boolean } | null> {
+  if (businessUserId && telegramUserId === businessUserId) return null;
+  if (!supabaseAdmin) return { userId: `tgbiz_${telegramUserId}`, verified: false };
+
+  try {
+    const { data: link } = await supabaseAdmin
+      .from("telegram_business_links")
+      .select("user_id, verified")
+      .eq("telegram_user_id", telegramUserId)
+      .maybeSingle();
+    if (link?.user_id) return { userId: link.user_id, verified: !!link.verified };
+  } catch (e) {
+    console.error("[TelegramBusiness] Không đọc được telegram_business_links:", e);
+  }
+  return { userId: `tgbiz_${telegramUserId}`, verified: false };
+}
+
+/** Xử lý 1 update "business_message" - tin nhắn MỚI (từ khách HOẶC từ chính
+ * Admin tự gõ trên Telegram cá nhân) trong 1 cuộc chat đã kết nối Business.
+ * Ghi thẳng vào public.messages giống hệt luồng CSKH cũ - trigger
+ * reopen_support_conversation_on_customer_message() có sẵn tự lo phần
+ * support_conversations (last_message_at/preview/unread_count...), không
+ * cần thêm code riêng ở đây. */
+async function handleIncomingBusinessMessage(businessMessage: any, businessUserId: number | null) {
+  if (!supabaseAdmin) return;
+  const telegramUserId = businessMessage?.from?.id;
+  const chatId = businessMessage?.chat?.id;
+  if (!telegramUserId || !chatId) return;
+
+  const resolved = await resolveBusinessSender(telegramUserId, businessUserId);
+  const isAdminSender = resolved === null;
+  const conversationId = resolved ? resolved.userId : null;
+  if (!conversationId) return; // chính chủ Admin tự gõ - xử lý ở nhánh riêng bên dưới nếu cần trong tương lai, hiện chỉ bỏ qua để tránh tự lưu tin của chính mình 2 lần
+
+  const text: string = businessMessage.text || businessMessage.caption || "";
+  const imageFileId = extractTelegramImageFileId(businessMessage);
+  const attachments: string[] = [];
+  if (imageFileId) {
+    const dataUrl = await fetchTelegramFileAsDataUrl(imageFileId);
+    if (dataUrl) attachments.push(dataUrl);
+  }
+  if (!text && attachments.length === 0) return;
+
+  const sentAt = businessMessage.date ? new Date(businessMessage.date * 1000).toISOString() : new Date().toISOString();
+  const messageId = "id_tgb_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+  const { error } = await supabaseAdmin.from("messages").insert({
+    id: messageId,
+    sender: isAdminSender ? "admin" : "user",
+    user_id: conversationId,
+    conversation_id: conversationId,
+    content: text,
+    attachments,
+    created_date: sentAt,
+  });
+  if (error) {
+    console.error("[TelegramBusiness] Không ghi được business_message:", error.message);
+    return;
+  }
+
+  if (businessMessage.message_id && businessMessage.business_connection_id) {
+    try {
+      await supabaseAdmin.from("telegram_business_message_links").insert({
+        telegram_message_id: businessMessage.message_id,
+        business_connection_id: businessMessage.business_connection_id,
+        message_id: messageId,
+      });
+    } catch (e) {
+      console.error("[TelegramBusiness] Không lưu được telegram_business_message_links:", e);
+    }
+  }
+
+  if (!resolved!.verified) {
+    console.warn(
+      `[TelegramBusiness] Tin nhắn từ telegram_user_id=${telegramUserId} CHƯA xác thực (chưa liên kết tài khoản VinClub nào).`
+    );
+  }
+}
+
+/** Xử lý update "edited_business_message" - Admin/khách SỬA thật 1 tin nhắn
+ * trên Telegram (long-press -> Edit) - tìm đúng dòng messages tương ứng qua
+ * telegram_business_message_links rồi UPDATE content. */
+async function handleEditedBusinessMessage(businessMessage: any) {
+  if (!supabaseAdmin) return;
+  const telegramMessageId = businessMessage?.message_id;
+  const businessConnectionId = businessMessage?.business_connection_id;
+  if (!telegramMessageId || !businessConnectionId) return;
+
+  try {
+    const { data: link } = await supabaseAdmin
+      .from("telegram_business_message_links")
+      .select("message_id")
+      .eq("telegram_message_id", telegramMessageId)
+      .eq("business_connection_id", businessConnectionId)
+      .maybeSingle();
+    if (!link?.message_id) return;
+
+    const newText: string = businessMessage.text || businessMessage.caption || "";
+    await supabaseAdmin.from("messages").update({ content: newText }).eq("id", link.message_id);
+    console.log(`[TelegramBusiness] Đã đồng bộ sửa tin nhắn ${link.message_id}`);
+  } catch (e) {
+    console.error("[TelegramBusiness] Lỗi xử lý edited_business_message:", e);
+  }
+}
+
+/** Xử lý update "deleted_business_messages" - Admin/khách XÓA thật 1 hoặc
+ * NHIỀU tin nhắn cùng lúc trên Telegram (chọn nhiều tin -> Delete = đúng 1
+ * update kèm mảng message_ids - "xóa hàng loạt" tự động khớp qua CÙNG code
+ * này, không cần xử lý riêng). */
+async function handleDeletedBusinessMessages(payload: any) {
+  if (!supabaseAdmin) return;
+  const businessConnectionId = payload?.business_connection_id;
+  const messageIds: number[] = Array.isArray(payload?.message_ids) ? payload.message_ids : [];
+  if (!businessConnectionId || messageIds.length === 0) return;
+
+  try {
+    const { data: links } = await supabaseAdmin
+      .from("telegram_business_message_links")
+      .select("message_id")
+      .eq("business_connection_id", businessConnectionId)
+      .in("telegram_message_id", messageIds);
+    const appMessageIds = (links || []).map((l: any) => l.message_id).filter(Boolean);
+    if (appMessageIds.length === 0) return;
+
+    // Xóa link TRƯỚC rồi mới xóa messages - forwardMessageUpdateToBusiness()
+    // bên dưới cũng lắng nghe DELETE trên "messages" để đồng bộ ngược (Admin
+    // Panel -> Telegram), xóa link trước tránh nó gọi lại deleteBusinessMessages
+    // 1 lần nữa cho những tin đã xóa xong ở đây.
+    await supabaseAdmin
+      .from("telegram_business_message_links")
+      .delete()
+      .eq("business_connection_id", businessConnectionId)
+      .in("telegram_message_id", messageIds);
+    await supabaseAdmin.from("messages").delete().in("id", appMessageIds);
+    console.log(`[TelegramBusiness] Đã đồng bộ xóa ${appMessageIds.length} tin nhắn.`);
+  } catch (e) {
+    console.error("[TelegramBusiness] Lỗi xử lý deleted_business_messages:", e);
+  }
+}
+
 /** Tra tên hiển thị của 1 user từ bảng users (dùng chung cho cả forward CSKH lẫn forward nạp/rút). */
 async function getUserDisplayName(userId: string): Promise<string> {
   if (!supabaseAdmin || !userId) return userId;
@@ -391,7 +770,117 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
   connect();
 }
 
-/** Lắng nghe tin nhắn MỚI từ user (Supabase Realtime) và chuyển tiếp sang nhóm Telegram CSKH. */
+// Tin nhắn có id bắt đầu bằng 1 trong 2 tiền tố này ĐÃ TỒN TẠI trên Telegram
+// rồi (vừa được chính webhook Telegram ghi vào messages - xem "id_tg_" ở
+// nhánh reply nhóm cũ và "id_tgb_" ở handleIncomingBusinessMessage()) - forward
+// NGƯỢC lại những tin này sẽ tạo vòng lặp/trùng lặp vô nghĩa, phải loại trừ.
+function isTelegramOriginMessageId(id: unknown): boolean {
+  return typeof id === "string" && (id.startsWith("id_tg_") || id.startsWith("id_tgb_"));
+}
+
+/** Admin vừa gửi 1 tin nhắn MỚI (Admin Panel) - nếu khách đã liên kết Telegram
+ * Business thì chuyển tiếp sang đúng chat Business của khách đó, để Admin có
+ * thể tiếp tục trả lời/quản lý tin nhắn CSKH từ CHÍNH Telegram cá nhân của
+ * mình (song song với Admin Panel) như đã xác nhận. */
+async function forwardAdminMessageToBusiness(row: any) {
+  if (!supabaseAdmin || isTelegramOriginMessageId(row.id)) return;
+
+  const conn = await getActiveTelegramBusinessConnection();
+  if (!conn) return;
+
+  const { data: link } = await supabaseAdmin
+    .from("telegram_business_links")
+    .select("telegram_user_id")
+    .eq("user_id", row.conversation_id)
+    .maybeSingle();
+  if (!link?.telegram_user_id) return; // khách này chưa liên kết Telegram Business
+
+  const chatId = link.telegram_user_id;
+  const attachments: unknown[] = Array.isArray(row.attachments) ? row.attachments : [];
+  const content: string = row.content || row.text || "";
+
+  const recordLink = async (telegramMessageId: number | null) => {
+    if (!telegramMessageId) return;
+    try {
+      await supabaseAdmin!.from("telegram_business_message_links").insert({
+        telegram_message_id: telegramMessageId,
+        business_connection_id: conn.businessConnectionId,
+        message_id: row.id,
+      });
+    } catch (e) {
+      console.error("[TelegramBusiness] Không lưu được link tin nhắn admin:", e);
+    }
+  };
+
+  if (content) {
+    await recordLink(await sendTelegramBusinessMessage(conn.businessConnectionId, chatId, escapeHtml(content)));
+  }
+  for (const url of attachments) {
+    const img = await attachmentToImageBuffer(url);
+    if (!img) continue;
+    await recordLink(
+      await sendTelegramBusinessPhoto(conn.businessConnectionId, chatId, img.buffer, `cskh-${row.id || Date.now()}.${img.ext}`)
+    );
+  }
+}
+
+/** Admin SỬA 1 tin nhắn (Admin Panel, ví dụ "Sửa tin nhắn" ở MessagesTab.jsx)
+ * - đồng bộ NGƯỢC ra Telegram Business nếu tin này từng được gửi qua đó. Bỏ
+ * qua tin có nguồn gốc TỪ Telegram (xem isTelegramOriginMessageId) vì
+ * handleEditedBusinessMessage() đã tự UPDATE content khi Admin/khách sửa
+ * NGUYÊN BẢN trên Telegram - forward lại đây sẽ gọi editMessageText 1 lần
+ * nữa vô ích (Telegram trả lỗi "message is not modified", vô hại nhưng thừa). */
+async function syncEditedMessageToBusiness(row: any) {
+  if (!supabaseAdmin || isTelegramOriginMessageId(row.id)) return;
+
+  const { data: links } = await supabaseAdmin
+    .from("telegram_business_message_links")
+    .select("telegram_message_id, business_connection_id")
+    .eq("message_id", row.id);
+  if (!links?.length) return;
+
+  const { data: link } = await supabaseAdmin
+    .from("telegram_business_links")
+    .select("telegram_user_id")
+    .eq("user_id", row.conversation_id)
+    .maybeSingle();
+  if (!link?.telegram_user_id) return;
+
+  const newText: string = escapeHtml(row.content || row.text || "");
+  for (const l of links) {
+    await editTelegramBusinessMessageText(l.business_connection_id, link.telegram_user_id, l.telegram_message_id, newText);
+  }
+}
+
+/** Admin XÓA 1 hoặc nhiều tin nhắn (Admin Panel, kể cả "xóa hàng loạt") - đồng
+ * bộ NGƯỢC ra Telegram Business bằng đúng API xóa thật deleteBusinessMessages.
+ * Nếu tin này vừa bị xóa BỞI chính Telegram (handleDeletedBusinessMessages đã
+ * xóa link trước khi xóa messages - xem ghi chú ở đó), lookup dưới đây sẽ
+ * KHÔNG tìm thấy gì và tự động no-op, không gọi lại API xóa 1 lần nữa. */
+async function syncDeletedMessageToBusiness(oldRow: any) {
+  if (!supabaseAdmin || !oldRow?.id) return;
+
+  const { data: links } = await supabaseAdmin
+    .from("telegram_business_message_links")
+    .select("telegram_message_id, business_connection_id")
+    .eq("message_id", oldRow.id);
+  if (!links?.length) return;
+
+  const byConnection = new Map<string, number[]>();
+  for (const l of links) {
+    const arr = byConnection.get(l.business_connection_id) || [];
+    arr.push(l.telegram_message_id);
+    byConnection.set(l.business_connection_id, arr);
+  }
+  for (const [businessConnectionId, messageIds] of byConnection) {
+    await deleteTelegramBusinessMessages(businessConnectionId, messageIds);
+  }
+  await supabaseAdmin.from("telegram_business_message_links").delete().eq("message_id", oldRow.id);
+}
+
+/** Lắng nghe tin nhắn MỚI/SỬA/XÓA (Supabase Realtime) và chuyển tiếp sang
+ * nhóm Telegram CSKH (khách -> nhóm cũ) lẫn Telegram Business (admin -> chat
+ * Business của khách, cả gửi/sửa/xóa) khi khách đã liên kết. */
 function startTelegramForwarding() {
   if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
 
@@ -404,6 +893,12 @@ function startTelegramForwarding() {
           { event: "INSERT", schema: "public", table: "messages" },
           async (payload: any) => {
             const row = payload.new;
+            if (!row) return;
+            if (row.sender === "admin" && row.conversation_id) {
+              forwardAdminMessageToBusiness(row).catch((e) =>
+                console.error("[TelegramBusiness] Lỗi forward tin admin:", e)
+              );
+            }
             if (!row || row.sender !== "user" || !row.conversation_id) return;
 
             const userName = await getUserDisplayName(row.conversation_id);
@@ -453,6 +948,28 @@ function startTelegramForwarding() {
                 }
               }
             }
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "messages" },
+          async (payload: any) => {
+            const row = payload.new;
+            if (!row || row.sender !== "admin" || !row.conversation_id) return;
+            syncEditedMessageToBusiness(row).catch((e) =>
+              console.error("[TelegramBusiness] Lỗi đồng bộ sửa tin nhắn:", e)
+            );
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "messages" },
+          async (payload: any) => {
+            const oldRow = payload.old;
+            if (!oldRow?.id) return;
+            syncDeletedMessageToBusiness(oldRow).catch((e) =>
+              console.error("[TelegramBusiness] Lỗi đồng bộ xóa tin nhắn:", e)
+            );
           }
         ),
     "Kênh forward CSKH"
@@ -952,7 +1469,37 @@ app.post("/api/telegram-webhook", async (req, res) => {
       return;
     }
 
+    // 4 loại update của cầu nối Telegram Business (xem ghi chú đầy đủ ở các
+    // hàm handleBusinessLinkStart()/handleIncomingBusinessMessage()/
+    // handleEditedBusinessMessage()/handleDeletedBusinessMessages() phía
+    // trên) - kiểm tra TRƯỚC nhánh xử lý nhóm+Forum Topic cũ vì đây là 1 kênh
+    // hoàn toàn độc lập, không liên quan gì tới TELEGRAM_CHAT_ID.
+    if (req.body?.business_connection) {
+      await upsertTelegramBusinessConnection(req.body.business_connection);
+      return;
+    }
+    if (req.body?.business_message) {
+      const conn = await getActiveTelegramBusinessConnection();
+      await handleIncomingBusinessMessage(req.body.business_message, conn?.businessUserId ?? null);
+      return;
+    }
+    if (req.body?.edited_business_message) {
+      await handleEditedBusinessMessage(req.body.edited_business_message);
+      return;
+    }
+    if (req.body?.deleted_business_messages) {
+      await handleDeletedBusinessMessages(req.body.deleted_business_messages);
+      return;
+    }
+
     const message = req.body?.message;
+    // Đoạn chat TRỰC TIẾP với chính con bot (khách bấm link "t.me/<bot>?
+    // start=<mã>" từ trong app) - hoàn toàn tách biệt khỏi nhóm CSKH cũ lẫn
+    // chat Business, phải kiểm tra và dừng lại ở đây nếu khớp, không để lọt
+    // xuống nhánh xử lý nhóm bên dưới (sẽ không khớp gì và bị bỏ qua nhưng
+    // tốn 1 lượt kiểm tra dư thừa).
+    if (message?.text && (await handleBusinessLinkStart(message))) return;
+
     const replyToId = message?.reply_to_message?.message_id;
     const messageThreadId = message?.message_thread_id;
     // Ảnh Admin gửi (Photo hoặc File ảnh) dùng "caption" thay cho "text" -

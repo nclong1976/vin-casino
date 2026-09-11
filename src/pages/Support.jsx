@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { Headphones, Sparkles } from "lucide-react";
+import { Headphones, Sparkles, Send } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
@@ -459,6 +459,17 @@ export default function Support() {
 
   const userFullName = user?.full_name || user?.name || user?.display_name || (user?.email ? user.email.split("@")[0] : "Quý khách");
 
+  // Link liên kết Telegram Business (xem handleBusinessLinkStart() server.ts)
+  // - mã hoá user.id thật làm start_param, Telegram chỉ chấp nhận [A-Za-z0-9_-]
+  // nên đổi "-" (có trong UUID) thành "_", server sẽ đổi ngược lại khi nhận
+  // /start. Kênh này CHỈ THÊM VÀO, không thay thế khung chat trong app hiện có
+  // (đã xác nhận giữ song song cả 2 kênh).
+  const telegramBotUsername = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
+  const telegramLinkUrl =
+    telegramBotUsername && user?.id
+      ? `https://t.me/${telegramBotUsername}?start=${user.id.replace(/-/g, "_")}`
+      : null;
+
   return (
     <div className="relative h-[100dvh] w-full bg-[#f0f2f5] overflow-hidden flex flex-col justify-between font-['Be_Vietnam_Pro',sans-serif]">
       {/* Fixed Header */}
@@ -491,6 +502,17 @@ export default function Support() {
           <p className="text-[11px] text-gray-600 leading-relaxed max-w-md mx-auto">
             Xin chào <strong className="text-[#948154] font-bold">{userFullName}</strong>! Kênh hỗ trợ trực tuyến bảo mật đa tầng, kết nối trực tiếp chuyên viên CSKH cấp cao 24/7.
           </p>
+          {telegramLinkUrl && (
+            <a
+              href={telegramLinkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 mt-1 text-[10.5px] font-semibold text-[#229ED9] hover:underline"
+            >
+              <Send className="w-3 h-3" />
+              Liên hệ CSKH qua Telegram
+            </a>
+          )}
         </div>
 
         {/* Loading Spinner */}
