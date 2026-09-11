@@ -71,7 +71,8 @@ if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) {
 async function sendTelegramMessage(
   text: string,
   replyToMessageId?: number,
-  replyMarkup?: unknown
+  replyMarkup?: unknown,
+  messageThreadId?: number
 ): Promise<number | null> {
   if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) return null;
   try {
@@ -82,6 +83,10 @@ async function sendTelegramMessage(
     };
     if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
     if (replyMarkup) body.reply_markup = replyMarkup;
+    // Gửi vào đúng Forum Topic của khách hàng (xem ensureForumTopic()) - nếu
+    // nhóm Telegram chưa bật Forum Topics thì tham số này bị Telegram bỏ qua
+    // (tin vẫn gửi bình thường vào nhóm, không lỗi).
+    if (messageThreadId) body.message_thread_id = messageThreadId;
 
     const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: "POST",
@@ -159,6 +164,69 @@ function fmtVnd(n: number): string {
   return (Number(n) || 0).toLocaleString("vi-VN");
 }
 
+// Telegram giới hạn tên Forum Topic tối đa 128 ký tự.
+const TELEGRAM_TOPIC_NAME_MAX = 128;
+
+/**
+ * "Phân loại từng người dùng tại nhóm Telegram" - mỗi khách hàng có 1 Forum
+ * Topic riêng trong nhóm (support_conversations.telegram_thread_id), thay vì
+ * mọi khách đan xen chung 1 luồng tin nhắn. Trả về message_thread_id để gắn
+ * vào sendTelegramMessage() bên dưới - trả về null nếu nhóm Telegram CHƯA
+ * bật Forum Topics (Admin phải tự bật trong cài đặt nhóm) hoặc ghi Postgres
+ * thất bại - KHÔNG chặn/ném lỗi, để luồng forward CSKH vẫn hoạt động bình
+ * thường (gửi vào nhóm không phân loại) như trước khi có tính năng này.
+ */
+async function ensureForumTopic(conversationId: string, userName: string): Promise<number | null> {
+  if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID || !conversationId) return null;
+
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("support_conversations")
+      .select("telegram_thread_id")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (existing?.telegram_thread_id) return existing.telegram_thread_id;
+  } catch (e) {
+    console.error("[Telegram] Không đọc được telegram_thread_id:", e);
+  }
+
+  try {
+    const topicName = (userName || conversationId).slice(0, TELEGRAM_TOPIC_NAME_MAX);
+    const resp = await fetch(`${TELEGRAM_API}/createForumTopic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, name: topicName }),
+    });
+    const data: any = await resp.json();
+    if (!data.ok) {
+      // Lỗi thường gặp nhất: nhóm chưa bật Forum Topics - ghi log 1 lần rõ
+      // ràng để Admin biết cần bật, nhưng KHÔNG chặn forward tin nhắn.
+      console.warn(
+        "[Telegram] Không tạo được Forum Topic (nhóm có thể chưa bật Topics):",
+        data.description
+      );
+      return null;
+    }
+    const threadId = data.result?.message_thread_id;
+    if (!threadId) return null;
+
+    try {
+      // upsert vì hội thoại này có thể CHƯA có dòng nào trong
+      // support_conversations (khách hoàn toàn mới, tin đầu tiên).
+      await supabaseAdmin.from("support_conversations").upsert(
+        { id: conversationId, telegram_thread_id: threadId },
+        { onConflict: "id" }
+      );
+    } catch (e) {
+      console.error("[Telegram] Không lưu được telegram_thread_id:", e);
+    }
+    return threadId;
+  } catch (err: any) {
+    console.error("[Telegram] createForumTopic exception:", err?.message || err);
+    return null;
+  }
+}
+
 // Cả 2 kênh forward Telegram (tin nhắn CSKH + nạp/rút) trước đây chỉ
 // console.log() trạng thái subscribe, KHÔNG hề tự kết nối lại khi kênh rớt
 // (server Render "ngủ"/khởi động lại, mạng chập chờn...) - Supabase Realtime
@@ -210,9 +278,13 @@ function startTelegramForwarding() {
 
             const userName = await getUserDisplayName(row.conversation_id);
             const content = row.content || row.text || "(tệp đính kèm)";
-            const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này trên Telegram để phản hồi trực tiếp cho khách hàng.</i>`;
+            const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này - hoặc gõ thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
 
-            const telegramMessageId = await sendTelegramMessage(text);
+            // Mỗi khách 1 Forum Topic riêng (xem ensureForumTopic()) - null
+            // nếu nhóm chưa bật Forum Topics, sendTelegramMessage() vẫn gửi
+            // bình thường vào nhóm trong trường hợp đó.
+            const threadId = await ensureForumTopic(row.conversation_id, userName);
+            const telegramMessageId = await sendTelegramMessage(text, undefined, undefined, threadId ?? undefined);
             if (telegramMessageId) {
               try {
                 await supabaseAdmin!.from("telegram_message_links").insert({
@@ -683,10 +755,15 @@ function getFallbackMarketResponse(query: string) {
 // Webhook nhận update từ Telegram. 2 loại update được xử lý:
 // 1) callback_query - Admin bấm nút "Phê duyệt"/"Từ chối" trên tin forward
 //    nạp/rút (xem handleTelegramWalletCallback).
-// 2) message là REPLY trực tiếp tới 1 tin đã forward trước đó - khớp qua
-//    telegram_wallet_links (REPLY nhập tay lý do từ chối nạp/rút) hoặc
-//    telegram_message_links (REPLY trả lời CSKH). Tin nhắn thường/chat chit
-//    trong nhóm không khớp REPLY nào thì bị bỏ qua.
+// 2) message - trả lời CSKH, khớp theo 1 trong 2 cách (ưu tiên theo thứ tự):
+//    a) REPLY trực tiếp tới 1 tin đã forward trước đó (telegram_message_links) -
+//       cách cũ, luôn hoạt động dù nhóm có bật Forum Topics hay không.
+//    b) Gõ THẲNG trong Forum Topic riêng của khách (message_thread_id khớp
+//       support_conversations.telegram_thread_id, xem ensureForumTopic()) -
+//       không cần bấm Reply mỗi lần, chỉ hoạt động khi nhóm đã bật Topics.
+//    Tin nhắn thường/chat chit không khớp cách nào ở trên thì bị bỏ qua.
+//    REPLY nhập tay lý do từ chối nạp/rút khớp qua telegram_wallet_links,
+//    xử lý riêng trước 2 nhánh trên.
 app.post("/api/telegram-webhook", async (req, res) => {
   res.sendStatus(200); // luôn trả 200 ngay để Telegram không retry/timeout
 
@@ -699,43 +776,69 @@ app.post("/api/telegram-webhook", async (req, res) => {
 
     const message = req.body?.message;
     const replyToId = message?.reply_to_message?.message_id;
+    const messageThreadId = message?.message_thread_id;
     const text = message?.text;
-    if (!replyToId || !text) return;
+    if (!text) return;
     // Bỏ qua tin nhắn của chính bot (tránh vòng lặp nếu bot tự phản hồi gì đó)
     if (message.from?.is_bot) return;
 
     const adminName = message.from?.username || message.from?.first_name || "Admin";
 
-    // Ưu tiên kiểm tra REPLY nhập tay lý do từ chối nạp/rút trước
-    const { data: walletLink } = await supabaseAdmin
-      .from("telegram_wallet_links")
-      .select("tx_id, awaiting_custom_reason")
-      .eq("telegram_message_id", replyToId)
-      .maybeSingle();
+    // Ưu tiên kiểm tra REPLY nhập tay lý do từ chối nạp/rút trước (luôn cần
+    // replyToId - nạp/rút không dùng Forum Topics).
+    if (replyToId) {
+      const { data: walletLink } = await supabaseAdmin
+        .from("telegram_wallet_links")
+        .select("tx_id, awaiting_custom_reason")
+        .eq("telegram_message_id", replyToId)
+        .maybeSingle();
 
-    if (walletLink) {
-      if (!walletLink.awaiting_custom_reason) return; // reply vào tin đã xử lý xong, bỏ qua
-      const result = await callTelegramProcessWalletTransaction(walletLink.tx_id, "reject", adminName, text);
-      if (!result.ok) {
-        await sendTelegramMessage(`⚠️ ${result.message}`, message.message_id);
+      if (walletLink) {
+        if (!walletLink.awaiting_custom_reason) return; // reply vào tin đã xử lý xong, bỏ qua
+        const result = await callTelegramProcessWalletTransaction(walletLink.tx_id, "reject", adminName, text);
+        if (!result.ok) {
+          await sendTelegramMessage(`⚠️ ${result.message}`, message.message_id);
+          return;
+        }
+        await editTelegramMessage(replyToId, walletFinalStatusText(result.tx, "reject", adminName, text));
+        console.log(`[Telegram] Admin ${adminName} đã từ chối giao dịch ví ${walletLink.tx_id} (lý do nhập tay)`);
         return;
       }
-      await editTelegramMessage(replyToId, walletFinalStatusText(result.tx, "reject", adminName, text));
-      console.log(`[Telegram] Admin ${adminName} đã từ chối giao dịch ví ${walletLink.tx_id} (lý do nhập tay)`);
-      return;
     }
 
-    const { data: link } = await supabaseAdmin
-      .from("telegram_message_links")
-      .select("conversation_id, user_name")
-      .eq("telegram_message_id", replyToId)
-      .maybeSingle();
+    // (a) Khớp theo REPLY trực tiếp tới 1 tin CSKH đã forward.
+    let conversationId: string | null = null;
+    if (replyToId) {
+      const { data: link } = await supabaseAdmin
+        .from("telegram_message_links")
+        .select("conversation_id")
+        .eq("telegram_message_id", replyToId)
+        .maybeSingle();
+      if (link) conversationId = link.conversation_id;
+    }
 
-    if (!link) {
-      await sendTelegramMessage(
-        "⚠️ Không tìm thấy hội thoại gốc cho tin nhắn này (có thể đã quá cũ). Vui lòng trả lời trực tiếp trong Admin Panel.",
-        message.message_id
-      );
+    // (b) Không phải REPLY (hoặc reply không khớp gì) - thử khớp theo Forum
+    // Topic đang gõ (gõ thẳng trong topic của khách, không cần bấm Reply).
+    if (!conversationId && messageThreadId) {
+      const { data: conv } = await supabaseAdmin
+        .from("support_conversations")
+        .select("id")
+        .eq("telegram_thread_id", messageThreadId)
+        .maybeSingle();
+      if (conv) conversationId = conv.id;
+    }
+
+    if (!conversationId) {
+      // Chỉ báo lỗi khi đây THẬT SỰ là 1 lượt Reply không khớp được gì (khả
+      // năng tin gốc đã quá cũ) - tin thường/chat chit trong nhóm (không
+      // reply, không nằm trong topic nào đã biết) im lặng bỏ qua, không spam
+      // cảnh báo.
+      if (replyToId) {
+        await sendTelegramMessage(
+          "⚠️ Không tìm thấy hội thoại gốc cho tin nhắn này (có thể đã quá cũ). Vui lòng trả lời trực tiếp trong Admin Panel.",
+          message.message_id
+        );
+      }
       return;
     }
 
@@ -748,8 +851,8 @@ app.post("/api/telegram-webhook", async (req, res) => {
     const { error } = await supabaseAdmin.from("messages").insert({
       id: "id_tg_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       sender: "admin",
-      user_id: link.conversation_id,
-      conversation_id: link.conversation_id,
+      user_id: conversationId,
+      conversation_id: conversationId,
       content: text,
       attachments: [],
       created_date: sentAt,
@@ -761,7 +864,7 @@ app.post("/api/telegram-webhook", async (req, res) => {
       return;
     }
 
-    console.log(`[Telegram] Admin ${adminName} đã trả lời hội thoại ${link.conversation_id}`);
+    console.log(`[Telegram] Admin ${adminName} đã trả lời hội thoại ${conversationId}`);
   } catch (err: any) {
     console.error("[Telegram] Lỗi xử lý webhook:", err?.message || err);
   }

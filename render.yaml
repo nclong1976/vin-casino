@@ -32,6 +32,13 @@ services:
       # https://api.telegram.org/bot<TOKEN>/getUpdates. Không cấu hình thì
       # tính năng tự tắt. RENDER_EXTERNAL_URL đã tự có sẵn trên Render nên
       # KHÔNG cần khai báo TELEGRAM_WEBHOOK_URL riêng.
+      # Để MỖI KHÁCH HÀNG có 1 topic riêng trong nhóm (thay vì tin nhắn mọi
+      # khách đan xen chung 1 luồng): mở nhóm Telegram > Chỉnh sửa nhóm > bật
+      # "Topics" (yêu cầu nhóm ở dạng Supergroup) TRƯỚC khi thêm bot vào -
+      # server.ts tự tạo 1 topic/khách khi khách nhắn tin lần đầu, Admin gõ
+      # thẳng trong topic đó để trả lời (không cần bấm Reply). Nếu không bật
+      # Topics, tính năng CSKH <-> Telegram vẫn hoạt động bình thường như cũ
+      # (1 luồng chung), chỉ là không phân loại theo khách.
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
