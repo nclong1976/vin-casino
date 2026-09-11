@@ -40,6 +40,27 @@ import {
   DEFAULT_SUPPORT_STATUS,
 } from "@/constants/supportStatus";
 
+// Độ ưu tiên hội thoại - cột support_conversations.priority đã tồn tại sẵn
+// trong database (CHECK IN low/normal/high/urgent, mặc định "normal") từ
+// trước, nhưng chưa từng có nơi nào đọc/ghi - chỉ dùng ở đây (Admin), khách
+// hàng không tự đặt được nên không cần đưa vào constants/supportStatus.js
+// (file đó dành cho dữ liệu DÙNG CHUNG cả 2 phía).
+const PRIORITY_LABELS = {
+  low: "Thấp",
+  normal: "Bình thường",
+  high: "Cao",
+  urgent: "Khẩn cấp",
+};
+
+const PRIORITY_BADGE_CLASSES = {
+  low: "bg-gray-100 text-gray-500",
+  normal: "bg-gray-100 text-gray-500",
+  high: "bg-orange-100 text-orange-700",
+  urgent: "bg-red-100 text-red-700",
+};
+
+const DEFAULT_PRIORITY = "normal";
+
 const STATUS_FILTERS = [
   { key: "all", label: "Tất cả" },
   { key: "open", label: "Đang mở" },
@@ -494,6 +515,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           lastDate: m.created_date || new Date().toISOString(),
           unread: 0,
           status: supportConv?.status || DEFAULT_SUPPORT_STATUS,
+          priority: supportConv?.priority || DEFAULT_PRIORITY,
           assignedAdminId: supportConv?.assigned_admin_id || null,
           assignedAdminName: supportConv?.assigned_admin_name || null,
           topic: supportConv?.topic || null,
@@ -704,6 +726,13 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const changeConvStatus = useCallback(
     (cid, status) => {
       patchConversationStatus(cid, { status });
+    },
+    [patchConversationStatus]
+  );
+
+  const changeConvPriority = useCallback(
+    (cid, priority) => {
+      patchConversationStatus(cid, { priority });
     },
     [patchConversationStatus]
   );
@@ -968,6 +997,17 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
             >
               {SUPPORT_STATUS_LABELS[currentConv.status] || currentConv.status}
             </span>
+            <select
+              value={currentConv.priority}
+              onChange={(e) => changeConvPriority(currentConv.id, e.target.value)}
+              className={`text-[9px] font-bold border-none rounded-full px-2 py-1 focus:outline-none cursor-pointer ${PRIORITY_BADGE_CLASSES[currentConv.priority] || PRIORITY_BADGE_CLASSES.normal}`}
+            >
+              {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
             {currentConv.assignedAdminName ? (
               <span className="text-[9px] text-gray-500 font-medium px-2 py-1 rounded-full bg-gray-50 border border-gray-100">
                 Đang xử lý: <span className="text-black font-bold">{currentConv.assignedAdminName}</span>
@@ -1290,11 +1330,18 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
                   {lastMsg?.sender === "admin" && <span className="text-[#948154] font-semibold">Admin: </span>}
                   {preview}
                 </p>
-                {c.topic && (
-                  <span className="inline-block mt-0.5 text-[8.5px] font-bold text-[#948154] bg-amber-50 border border-amber-200/80 px-1.5 py-0.2 rounded-full">
-                    {c.topic}
-                  </span>
-                )}
+                <div className="flex items-center gap-1 mt-0.5">
+                  {c.priority !== DEFAULT_PRIORITY && (
+                    <span className={`inline-block text-[8.5px] font-bold px-1.5 py-0.2 rounded-full ${PRIORITY_BADGE_CLASSES[c.priority] || PRIORITY_BADGE_CLASSES.normal}`}>
+                      {PRIORITY_LABELS[c.priority] || c.priority}
+                    </span>
+                  )}
+                  {c.topic && (
+                    <span className="inline-block text-[8.5px] font-bold text-[#948154] bg-amber-50 border border-amber-200/80 px-1.5 py-0.2 rounded-full">
+                      {c.topic}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="shrink-0 flex flex-col items-end gap-1">
