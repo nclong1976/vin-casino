@@ -60,6 +60,12 @@ export default function DepositModal({ project, onClose }) {
   const [method, setMethod] = useState("wallet");
   const [signature, setSignature] = useState(null);
   const [done, setDone] = useState(false);
+  // Chặn bấm/chạm "Xác nhận hoàn tất" nhiều lần liên tiếp trong lúc đang xử
+  // lý - thiếu cờ này từng khiến 1 lần bấm kép tạo ra 2 hợp đồng đầu tư
+  // trùng lặp y hệt, cả 2 đáo hạn trả lãi khiến khách nhận dư 1 suất lãi
+  // (đã xác nhận và sửa dữ liệu cho 1 tài khoản thực tế bị ảnh hưởng). Cùng
+  // mẫu "saving" đã dùng ở modal nạp ví (profile/DepositModal.jsx).
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Auto balance check & redirect states
   const [userBalance, setUserBalance] = useState(0);
@@ -174,6 +180,8 @@ export default function DepositModal({ project, onClose }) {
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   const handleConfirm = async () => {
+    if (isSubmitting) return;
+
     if (!signature?.content) {
       toast.error("Vui lòng ký hợp đồng để xác nhận");
       return;
@@ -185,6 +193,7 @@ export default function DepositModal({ project, onClose }) {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
       // xác nhận thật từ Postgres) - trước đây dùng adjustUserBalance()
@@ -249,6 +258,8 @@ export default function DepositModal({ project, onClose }) {
       setDone(true);
     } catch (e) {
       toast.error("Không thể ghi nhận giao dịch");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -624,9 +635,10 @@ export default function DepositModal({ project, onClose }) {
                   ) : (
                     <button
                       onClick={handleConfirm}
-                      className="flex-1 py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[12px] font-semibold flex items-center justify-center gap-1 cursor-pointer shadow"
+                      disabled={isSubmitting}
+                      className="flex-1 py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] disabled:opacity-60 disabled:cursor-not-allowed text-white text-[12px] font-semibold flex items-center justify-center gap-1 cursor-pointer shadow"
                     >
-                      Xác nhận hoàn tất <ChevronRight className="w-3.5 h-3.5" />
+                      {isSubmitting ? "Đang xử lý..." : (<>Xác nhận hoàn tất <ChevronRight className="w-3.5 h-3.5" /></>)}
                     </button>
                   )}
                 </div>
