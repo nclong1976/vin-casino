@@ -38,7 +38,9 @@ import News from './pages/News';
 import MembershipCard from './pages/MembershipCard';
 import PushNotificationBanner from '@/components/shared/PushNotificationBanner';
 import WelcomeIntroPlayer from '@/components/WelcomeIntroPlayer';
+import AppMaintenanceScreen from '@/components/AppMaintenanceScreen';
 import { useDailyPayoutToast } from '@/hooks/useDailyPayoutToast';
+import { useAppMaintenance } from '@/hooks/useAppMaintenance';
 
 const AuthenticatedApp = () => {
   const { isAuthenticated, user, isLoadingAuth, isLoadingPublicSettings, authError, otpPending } = useAuth();
@@ -51,6 +53,12 @@ const AuthenticatedApp = () => {
   // no-op khi chưa có user.id, tắt hẳn khi đăng xuất (subscribe cũ tự huỷ
   // qua cleanup effect khi userId đổi/về null).
   useDailyPayoutToast(user?.id);
+
+  // Cờ bảo trì toàn bộ trang chủ - chỉ theo dõi cho người dùng thường
+  // (enabled=false với Admin nên hook no-op hoàn toàn, Admin không bị ảnh
+  // hưởng/không tốn round-trip tải cờ này). Cũng phải gọi vô điều kiện
+  // trước mọi early-return, cùng lý do như trên.
+  const appMaintenance = useAppMaintenance(!!user && !isAdminUser(user));
 
   // Splash luxury loader
   if (isLoadingPublicSettings || isLoadingAuth) {
@@ -124,6 +132,29 @@ const AuthenticatedApp = () => {
   }
 
   // 2b. Luồng Người dùng ĐÃ đăng nhập: Toàn quyền truy cập ứng dụng (không có /admin)
+  // Chờ tải xong cờ bảo trì trước khi quyết định render gì (tránh hiện
+  // trang chủ thật rồi mới bị thay bằng màn chặn) - Admin đã tách nhánh và
+  // return ở trên nên không đi qua đây, không bị chờ/ảnh hưởng bởi bước này.
+  if (appMaintenance === null) {
+    return (
+      <div className="fixed inset-0 bg-[#0c0a09] flex flex-col items-center justify-center gap-4 z-[99999]">
+        <div className="relative flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full border-2 border-[#948154]/30 border-t-[#d4af37] animate-spin" />
+          <img
+            src="/logo.png"
+            alt="VinClub"
+            className="w-10 h-10 rounded-full object-cover absolute"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (appMaintenance.enabled) {
+    return <AppMaintenanceScreen message={appMaintenance.message} />;
+  }
+
   return (
     <>
       <PushNotificationBanner />

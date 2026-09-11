@@ -10,7 +10,8 @@ import {
   TrendingUp,
   Dices,
   LogOut,
-  Newspaper
+  Newspaper,
+  Settings as SettingsIcon
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
@@ -23,6 +24,7 @@ import NotificationsTab from "@/components/admin/NotificationsTab";
 import StocksTab from "@/components/admin/StocksTab";
 import CasinoTab from "@/components/admin/CasinoTab";
 import NewsTab from "@/components/admin/NewsTab";
+import SettingsTab from "@/components/admin/SettingsTab";
 
 // "Hợp đồng" đã gộp vào subtab thứ 4 của "Quản lý Hội viên & Giao dịch"
 // (MemberHubTab) - cùng bản chất "hàng chờ duyệt" như subtab Phê duyệt
@@ -34,6 +36,7 @@ const TABS = [
   { id: "projects", label: "Dự án", icon: FolderOpen },
   { id: "news", label: "Tin tức", icon: Newspaper },
   { id: "notifications", label: "Thông báo", icon: Bell },
+  { id: "settings", label: "Cài đặt hệ thống", icon: SettingsIcon },
 ];
 
 export default function Admin() {
@@ -247,6 +250,9 @@ export default function Admin() {
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "notifications"}>
           <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "settings"}>
+          <AdminErrorBoundary><SettingsTab /></AdminErrorBoundary>
         </AnimatedTabPanel>
       </div>
     </div>
