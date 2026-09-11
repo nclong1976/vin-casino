@@ -198,6 +198,79 @@ function extractTelegramImageFileId(message: any): string | null {
   return null;
 }
 
+// Trước đây khi user gửi tin nhắn CHỈ có ảnh (không kèm chữ) trong CSKH,
+// startTelegramForwarding() chỉ gửi 1 dòng text placeholder "(tệp đính
+// kèm)" sang Telegram - ảnh thật KHÔNG hề được chuyển tiếp, Admin phải mở
+// Admin Panel mới xem được. sendTelegramPhoto()/attachmentToImageBuffer()
+// vá đúng chỗ thiếu này - gửi ảnh thật bằng sendPhoto (multipart/form-data,
+// vì attachments lưu dạng data: URL base64, Telegram không tự tải được URL
+// dạng đó) ngay trong topic của khách, reply vào đúng tin nhắn text đã gửi.
+
+/** Gửi 1 ảnh (Buffer) vào nhóm Telegram qua sendPhoto - multipart/form-data vì
+ * Telegram không tải được `data:` URL trực tiếp như tham số `photo` dạng chuỗi. */
+async function sendTelegramPhoto(
+  buffer: Buffer,
+  filename: string,
+  replyToMessageId?: number,
+  messageThreadId?: number
+): Promise<number | null> {
+  if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) return null;
+  try {
+    const form = new FormData();
+    form.append("chat_id", TELEGRAM_CHAT_ID);
+    if (replyToMessageId) form.append("reply_to_message_id", String(replyToMessageId));
+    if (messageThreadId) form.append("message_thread_id", String(messageThreadId));
+    form.append("photo", new Blob([buffer]), filename);
+
+    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: "POST", body: form });
+    const data: any = await resp.json();
+    if (!data.ok) {
+      console.error("[Telegram] sendPhoto lỗi:", data.description);
+      return null;
+    }
+    return data.result?.message_id ?? null;
+  } catch (err: any) {
+    console.error("[Telegram] sendPhoto exception:", err?.message || err);
+    return null;
+  }
+}
+
+/** Chuyển 1 phần tử trong messages.attachments (URL string) thành Buffer ảnh
+ * để gửi qua sendTelegramPhoto() - hỗ trợ cả `data:image/...;base64,...`
+ * (cách UploadFile() ở client lưu ảnh, xem base44Client.js) lẫn URL http(s)
+ * thật trỏ tới ảnh. Trả về null nếu không phải ảnh hoặc vượt quá kích thước
+ * cho phép (dùng chung TELEGRAM_MAX_IMAGE_BYTES với chiều Admin -> user). */
+async function attachmentToImageBuffer(url: unknown): Promise<{ buffer: Buffer; ext: string } | null> {
+  if (typeof url !== "string") return null;
+  try {
+    if (url.startsWith("data:image/")) {
+      const match = url.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!match) return null;
+      const buffer = Buffer.from(match[2], "base64");
+      if (buffer.length > TELEGRAM_MAX_IMAGE_BYTES) {
+        console.warn(`[Telegram] Ảnh user gửi quá lớn (${buffer.length} bytes) - bỏ qua forward.`);
+        return null;
+      }
+      return { buffer, ext: (match[1].split("+")[0] || "jpg").toLowerCase() };
+    }
+    if (/^https?:\/\//i.test(url) && /\.(jpe?g|png|gif|webp)(\?|#|$)/i.test(url)) {
+      const resp = await fetch(url);
+      if (!resp.ok) return null;
+      const buffer = Buffer.from(await resp.arrayBuffer());
+      if (buffer.length > TELEGRAM_MAX_IMAGE_BYTES) {
+        console.warn(`[Telegram] Ảnh user gửi quá lớn (${buffer.length} bytes) - bỏ qua forward.`);
+        return null;
+      }
+      const ext = (url.split(/[?#]/)[0].split(".").pop() || "jpg").toLowerCase();
+      return { buffer, ext };
+    }
+    return null;
+  } catch (err: any) {
+    console.error("[Telegram] attachmentToImageBuffer exception:", err?.message || err);
+    return null;
+  }
+}
+
 /** Thoát các ký tự đặc biệt của HTML parse_mode (Telegram) để nội dung user gõ không phá format tin nhắn. */
 function escapeHtml(s: string): string {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -334,7 +407,9 @@ function startTelegramForwarding() {
             if (!row || row.sender !== "user" || !row.conversation_id) return;
 
             const userName = await getUserDisplayName(row.conversation_id);
-            const content = row.content || row.text || "(tệp đính kèm)";
+            const attachments: unknown[] = Array.isArray(row.attachments) ? row.attachments : [];
+            const content =
+              row.content || row.text || (attachments.length ? "(Đã gửi ảnh - xem bên dưới)" : "(tệp đính kèm)");
             const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này bằng chữ hoặc ảnh - hoặc gõ/gửi ảnh thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
 
             // Mỗi khách 1 Forum Topic riêng (xem ensureForumTopic()) - null
@@ -351,6 +426,31 @@ function startTelegramForwarding() {
                 });
               } catch (e) {
                 console.error("[Telegram] Không lưu được link tin nhắn:", e);
+              }
+            }
+
+            // Chuyển tiếp ảnh thật (nếu có) - reply thẳng vào tin nhắn text
+            // vừa gửi ở trên để Admin thấy ngay trong cùng 1 luồng, không
+            // chỉ đọc dòng chữ placeholder.
+            for (const url of attachments) {
+              const img = await attachmentToImageBuffer(url);
+              if (!img) continue;
+              const photoMessageId = await sendTelegramPhoto(
+                img.buffer,
+                `cskh-${row.id || Date.now()}.${img.ext}`,
+                telegramMessageId ?? undefined,
+                threadId ?? undefined
+              );
+              if (photoMessageId) {
+                try {
+                  await supabaseAdmin!.from("telegram_message_links").insert({
+                    telegram_message_id: photoMessageId,
+                    conversation_id: row.conversation_id,
+                    user_name: userName,
+                  });
+                } catch (e) {
+                  console.error("[Telegram] Không lưu được link ảnh:", e);
+                }
               }
             }
           }
