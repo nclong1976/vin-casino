@@ -547,8 +547,29 @@ async function handleIncomingBusinessMessage(businessMessage: any, businessUserI
 
   const resolved = await resolveBusinessSender(telegramUserId, businessUserId);
   const isAdminSender = resolved === null;
-  const conversationId = resolved ? resolved.userId : null;
-  if (!conversationId) return; // chính chủ Admin tự gõ - xử lý ở nhánh riêng bên dưới nếu cần trong tương lai, hiện chỉ bỏ qua để tránh tự lưu tin của chính mình 2 lần
+  let conversationId: string;
+  let verified: boolean;
+
+  if (isAdminSender) {
+    // Admin tự gõ (kể cả gửi ảnh) trên CHÍNH Telegram cá nhân, không qua
+    // Admin Panel - "chat" của 1 business_message LUÔN là chat của KHÁCH dù
+    // ai gõ (giống hệt chiều gửi đi ở sendTelegramBusinessMessage(), chat_id
+    // luôn là khách), nên tra đúng khách qua chat.id (KHÁC với telegram_user_id
+    // ở đây - lúc này chính là Admin) thay vì bỏ qua như trước. Nhờ vậy tin
+    // của Admin (gõ trực tiếp trên Telegram) cũng vào đúng hội thoại CSKH của
+    // khách đó, hiện real-time bên người dùng (Support.jsx đã tự lắng nghe
+    // INSERT/UPDATE/DELETE trên messages qua Supabase Realtime từ trước).
+    const { data: custLink } = await supabaseAdmin
+      .from("telegram_business_links")
+      .select("user_id, verified")
+      .eq("telegram_user_id", chatId)
+      .maybeSingle();
+    conversationId = custLink?.user_id || `tgbiz_${chatId}`;
+    verified = !!custLink?.verified;
+  } else {
+    conversationId = resolved.userId;
+    verified = resolved.verified;
+  }
 
   const text: string = businessMessage.text || businessMessage.caption || "";
   const imageFileId = extractTelegramImageFileId(businessMessage);
@@ -587,7 +608,7 @@ async function handleIncomingBusinessMessage(businessMessage: any, businessUserI
     }
   }
 
-  if (!resolved!.verified) {
+  if (!verified) {
     console.warn(
       `[TelegramBusiness] Tin nhắn từ telegram_user_id=${telegramUserId} CHƯA xác thực (chưa liên kết tài khoản VinClub nào).`
     );
