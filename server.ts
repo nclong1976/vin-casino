@@ -48,6 +48,45 @@ const supabaseAdmin =
     ? createClient(supabaseServiceUrl, supabaseServiceRoleKey, { auth: { persistSession: false } })
     : null;
 
+// Chẩn đoán tầng THẤP HƠN hẳn từng kênh (channel.subscribe() chỉ báo được
+// status như "CLOSED" - đã thêm tham số err ở PR #75 nhưng log thật trên
+// production cho thấy err LUÔN rỗng, nghĩa là lỗi xảy ra ngay ở tầng socket
+// WebSocket dùng chung cho MỌI kênh Realtime, trước cả khi 1 kênh cụ thể kịp
+// nhận diện lỗi). "socketAdapter" là field runtime thật của RealtimeClient
+// (không có trong .d.ts công khai vì đánh dấu private ở TypeScript, nhưng
+// vẫn truy cập được lúc chạy - ép kiểu any) - onOpen/onClose/onError ở đây
+// là NƠI DUY NHẤT thấy được lý do đóng kết nối thật (CloseEvent.code/reason,
+// Event lỗi WebSocket...) thay vì chỉ chuỗi "CLOSED" mơ hồ.
+if (supabaseAdmin) {
+  try {
+    const socketAdapter = (supabaseAdmin.realtime as any)?.socketAdapter;
+    let socketErrCount = 0;
+    let socketCloseCount = 0;
+    socketAdapter?.onOpen?.(() => {
+      console.log("[RealtimeSocket] Kết nối WebSocket dùng chung đã mở thành công.");
+    });
+    socketAdapter?.onClose?.((event: any) => {
+      socketCloseCount += 1;
+      if (socketCloseCount <= 5 || socketCloseCount % 50 === 0) {
+        console.warn(
+          `[RealtimeSocket] Socket đóng (lần ${socketCloseCount}) - code=${event?.code} reason=${event?.reason || "(không có)"} wasClean=${event?.wasClean}`
+        );
+      }
+    });
+    socketAdapter?.onError?.((error: any) => {
+      socketErrCount += 1;
+      if (socketErrCount <= 5 || socketErrCount % 50 === 0) {
+        console.error(
+          `[RealtimeSocket] Socket lỗi (lần ${socketErrCount}):`,
+          error?.message || error?.type || error
+        );
+      }
+    });
+  } catch (e: any) {
+    console.warn("[RealtimeSocket] Không gắn được hook chẩn đoán socket:", e?.message || e);
+  }
+}
+
 if (!supabaseAdmin) {
   console.warn(
     "[DailyInterest] SUPABASE_SERVICE_ROLE_KEY chưa được cấu hình - tính năng cộng lãi hàng ngày theo cấp VIP đang TẮT."
