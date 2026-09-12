@@ -799,19 +799,26 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
       }
       if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         attempt += 1;
-        // Trần backoff nâng lên 5 phút (trước là 30s) và CHỈ log 1 trong số
-        // các lần thử đầu + rải rác về sau - nếu Realtime mất kết nối kéo
-        // dài (mạng/Supabase gặp sự cố hàng giờ), trước đây log/tạo kênh mới
-        // dồn dập không giới hạn tới mức "bão" console, đã từng tự làm tràn
-        // ngăn xếp và crash CẢ server (RangeError ngay trong console.log).
-        const delayMs = Math.min(300000, 2000 * attempt);
+        // Trần backoff 5 phút trong ~1 giờ đầu, sau đó giãn hẳn ra 30 phút/lần
+        // nếu vẫn chưa kết nối lại được (attempt > 20) - nếu Realtime mất kết
+        // nối THẬT SỰ kéo dài (sự cố hạ tầng/mạng, không phải chập chờn tạm
+        // thời), tạo kênh mới liên tục dù đã giãn cách vẫn khiến số kênh cũ
+        // tích tụ không giới hạn theo thời gian - đã từng gây crash cả server
+        // (xem PR #73). CHỈ log 1 trong số các lần thử (vài lần đầu + rải rác
+        // về sau), không log mọi lần.
+        const delayMs = attempt > 20 ? 1800000 : Math.min(300000, 2000 * attempt);
         if (attempt <= 3 || attempt % 20 === 0) {
           console.warn(
             `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}) - thử kết nối lại sau ${delayMs}ms`
           );
         }
+        // removeChannel() trả về 1 Promise (không phải chạy đồng bộ) - CHỈ bọc
+        // try/catch (như trước đây) không bắt được rejection của chính Promise
+        // đó, dẫn tới "unhandledRejection" nếu nó reject (đã xảy ra thật trên
+        // production: RangeError: Maximum call stack size exceeded). Bọc thêm
+        // .catch() để không bao giờ có promise nào bị bỏ rơi ở đây.
         try {
-          supabaseAdmin!.removeChannel(channel);
+          Promise.resolve(supabaseAdmin!.removeChannel(channel)).catch(() => {});
         } catch (e) {}
         setTimeout(connect, delayMs);
       }
