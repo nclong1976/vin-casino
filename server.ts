@@ -982,11 +982,130 @@ async function syncDeletedMessageToBusiness(oldRow: any) {
   await supabaseAdmin.from("telegram_business_message_links").delete().eq("message_id", oldRow.id);
 }
 
+/** Chuyển tiếp ĐÚNG 1 tin nhắn khách hàng (sender="user") sang nhóm Telegram
+ * CSKH cũ - logic dùng chung cho CẢ 2 đường: (1) Realtime báo tức thời (độ
+ * trễ thấp khi kênh kết nối được) VÀ (2) vòng polling dự phòng bên dưới (khi
+ * Realtime mất kết nối kéo dài - đã xảy ra thật trên production, xem PR #73-
+ * #77). Tách riêng ra đây để 2 đường gọi chung 1 nguồn logic, không lặp code. */
+async function forwardUserMessageToTelegramGroup(row: any) {
+  if (!supabaseAdmin || !row || row.sender !== "user" || !row.conversation_id) return;
+
+  const userName = await getUserDisplayName(row.conversation_id);
+  const attachments: unknown[] = Array.isArray(row.attachments) ? row.attachments : [];
+  const content = row.content || row.text || (attachments.length ? "(Đã gửi ảnh - xem bên dưới)" : "(tệp đính kèm)");
+  const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này bằng chữ hoặc ảnh - hoặc gõ/gửi ảnh thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
+
+  // Mỗi khách 1 Forum Topic riêng (xem ensureForumTopic()) - null nếu nhóm
+  // chưa bật Forum Topics, sendTelegramMessage() vẫn gửi bình thường vào
+  // nhóm trong trường hợp đó.
+  const threadId = await ensureForumTopic(row.conversation_id, userName);
+  const telegramMessageId = await sendTelegramMessage(text, undefined, undefined, threadId ?? undefined);
+  if (telegramMessageId) {
+    try {
+      await supabaseAdmin.from("telegram_message_links").insert({
+        telegram_message_id: telegramMessageId,
+        conversation_id: row.conversation_id,
+        user_name: userName,
+      });
+    } catch (e) {
+      console.error("[Telegram] Không lưu được link tin nhắn:", e);
+    }
+  }
+
+  // Chuyển tiếp ảnh thật (nếu có) - reply thẳng vào tin nhắn text vừa gửi ở
+  // trên để Admin thấy ngay trong cùng 1 luồng, không chỉ đọc dòng chữ
+  // placeholder.
+  for (const url of attachments) {
+    const img = await attachmentToImageBuffer(url);
+    if (!img) continue;
+    const photoMessageId = await sendTelegramPhoto(
+      img.buffer,
+      `cskh-${row.id || Date.now()}.${img.ext}`,
+      telegramMessageId ?? undefined,
+      threadId ?? undefined
+    );
+    if (photoMessageId) {
+      try {
+        await supabaseAdmin.from("telegram_message_links").insert({
+          telegram_message_id: photoMessageId,
+          conversation_id: row.conversation_id,
+          user_name: userName,
+        });
+      } catch (e) {
+        console.error("[Telegram] Không lưu được link ảnh:", e);
+      }
+    }
+  }
+}
+
+// Kênh Realtime "forward CSKH" đã được xác nhận (log production thật, hàng
+// chục nghìn lần thử) CÓ THỂ mất kết nối kéo dài KHÔNG rõ thời hạn (xem PR
+// #73-#77) - khách vẫn gửi tin bình thường trong app, nhưng Admin không bao
+// giờ nhận được qua Telegram trong lúc đó. Polling REST (không phụ thuộc
+// WebSocket, dùng đúng cơ chế fetch HTTP thông thường đã luôn hoạt động ổn
+// định) là lưới an toàn dự phòng - quét tin nhắn khách MỚI mỗi 15 giây, chỉ
+// forward tin nào CHƯA có trong telegram_message_links (tránh gửi trùng nếu
+// Realtime vẫn đang hoạt động song song lúc đó).
+let cskhPollingCursor: string | null = null;
+async function pollAndForwardUnsentCskhMessages() {
+  if (!supabaseAdmin) return;
+  try {
+    if (cskhPollingCursor === null) {
+      // Lần đầu chạy (server vừa khởi động) - chỉ xử lý tin từ giờ trở đi,
+      // KHÔNG quét ngược lịch sử cũ (tránh forward lại hàng loạt tin nhắn cũ
+      // mỗi lần server restart).
+      cskhPollingCursor = new Date().toISOString();
+      return;
+    }
+    const { data: rows, error } = await supabaseAdmin
+      .from("messages")
+      .select("id, sender, conversation_id, content, attachments, created_date")
+      .eq("sender", "user")
+      .gt("created_date", cskhPollingCursor)
+      .order("created_date", { ascending: true })
+      .limit(50);
+    if (error) {
+      console.error("[Telegram] Polling CSKH: lỗi đọc tin nhắn mới:", error.message);
+      return;
+    }
+    if (!rows || rows.length === 0) return;
+
+    for (const row of rows) {
+      cskhPollingCursor = row.created_date;
+      try {
+        // Link chỉ có thể được tạo SAU khi tin nhắn này tồn tại (do chính
+        // forwardUserMessageToTelegramGroup() ghi lại ngay sau khi gửi
+        // Telegram thành công) - tra trong cửa sổ [created_date, +5 phút] để
+        // biết Realtime đã forward tin NÀY chưa, tránh gửi trùng nếu cả 2
+        // đường (Realtime + polling) cùng bắt được tin này.
+        const { data: existingLink } = await supabaseAdmin
+          .from("telegram_message_links")
+          .select("telegram_message_id")
+          .eq("conversation_id", row.conversation_id)
+          .gte("created_at", row.created_date)
+          .lte("created_at", new Date(new Date(row.created_date).getTime() + 5 * 60000).toISOString())
+          .limit(1)
+          .maybeSingle();
+        if (existingLink) continue;
+      } catch (e) {}
+
+      await forwardUserMessageToTelegramGroup(row).catch((e) =>
+        console.error("[Telegram] Polling CSKH: lỗi forward tin nhắn:", e)
+      );
+    }
+  } catch (e: any) {
+    console.error("[Telegram] Polling CSKH: lỗi không mong đợi:", e?.message || e);
+  }
+}
+
 /** Lắng nghe tin nhắn MỚI/SỬA/XÓA (Supabase Realtime) và chuyển tiếp sang
  * nhóm Telegram CSKH (khách -> nhóm cũ) lẫn Telegram Business (admin -> chat
  * Business của khách, cả gửi/sửa/xóa) khi khách đã liên kết. */
 function startTelegramForwarding() {
   if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
+
+  // Lưới an toàn dự phòng - xem ghi chú ở pollAndForwardUnsentCskhMessages().
+  setInterval(pollAndForwardUnsentCskhMessages, 15000);
 
   subscribeWithAutoReconnect(
     () =>
@@ -1003,55 +1122,7 @@ function startTelegramForwarding() {
                 console.error("[TelegramBusiness] Lỗi forward tin admin:", e)
               );
             }
-            if (!row || row.sender !== "user" || !row.conversation_id) return;
-
-            const userName = await getUserDisplayName(row.conversation_id);
-            const attachments: unknown[] = Array.isArray(row.attachments) ? row.attachments : [];
-            const content =
-              row.content || row.text || (attachments.length ? "(Đã gửi ảnh - xem bên dưới)" : "(tệp đính kèm)");
-            const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này bằng chữ hoặc ảnh - hoặc gõ/gửi ảnh thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
-
-            // Mỗi khách 1 Forum Topic riêng (xem ensureForumTopic()) - null
-            // nếu nhóm chưa bật Forum Topics, sendTelegramMessage() vẫn gửi
-            // bình thường vào nhóm trong trường hợp đó.
-            const threadId = await ensureForumTopic(row.conversation_id, userName);
-            const telegramMessageId = await sendTelegramMessage(text, undefined, undefined, threadId ?? undefined);
-            if (telegramMessageId) {
-              try {
-                await supabaseAdmin!.from("telegram_message_links").insert({
-                  telegram_message_id: telegramMessageId,
-                  conversation_id: row.conversation_id,
-                  user_name: userName,
-                });
-              } catch (e) {
-                console.error("[Telegram] Không lưu được link tin nhắn:", e);
-              }
-            }
-
-            // Chuyển tiếp ảnh thật (nếu có) - reply thẳng vào tin nhắn text
-            // vừa gửi ở trên để Admin thấy ngay trong cùng 1 luồng, không
-            // chỉ đọc dòng chữ placeholder.
-            for (const url of attachments) {
-              const img = await attachmentToImageBuffer(url);
-              if (!img) continue;
-              const photoMessageId = await sendTelegramPhoto(
-                img.buffer,
-                `cskh-${row.id || Date.now()}.${img.ext}`,
-                telegramMessageId ?? undefined,
-                threadId ?? undefined
-              );
-              if (photoMessageId) {
-                try {
-                  await supabaseAdmin!.from("telegram_message_links").insert({
-                    telegram_message_id: photoMessageId,
-                    conversation_id: row.conversation_id,
-                    user_name: userName,
-                  });
-                } catch (e) {
-                  console.error("[Telegram] Không lưu được link ảnh:", e);
-                }
-              }
-            }
+            await forwardUserMessageToTelegramGroup(row);
           }
         )
         .on(
