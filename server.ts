@@ -9,6 +9,27 @@ import { createClient } from "@supabase/supabase-js";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Lưới an toàn toàn tiến trình: TRƯỚC ĐÂY 1 lỗi bất kỳ không bắt được ở bất kỳ
+// đâu (kể cả trong 1 job nền không quan trọng như forward Telegram) sẽ crash
+// CẢ server (Express + Socket.io + mọi API nạp/rút/CSKH...) - đã từng xảy ra
+// thật: kênh Realtime "forward Nạp/Rút" mất kết nối kéo dài, lặp lại quá
+// nhanh/quá nhiều lần khiến console/log bị "bão" tới mức tràn ngăn xếp
+// (RangeError: Maximum call stack size exceeded ngay trong console.log) và
+// kéo sập toàn bộ tiến trình dù lỗi gốc chỉ nằm ở 1 tính năng phụ. Bắt lỗi ở
+// đây để tối thiểu là GHI LOG thay vì crash trong im lặng/crash-loop liên
+// tục trên Render - không exit process, để mọi request/luồng khác (nạp, rút,
+// đăng nhập...) không bị ảnh hưởng vì 1 lỗi ở 1 job nền riêng lẻ.
+process.on("uncaughtException", (err) => {
+  try {
+    process.stderr.write(`[FATAL] uncaughtException: ${err?.stack || err}\n`);
+  } catch (e) {}
+});
+process.on("unhandledRejection", (reason) => {
+  try {
+    process.stderr.write(`[FATAL] unhandledRejection: ${reason instanceof Error ? reason.stack : reason}\n`);
+  } catch (e) {}
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // Cộng lãi hàng ngày theo cấp VIP - CHỈ chạy ở đây (server), KHÔNG có đường
 // nào để trình duyệt người dùng tự kích hoạt. Toàn bộ tính toán + ghi tiền
@@ -776,11 +797,19 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
         attempt = 0;
         return;
       }
-      console.log(`[Telegram] ${label}: ${status}`);
       if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         attempt += 1;
-        const delayMs = Math.min(30000, 2000 * attempt);
-        console.warn(`[Telegram] ${label} mất kết nối (${status}) - thử kết nối lại sau ${delayMs}ms`);
+        // Trần backoff nâng lên 5 phút (trước là 30s) và CHỈ log 1 trong số
+        // các lần thử đầu + rải rác về sau - nếu Realtime mất kết nối kéo
+        // dài (mạng/Supabase gặp sự cố hàng giờ), trước đây log/tạo kênh mới
+        // dồn dập không giới hạn tới mức "bão" console, đã từng tự làm tràn
+        // ngăn xếp và crash CẢ server (RangeError ngay trong console.log).
+        const delayMs = Math.min(300000, 2000 * attempt);
+        if (attempt <= 3 || attempt % 20 === 0) {
+          console.warn(
+            `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}) - thử kết nối lại sau ${delayMs}ms`
+          );
+        }
         try {
           supabaseAdmin!.removeChannel(channel);
         } catch (e) {}
