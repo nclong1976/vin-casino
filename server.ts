@@ -1676,12 +1676,7 @@ app.post("/api/telegram-webhook", async (req, res) => {
     if (message?.text && (await handleBusinessLinkStart(message))) return;
 
     const replyToId = message?.reply_to_message?.message_id;
-    // Một số client Telegram chỉ gắn message_thread_id vào tin nhắn GỐC được
-    // reply (message.reply_to_message.message_thread_id) mà KHÔNG lặp lại nó
-    // ở tin nhắn mới (message.message_thread_id) khi Admin bấm Reply từ ngoài
-    // topic (vd. từ danh sách chat chung) - nếu thiếu ở tin mới thì lấy từ tin
-    // được reply, tránh báo nhầm "không tìm thấy hội thoại gốc" dù topic vẫn khớp.
-    const messageThreadId = message?.message_thread_id ?? message?.reply_to_message?.message_thread_id;
+    const messageThreadId = message?.message_thread_id;
     // Ảnh Admin gửi (Photo hoặc File ảnh) dùng "caption" thay cho "text" -
     // content lấy 1 trong 2, có thể rỗng nếu Admin gửi ảnh không kèm chú thích.
     const text = message?.text || message?.caption || "";
@@ -1743,14 +1738,8 @@ app.post("/api/telegram-webhook", async (req, res) => {
       // reply, không nằm trong topic nào đã biết) im lặng bỏ qua, không spam
       // cảnh báo.
       if (replyToId) {
-        // Log đủ dữ kiện để chẩn đoán CHÍNH XÁC lần sau nếu vẫn còn khớp sai
-        // (không đoán mò nữa) - replyToId/messageThreadId là 2 khóa tra cứu
-        // duy nhất, chatId để xác nhận đúng nhóm/topic nào đang gặp lỗi.
-        console.warn(
-          `[Telegram] Không khớp được hội thoại - replyToId=${replyToId}, messageThreadId=${messageThreadId ?? "(none)"}, chatId=${message.chat?.id}, from=${adminName}`
-        );
         await sendTelegramMessage(
-          "⚠️ Không tìm thấy hội thoại gốc cho tin nhắn này (có thể đã quá cũ, hoặc bạn đang trả lời nhầm 1 tin không phải của khách). Để phản hồi ĐÚNG khách hàng: hãy bấm Reply trực tiếp vào tin \"💬 Tin nhắn CSKH mới\" của khách đó (hoặc gõ thẳng trong Topic riêng của khách nếu nhóm đã bật Forum Topics) - hoặc trả lời trong Admin Panel.",
+          "⚠️ Không tìm thấy hội thoại gốc cho tin nhắn này (có thể đã quá cũ). Vui lòng trả lời trực tiếp trong Admin Panel.",
           message.message_id
         );
       }
