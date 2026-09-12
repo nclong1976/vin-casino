@@ -1006,6 +1006,11 @@ async function forwardUserMessageToTelegramGroup(row: any) {
         telegram_message_id: telegramMessageId,
         conversation_id: row.conversation_id,
         user_name: userName,
+        // message_id gốc (messages.id) - BẮT BUỘC để pollAndForwardUnsentCskhMessages()
+        // dedup ĐÚNG 1 tin nhắn cụ thể (eq message_id), không còn đoán qua cửa sổ
+        // thời gian (đã gây bỏ sót tin khi khách gửi liên tiếp - xem migration
+        // add_message_id_to_telegram_message_links.sql).
+        message_id: row.id ?? null,
       });
     } catch (e) {
       console.error("[Telegram] Không lưu được link tin nhắn:", e);
@@ -1030,6 +1035,7 @@ async function forwardUserMessageToTelegramGroup(row: any) {
           telegram_message_id: photoMessageId,
           conversation_id: row.conversation_id,
           user_name: userName,
+          message_id: row.id ?? null,
         });
       } catch (e) {
         console.error("[Telegram] Không lưu được link ảnh:", e);
@@ -1073,17 +1079,18 @@ async function pollAndForwardUnsentCskhMessages() {
     for (const row of rows) {
       cskhPollingCursor = row.created_date;
       try {
-        // Link chỉ có thể được tạo SAU khi tin nhắn này tồn tại (do chính
-        // forwardUserMessageToTelegramGroup() ghi lại ngay sau khi gửi
-        // Telegram thành công) - tra trong cửa sổ [created_date, +5 phút] để
-        // biết Realtime đã forward tin NÀY chưa, tránh gửi trùng nếu cả 2
-        // đường (Realtime + polling) cùng bắt được tin này.
+        // Tra ĐÚNG message_id (messages.id) - KHÔNG dùng cửa sổ thời gian như
+        // trước đây (BUG THẬT: khách gửi nhiều tin liên tiếp trong cùng 1
+        // hội thoại - rất thường gặp - khiến link của tin A (forward trước)
+        // bị khớp NHẦM sang tin B (gửi ngay sau, cùng conversation_id, link
+        // của A rơi đúng vào cửa sổ [B.created_date, +5 phút] vì A luôn được
+        // forward SAU khi B đã tồn tại) -> tin B bị coi là "đã forward rồi",
+        // bỏ qua vĩnh viễn dù chưa hề tới Telegram. Xem migration
+        // add_message_id_to_telegram_message_links.sql).
         const { data: existingLink } = await supabaseAdmin
           .from("telegram_message_links")
           .select("telegram_message_id")
-          .eq("conversation_id", row.conversation_id)
-          .gte("created_at", row.created_date)
-          .lte("created_at", new Date(new Date(row.created_date).getTime() + 5 * 60000).toISOString())
+          .eq("message_id", row.id)
           .limit(1)
           .maybeSingle();
         if (existingLink) continue;
