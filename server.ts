@@ -791,7 +791,14 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
   let attempt = 0;
   const connect = () => {
     const channel = createChannel();
-    channel.subscribe((status: string) => {
+    // Supabase Realtime truyền THÊM tham số thứ 2 (err) cho callback này khi
+    // status là CHANNEL_ERROR/TIMED_OUT - chứa lý do THẬT của việc mất kết
+    // nối (lỗi WebSocket, xác thực, rate limit...). Code cũ bỏ qua hoàn toàn
+    // tham số này nên trước giờ chỉ biết "CLOSED"/"CHANNEL_ERROR" mà KHÔNG hề
+    // biết vì sao - không đủ để chẩn đoán khi tính năng forward Telegram im
+    // lặng ngừng hoạt động (khách vẫn gửi tin bình thường trong app, chỉ là
+    // Admin không nhận được qua Telegram vì kênh này không kết nối được).
+    channel.subscribe((status: string, err?: any) => {
       if (status === "SUBSCRIBED") {
         if (attempt > 0) console.log(`[Telegram] ${label}: đã kết nối lại thành công.`);
         attempt = 0;
@@ -808,8 +815,9 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
         // về sau), không log mọi lần.
         const delayMs = attempt > 20 ? 1800000 : Math.min(300000, 2000 * attempt);
         if (attempt <= 3 || attempt % 20 === 0) {
+          const reason = err?.message || err?.toString?.() || (err ? JSON.stringify(err) : null);
           console.warn(
-            `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}) - thử kết nối lại sau ${delayMs}ms`
+            `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}${reason ? `, lý do: ${reason}` : ""}) - thử kết nối lại sau ${delayMs}ms`
           );
         }
         // removeChannel() trả về 1 Promise (không phải chạy đồng bộ) - CHỈ bọc
