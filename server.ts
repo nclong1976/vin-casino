@@ -48,6 +48,45 @@ const supabaseAdmin =
     ? createClient(supabaseServiceUrl, supabaseServiceRoleKey, { auth: { persistSession: false } })
     : null;
 
+// Chẩn đoán tầng THẤP HƠN hẳn từng kênh (channel.subscribe() chỉ báo được
+// status như "CLOSED" - đã thêm tham số err ở PR #75 nhưng log thật trên
+// production cho thấy err LUÔN rỗng, nghĩa là lỗi xảy ra ngay ở tầng socket
+// WebSocket dùng chung cho MỌI kênh Realtime, trước cả khi 1 kênh cụ thể kịp
+// nhận diện lỗi). "socketAdapter" là field runtime thật của RealtimeClient
+// (không có trong .d.ts công khai vì đánh dấu private ở TypeScript, nhưng
+// vẫn truy cập được lúc chạy - ép kiểu any) - onOpen/onClose/onError ở đây
+// là NƠI DUY NHẤT thấy được lý do đóng kết nối thật (CloseEvent.code/reason,
+// Event lỗi WebSocket...) thay vì chỉ chuỗi "CLOSED" mơ hồ.
+if (supabaseAdmin) {
+  try {
+    const socketAdapter = (supabaseAdmin.realtime as any)?.socketAdapter;
+    let socketErrCount = 0;
+    let socketCloseCount = 0;
+    socketAdapter?.onOpen?.(() => {
+      console.log("[RealtimeSocket] Kết nối WebSocket dùng chung đã mở thành công.");
+    });
+    socketAdapter?.onClose?.((event: any) => {
+      socketCloseCount += 1;
+      if (socketCloseCount <= 5 || socketCloseCount % 50 === 0) {
+        console.warn(
+          `[RealtimeSocket] Socket đóng (lần ${socketCloseCount}) - code=${event?.code} reason=${event?.reason || "(không có)"} wasClean=${event?.wasClean}`
+        );
+      }
+    });
+    socketAdapter?.onError?.((error: any) => {
+      socketErrCount += 1;
+      if (socketErrCount <= 5 || socketErrCount % 50 === 0) {
+        console.error(
+          `[RealtimeSocket] Socket lỗi (lần ${socketErrCount}):`,
+          error?.message || error?.type || error
+        );
+      }
+    });
+  } catch (e: any) {
+    console.warn("[RealtimeSocket] Không gắn được hook chẩn đoán socket:", e?.message || e);
+  }
+}
+
 if (!supabaseAdmin) {
   console.warn(
     "[DailyInterest] SUPABASE_SERVICE_ROLE_KEY chưa được cấu hình - tính năng cộng lãi hàng ngày theo cấp VIP đang TẮT."
@@ -791,7 +830,14 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
   let attempt = 0;
   const connect = () => {
     const channel = createChannel();
-    channel.subscribe((status: string) => {
+    // Supabase Realtime truyền THÊM tham số thứ 2 (err) cho callback này khi
+    // status là CHANNEL_ERROR/TIMED_OUT - chứa lý do THẬT của việc mất kết
+    // nối (lỗi WebSocket, xác thực, rate limit...). Code cũ bỏ qua hoàn toàn
+    // tham số này nên trước giờ chỉ biết "CLOSED"/"CHANNEL_ERROR" mà KHÔNG hề
+    // biết vì sao - không đủ để chẩn đoán khi tính năng forward Telegram im
+    // lặng ngừng hoạt động (khách vẫn gửi tin bình thường trong app, chỉ là
+    // Admin không nhận được qua Telegram vì kênh này không kết nối được).
+    channel.subscribe((status: string, err?: any) => {
       if (status === "SUBSCRIBED") {
         if (attempt > 0) console.log(`[Telegram] ${label}: đã kết nối lại thành công.`);
         attempt = 0;
@@ -799,19 +845,27 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
       }
       if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         attempt += 1;
-        // Trần backoff nâng lên 5 phút (trước là 30s) và CHỈ log 1 trong số
-        // các lần thử đầu + rải rác về sau - nếu Realtime mất kết nối kéo
-        // dài (mạng/Supabase gặp sự cố hàng giờ), trước đây log/tạo kênh mới
-        // dồn dập không giới hạn tới mức "bão" console, đã từng tự làm tràn
-        // ngăn xếp và crash CẢ server (RangeError ngay trong console.log).
-        const delayMs = Math.min(300000, 2000 * attempt);
+        // Trần backoff 5 phút trong ~1 giờ đầu, sau đó giãn hẳn ra 30 phút/lần
+        // nếu vẫn chưa kết nối lại được (attempt > 20) - nếu Realtime mất kết
+        // nối THẬT SỰ kéo dài (sự cố hạ tầng/mạng, không phải chập chờn tạm
+        // thời), tạo kênh mới liên tục dù đã giãn cách vẫn khiến số kênh cũ
+        // tích tụ không giới hạn theo thời gian - đã từng gây crash cả server
+        // (xem PR #73). CHỈ log 1 trong số các lần thử (vài lần đầu + rải rác
+        // về sau), không log mọi lần.
+        const delayMs = attempt > 20 ? 1800000 : Math.min(300000, 2000 * attempt);
         if (attempt <= 3 || attempt % 20 === 0) {
+          const reason = err?.message || err?.toString?.() || (err ? JSON.stringify(err) : null);
           console.warn(
-            `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}) - thử kết nối lại sau ${delayMs}ms`
+            `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}${reason ? `, lý do: ${reason}` : ""}) - thử kết nối lại sau ${delayMs}ms`
           );
         }
+        // removeChannel() trả về 1 Promise (không phải chạy đồng bộ) - CHỈ bọc
+        // try/catch (như trước đây) không bắt được rejection của chính Promise
+        // đó, dẫn tới "unhandledRejection" nếu nó reject (đã xảy ra thật trên
+        // production: RangeError: Maximum call stack size exceeded). Bọc thêm
+        // .catch() để không bao giờ có promise nào bị bỏ rơi ở đây.
         try {
-          supabaseAdmin!.removeChannel(channel);
+          Promise.resolve(supabaseAdmin!.removeChannel(channel)).catch(() => {});
         } catch (e) {}
         setTimeout(connect, delayMs);
       }
