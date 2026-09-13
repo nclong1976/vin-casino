@@ -724,6 +724,38 @@ export async function listSupabaseWalletTransactions(filter = {}, sort = '-creat
   }
 }
 
+/**
+ * Đọc "transactions" (dự án đầu tư) của ĐÚNG 1 user, lọc thẳng trên Postgres
+ * (WHERE user_id = ..., dùng đúng idx_transactions_user đã có sẵn) - KHÔNG
+ * đi qua base44.entities.Transaction.filter({user_id}) như trước đây,
+ * vì entity đó (LocalEntityClient.filter() trong base44Client.js) luôn tải
+ * TOÀN BỘ bảng transactions (không WHERE) rồi mới lọc user_id ở phía trình
+ * duyệt. Bản thân việc "tải hết rồi lọc" đã lãng phí, nhưng nghiêm trọng hơn
+ * là dailyYieldEngine.js gọi đúng câu này mỗi 30 GIÂY từ MỌI phiên đăng nhập
+ * đang mở (AuthContext.jsx, chạy toàn app, không riêng 1 trang nào) - xác
+ * nhận qua pg_stat_statements đây là 1 trong các nguyên nhân chính khiến
+ * CPU/Disk IO của Postgres bị bão hòa (Compute 100%, sự cố ngày 13/9).
+ */
+export async function listSupabaseTransactionsByUser(userId, limit = 200) {
+  if (!userId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_date', { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.warn('[SupabaseDb] listSupabaseTransactionsByUser error:', error.message);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.warn('[SupabaseDb] listSupabaseTransactionsByUser exception:', e);
+    return [];
+  }
+}
+
 export async function createSupabaseWalletTransaction(tx) {
   if (!tx) return null;
   const newTx = {

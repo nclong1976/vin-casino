@@ -1,5 +1,5 @@
 import { base44 } from "@/api/base44Client";
-import { resolveProjectMaturityPayout } from "@/lib/supabaseDb";
+import { resolveProjectMaturityPayout, listSupabaseTransactionsByUser } from "@/lib/supabaseDb";
 
 /**
  * Tự động kiểm tra và trả lãi cho hội viên VinClub:
@@ -37,11 +37,12 @@ export async function runDailyYieldAndMaturityCheck(user) {
     // ==========================================
     // RÀ SOÁT KẾT THÚC DỰ ÁN ĐẦU TƯ THỜI GIAN THỰC
     // ==========================================
-    const userTxs = await base44.entities.Transaction.filter(
-      { user_id: user.id },
-      "-created_date",
-      200
-    ).catch(() => []);
+    // Lọc thẳng trên Postgres (WHERE user_id=...) thay vì
+    // base44.entities.Transaction.filter({user_id}) - hàm đó tải TOÀN BỘ
+    // bảng transactions (không WHERE) rồi mới lọc ở trình duyệt, rất tốn kém
+    // vì đây là vòng lặp chạy mỗi 30 giây từ MỌI phiên đăng nhập (xem ghi chú
+    // ở listSupabaseTransactionsByUser()).
+    const userTxs = await listSupabaseTransactionsByUser(user.id, 200).catch(() => []);
 
     for (const tx of userTxs) {
       if (tx.payout_status === "paid" || tx.status === "completed_payout") continue;
