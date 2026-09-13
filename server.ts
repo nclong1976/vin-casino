@@ -5,6 +5,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
+import { subscribeWithAutoReconnect as subscribeWithAutoReconnectImpl } from "./src/lib/subscribeWithAutoReconnect.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -822,56 +823,12 @@ async function ensureForumTopic(conversationId: string, userName: string): Promi
 // (server Render "ngủ"/khởi động lại, mạng chập chờn...) - Supabase Realtime
 // có thể tự đóng kênh (CLOSED/CHANNEL_ERROR/TIMED_OUT) mà không tự phục hồi,
 // khiến việc chuyển tiếp sang Telegram IM LẶNG NGỪNG HẲN cho tới khi restart
-// cả process server - đúng lớp lỗi "tin nhắn liên kết Telegram không tới
-// nơi" mà không hề có dấu hiệu báo lỗi nào. Bọc chung 1 lớp tự kết nối lại
-// (backoff tăng dần, tối đa 30s) cho cả 2 kênh thay vì để mỗi kênh tự xử lý
-// riêng lẻ.
+// cả process server. Logic tự kết nối lại (backoff + generation guard chống
+// hiệu ứng dây chuyền khi kênh cũ tự bắn lại sự kiện - xem ghi chú chi tiết
+// trong file đó) được tách sang src/lib/subscribeWithAutoReconnect.js để có
+// thể unit test độc lập (server.ts không có test harness).
 function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
-  let attempt = 0;
-  const connect = () => {
-    const channel = createChannel();
-    // Supabase Realtime truyền THÊM tham số thứ 2 (err) cho callback này khi
-    // status là CHANNEL_ERROR/TIMED_OUT - chứa lý do THẬT của việc mất kết
-    // nối (lỗi WebSocket, xác thực, rate limit...). Code cũ bỏ qua hoàn toàn
-    // tham số này nên trước giờ chỉ biết "CLOSED"/"CHANNEL_ERROR" mà KHÔNG hề
-    // biết vì sao - không đủ để chẩn đoán khi tính năng forward Telegram im
-    // lặng ngừng hoạt động (khách vẫn gửi tin bình thường trong app, chỉ là
-    // Admin không nhận được qua Telegram vì kênh này không kết nối được).
-    channel.subscribe((status: string, err?: any) => {
-      if (status === "SUBSCRIBED") {
-        if (attempt > 0) console.log(`[Telegram] ${label}: đã kết nối lại thành công.`);
-        attempt = 0;
-        return;
-      }
-      if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        attempt += 1;
-        // Trần backoff 5 phút trong ~1 giờ đầu, sau đó giãn hẳn ra 30 phút/lần
-        // nếu vẫn chưa kết nối lại được (attempt > 20) - nếu Realtime mất kết
-        // nối THẬT SỰ kéo dài (sự cố hạ tầng/mạng, không phải chập chờn tạm
-        // thời), tạo kênh mới liên tục dù đã giãn cách vẫn khiến số kênh cũ
-        // tích tụ không giới hạn theo thời gian - đã từng gây crash cả server
-        // (xem PR #73). CHỈ log 1 trong số các lần thử (vài lần đầu + rải rác
-        // về sau), không log mọi lần.
-        const delayMs = attempt > 20 ? 1800000 : Math.min(300000, 2000 * attempt);
-        if (attempt <= 3 || attempt % 20 === 0) {
-          const reason = err?.message || err?.toString?.() || (err ? JSON.stringify(err) : null);
-          console.warn(
-            `[Telegram] ${label} mất kết nối (${status}, lần thử ${attempt}${reason ? `, lý do: ${reason}` : ""}) - thử kết nối lại sau ${delayMs}ms`
-          );
-        }
-        // removeChannel() trả về 1 Promise (không phải chạy đồng bộ) - CHỈ bọc
-        // try/catch (như trước đây) không bắt được rejection của chính Promise
-        // đó, dẫn tới "unhandledRejection" nếu nó reject (đã xảy ra thật trên
-        // production: RangeError: Maximum call stack size exceeded). Bọc thêm
-        // .catch() để không bao giờ có promise nào bị bỏ rơi ở đây.
-        try {
-          Promise.resolve(supabaseAdmin!.removeChannel(channel)).catch(() => {});
-        } catch (e) {}
-        setTimeout(connect, delayMs);
-      }
-    });
-  };
-  connect();
+  subscribeWithAutoReconnectImpl(createChannel, (channel) => supabaseAdmin!.removeChannel(channel), label);
 }
 
 // Tin nhắn có id bắt đầu bằng 1 trong 2 tiền tố này ĐÃ TỒN TẠI trên Telegram
