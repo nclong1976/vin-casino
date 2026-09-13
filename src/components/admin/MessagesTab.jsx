@@ -861,11 +861,17 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   // (nút "Gửi lại" trên tin lỗi) tái dùng, không phải upload lại file đã
   // upload thành công trước đó (attachments lúc này đã là URL).
   const sendReply = useCallback(
-    async (cid, content, attachments) => {
+    // userId = ID THẬT của khách hàng (support_conversations.user_id, khác
+    // cid khi khách đã "bắt đầu hội thoại mới" - xem migration
+    // cskh_rotating_conversation_id.sql) - PHẢI ghi đúng giá trị này vào
+    // messages.user_id, KHÔNG PHẢI cid, vì RLS (messages_select_own_or_admin)
+    // của khách check theo user_id: ghi nhầm cid ở đây sẽ khiến khách không
+    // đọc được chính tin nhắn admin vừa trả lời cho mình.
+    async (cid, content, attachments, userId) => {
       await base44.entities.Message.create({
         sender: "admin",
         conversation_id: cid,
-        user_id: cid,
+        user_id: userId || cid,
         content,
         attachments: attachments || [],
       });
@@ -922,24 +928,29 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       // notify, KHÔNG cần tự quản lý mảng optimistic riêng nữa (cách làm cũ
       // dễ hiện 2 bubble trùng khi Realtime cũng đẩy tin thật về gần như
       // cùng lúc).
-      await sendReply(cid, content, attachments);
+      await sendReply(cid, content, attachments, supportConvMap[cid]?.user_id || usersMap[cid]?.id);
     } catch {
       toast.error("Không thể gửi phản hồi");
     } finally {
       setSending(false);
     }
-  }, [replyText, files, selectedUser, sending, supportConvMap, patchConversationStatus, sendReply]);
+  }, [replyText, files, selectedUser, sending, supportConvMap, usersMap, patchConversationStatus, sendReply]);
 
   // Tin lỗi (message.__status === "failed") được GIỮ LẠI trên màn hình kèm
   // nút "Gửi lại" thay vì bị xoá như cách làm cũ.
   const retryFailedReply = useCallback(
     (failedMsg) => {
       setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
-      sendReply(failedMsg.conversation_id, failedMsg.content, failedMsg.attachments).catch(() => {
+      sendReply(
+        failedMsg.conversation_id,
+        failedMsg.content,
+        failedMsg.attachments,
+        failedMsg.user_id || supportConvMap[failedMsg.conversation_id]?.user_id
+      ).catch(() => {
         toast.error("Không thể gửi lại tin nhắn. Vui lòng thử lại.");
       });
     },
-    [sendReply]
+    [sendReply, supportConvMap]
   );
 
   const handleKeyDown = useCallback(
