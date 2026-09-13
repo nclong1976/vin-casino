@@ -1105,6 +1105,91 @@ async function pollAndForwardUnsentCskhMessages() {
   }
 }
 
+/** Forward BÙ, CHẠY ĐÚNG 1 LẦN, toàn bộ tin nhắn CSKH cũ (sender="user")
+ * chưa từng tới được Telegram - hậu quả của việc kênh Realtime forward CSKH
+ * mất kết nối kéo dài trên production trước khi có polling dự phòng (PR
+ * #73-#82). Đánh dấu đã chạy xong vào cskh_telegram_backfill_state (bảng
+ * cờ đơn dòng) để không quét lại toàn bộ lịch sử ở mỗi lần server khởi động
+ * sau này - cskhPollingCursor (pollAndForwardUnsentCskhMessages) vẫn tiếp
+ * tục xử lý tin MỚI như bình thường, không liên quan tới hàm này. */
+async function backfillHistoricalCskhMessages() {
+  if (!supabaseAdmin) return;
+  try {
+    const { data: state } = await supabaseAdmin
+      .from("cskh_telegram_backfill_state")
+      .select("id")
+      .eq("id", "singleton")
+      .maybeSingle();
+    if (state) return;
+
+    console.log("[Telegram] Bắt đầu forward bù tin nhắn CSKH cũ chưa từng tới Telegram...");
+    let forwarded = 0;
+    let after = "1970-01-01T00:00:00.000Z";
+    for (;;) {
+      const { data: rows, error } = await supabaseAdmin
+        .from("messages")
+        .select("id, sender, conversation_id, content, attachments, created_date")
+        .eq("sender", "user")
+        .gt("created_date", after)
+        .order("created_date", { ascending: true })
+        .limit(100);
+      if (error) {
+        console.error("[Telegram] Backfill CSKH: lỗi đọc tin nhắn:", error.message);
+        break;
+      }
+      if (!rows || rows.length === 0) break;
+
+      for (const row of rows) {
+        after = row.created_date;
+        try {
+          // Ưu tiên tra theo message_id chính xác (link tạo sau PR #82) -
+          // link cũ hơn (tạo trước khi có cột message_id) không có giá trị
+          // này nên tra thêm theo cửa sổ thời gian [created_date, +5 phút]
+          // CHỈ trong các link message_id IS NULL, tránh forward trùng
+          // những tin ĐÃ được Realtime gửi thành công từ trước.
+          const { data: newLink } = await supabaseAdmin
+            .from("telegram_message_links")
+            .select("telegram_message_id")
+            .eq("message_id", row.id)
+            .limit(1)
+            .maybeSingle();
+          if (newLink) continue;
+
+          const { data: legacyLink } = await supabaseAdmin
+            .from("telegram_message_links")
+            .select("telegram_message_id")
+            .eq("conversation_id", row.conversation_id)
+            .is("message_id", null)
+            .gte("created_at", row.created_date)
+            .lte("created_at", new Date(new Date(row.created_date).getTime() + 5 * 60000).toISOString())
+            .limit(1)
+            .maybeSingle();
+          if (legacyLink) continue;
+        } catch (e) {}
+
+        await forwardUserMessageToTelegramGroup(row).catch((e) =>
+          console.error("[Telegram] Backfill CSKH: lỗi forward tin nhắn:", e)
+        );
+        forwarded++;
+        // Giãn cách để không vượt rate limit gửi tin của Telegram (an toàn
+        // hơn nhiều so với giới hạn thực tế ~1 tin/giây/nhóm).
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+
+      if (rows.length < 100) break;
+    }
+
+    await supabaseAdmin.from("cskh_telegram_backfill_state").upsert({
+      id: "singleton",
+      completed_at: new Date().toISOString(),
+      forwarded_count: forwarded,
+    });
+    console.log(`[Telegram] Backfill CSKH hoàn tất - đã forward bù ${forwarded} tin nhắn cũ.`);
+  } catch (e: any) {
+    console.error("[Telegram] Backfill CSKH: lỗi không mong đợi:", e?.message || e);
+  }
+}
+
 /** Lắng nghe tin nhắn MỚI/SỬA/XÓA (Supabase Realtime) và chuyển tiếp sang
  * nhóm Telegram CSKH (khách -> nhóm cũ) lẫn Telegram Business (admin -> chat
  * Business của khách, cả gửi/sửa/xóa) khi khách đã liên kết. */
@@ -1113,6 +1198,9 @@ function startTelegramForwarding() {
 
   // Lưới an toàn dự phòng - xem ghi chú ở pollAndForwardUnsentCskhMessages().
   setInterval(pollAndForwardUnsentCskhMessages, 15000);
+  // Forward bù lịch sử cũ - chỉ chạy thật sự 1 lần duy nhất, xem ghi chú ở
+  // backfillHistoricalCskhMessages().
+  backfillHistoricalCskhMessages();
 
   subscribeWithAutoReconnect(
     () =>
