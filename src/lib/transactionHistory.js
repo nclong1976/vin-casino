@@ -174,10 +174,11 @@ export function buildTransactionHistory(rawList, currentBalance) {
  */
 const SETTLED_WALLET_STATUSES = new Set(["completed", "approved"]);
 const OUTGOING_WALLET_TYPES = new Set(["withdraw", "investment", "withdrawal"]);
+const INCOMING_WALLET_TYPES = new Set(["deposit", "bonus"]);
 
 export function computeWalletNet(rawList) {
   const depSum = (rawList || [])
-    .filter((tx) => tx?.type === "deposit" && SETTLED_WALLET_STATUSES.has(tx?.status))
+    .filter((tx) => INCOMING_WALLET_TYPES.has(tx?.type) && SETTLED_WALLET_STATUSES.has(tx?.status))
     .reduce((s, tx) => s + (Number(tx?.amount) || 0), 0);
   const outSum = (rawList || [])
     .filter((tx) => OUTGOING_WALLET_TYPES.has(tx?.type) && SETTLED_WALLET_STATUSES.has(tx?.status))
