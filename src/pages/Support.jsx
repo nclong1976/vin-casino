@@ -13,6 +13,7 @@ import { subscribeToConnectionStatus } from "@/api/base44Client";
 import { compressImageFile } from "@/lib/imageCompression";
 import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { useIdleSessionTimeout } from "@/hooks/useIdleSessionTimeout";
+import { getActiveConversationId, recordLeftSupport } from "@/lib/cskhConversation";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_WARNING_MS = 60 * 1000;
@@ -29,6 +30,10 @@ export default function Support() {
   const [convStatus, setConvStatus] = useState(DEFAULT_SUPPORT_STATUS);
   const [connStatus, setConnStatus] = useState(null);
   const [idleExpired, setIdleExpired] = useState(false);
+  // conversation_id ĐANG HOẠT ĐỘNG - khác user.id nếu khách vừa rời trang
+  // CSKH >= 10 phút rồi quay lại (xem src/lib/cskhConversation.js). null cho
+  // tới khi user.id sẵn sàng (đăng nhập xong).
+  const [activeConversationId, setActiveConversationId] = useState(null);
   const scrollRef = useRef(null);
   const greetingCreatedRef = useRef(false);
   const prevLastMsgIdRef = useRef(null);
@@ -36,7 +41,7 @@ export default function Support() {
   const hasMoreOlderRef = useRef(true);
   const prependScrollAdjustRef = useRef(null);
 
-  const { peerTyping, notifyTyping } = useTypingIndicator(user?.id, "user");
+  const { peerTyping, notifyTyping } = useTypingIndicator(activeConversationId, "user");
 
   const { resume: resumeIdleSession } = useIdleSessionTimeout({
     timeoutMs: IDLE_TIMEOUT_MS,
@@ -52,6 +57,27 @@ export default function Support() {
     const unsub = subscribeToConnectionStatus("Message", setConnStatus);
     return unsub;
   }, []);
+
+  // Chốt conversation_id ĐANG HOẠT ĐỘNG ngay khi user.id sẵn sàng (chỉ 1 lần
+  // mỗi lượt mount trang, không tính lại giữa chừng - "rời trang >= 10 phút"
+  // chỉ được xét lại ở LƯỢT MOUNT KẾ TIẾP, không phải liên tục trong lúc
+  // đang xem). Đồng thời ghi lại thời điểm "rời trang" khi unmount (chuyển
+  // trang khác trong app) HOẶC tab bị ẩn (chuyển app/đóng tab) - xem
+  // src/lib/cskhConversation.js.
+  useEffect(() => {
+    if (!user?.id) return;
+    setActiveConversationId(getActiveConversationId(user.id));
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") recordLeftSupport(user.id);
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      recordLeftSupport(user.id);
+    };
+  }, [user?.id]);
 
   // Khóa "quyền kiểm tra/tạo tin chào" ngay lập tức, TRƯỚC bất kỳ await nào.
   // loadMessages()/applyMessageList() được gọi từ nhiều nơi gần như đồng thời
@@ -72,7 +98,7 @@ export default function Support() {
   // riêng khỏi loadMessages() để nhánh Realtime có thể áp dữ liệu tức thời,
   // không phải đợi thêm 1 lượt REST round-trip nữa mới cập nhật màn hình -
   // đây chính là phần gây "độ trễ" khi nhắn tin 2 chiều admin<->người dùng.
-  const applyMessageList = async (list, userId, currentUser, isGreetingCheckOwner) => {
+  const applyMessageList = async (list, conversationId, currentUser, isGreetingCheckOwner) => {
       const u = currentUser || user;
       const userFullName = u?.full_name || u?.name || u?.display_name || (u?.email ? u.email.split("@")[0] : "Quý khách");
 
@@ -106,8 +132,8 @@ export default function Support() {
         try {
           const newMsg = await base44.entities.Message.create({
             sender: "support",
-            conversation_id: userId,
-            user_id: userId,
+            conversation_id: conversationId,
+            user_id: u?.id,
             content: greetingContent,
             attachments: [],
           });
@@ -118,7 +144,7 @@ export default function Support() {
           setMessages([{
             id: "greeting-default",
             sender: "support",
-            conversation_id: userId,
+            conversation_id: conversationId,
             content: greetingContent,
             created_date: new Date().toISOString(),
             attachments: [],
@@ -184,8 +210,8 @@ export default function Support() {
 
   // Lượt tải qua REST (mount lần đầu, poll 8s dự phòng, sự kiện cross-tab) -
   // vẫn giữ nguyên hành vi cũ (fetch rồi hợp nhất qua applyMessageList()).
-  const loadMessages = async (userId, currentUser) => {
-    if (!userId) return;
+  const loadMessages = async (conversationId, currentUser) => {
+    if (!conversationId) return;
     const isGreetingCheckOwner = claimGreetingOwnership();
     try {
       // Chỉ tải 10 tin gần nhất mỗi lượt (mount + poll 8s) thay vì 200 - nhẹ
@@ -193,11 +219,11 @@ export default function Support() {
       // lên đầu khung chat, đã có loadOlderMessages()/fetchMessagesPage() lo
       // phần đó (cursor pagination thật, không phụ thuộc giới hạn này).
       const list = await base44.entities.Message.filter(
-        { conversation_id: userId },
+        { conversation_id: conversationId },
         "-created_date",
         10
       );
-      await applyMessageList(list, userId, currentUser, isGreetingCheckOwner);
+      await applyMessageList(list, conversationId, currentUser, isGreetingCheckOwner);
     } catch (e) {
       // quiet fallback
     } finally {
@@ -206,10 +232,14 @@ export default function Support() {
   };
 
   useEffect(() => {
-    if (!user) return;
+    // Đợi activeConversationId chốt xong (effect ở trên, chạy ngay khi
+    // user.id sẵn sàng) trước khi tải/lắng nghe tin nhắn - tránh 1 lượt tải
+    // "hụt" bằng user.id ngay lúc mount rồi phải tải lại lần 2 bằng đúng
+    // conversation_id đang hoạt động.
+    if (!user || !activeConversationId) return;
 
     // 1. Initial Load with Greeting Generation
-    loadMessages(user.id, user);
+    loadMessages(activeConversationId, user);
 
     // 2. Real-time Subscription via Supabase Realtime - base44Client.js giờ
     // phát thẳng dữ liệu Postgres vừa thay đổi (payload thật, không phải
@@ -220,7 +250,7 @@ export default function Support() {
     // dùng, dù dữ liệu mới nhất đã có sẵn ngay trong tay.
     const unsub = base44.entities.Message.subscribe((freshItems) => {
       if (!Array.isArray(freshItems)) {
-        loadMessages(user.id, user);
+        loadMessages(activeConversationId, user);
         return;
       }
       // .filter() tạo mảng MỚI, làm mất __deletedId (non-enumerable) đã gắn
@@ -228,27 +258,27 @@ export default function Support() {
       // vừa xóa sẽ lại bị grace-period giữ lại nếu vừa tạo dưới 5 giây (xem
       // ghi chú confirmedDeletedId trong applyMessageList()).
       const deletedId = freshItems.__deletedId;
-      const list = freshItems.filter((m) => m.conversation_id === user.id);
+      const list = freshItems.filter((m) => m.conversation_id === activeConversationId);
       if (deletedId !== undefined) {
         try {
           Object.defineProperty(list, '__deletedId', { value: deletedId, enumerable: false });
         } catch (e) {}
       }
       const isGreetingCheckOwner = claimGreetingOwnership();
-      applyMessageList(list, user.id, user, isGreetingCheckOwner).finally(() => setLoading(false));
+      applyMessageList(list, activeConversationId, user, isGreetingCheckOwner).finally(() => setLoading(false));
     });
 
     // 3. Polling fallback - chỉ là lưới an toàn dự phòng (Message.subscribe()
     // đã xử lý real-time chính), nên giãn ra 8s thay vì 2s để tránh ép
     // re-render/cuộn liên tục gây giật khi vuốt.
     const pollInterval = setInterval(() => {
-      loadMessages(user.id, user);
+      loadMessages(activeConversationId, user);
     }, 8000);
 
     // 4. Cross-tab LocalStorage Sync
     const handleStorageChange = (e) => {
       if (e.key === "vinclub_msg_update") {
-        loadMessages(user.id, user);
+        loadMessages(activeConversationId, user);
       }
     };
     window.addEventListener("storage", handleStorageChange);
@@ -258,7 +288,7 @@ export default function Support() {
       clearInterval(pollInterval);
       window.removeEventListener("storage", handleStorageChange);
     };
-  }, [user]);
+  }, [user, activeConversationId]);
 
   // Trạng thái hội thoại (đang mở/chờ phản hồi/đã đóng) do Admin đặt bên
   // MessagesTab.jsx - chỉ để HIỂN THỊ badge ở đây, khách hàng không tự đổi
@@ -266,7 +296,7 @@ export default function Support() {
   // add_support_conversations_status). Không có dòng nào cho user này nghĩa
   // là coi như mặc định "open" (chưa admin nào từng đổi trạng thái).
   useEffect(() => {
-    if (!user?.id) return;
+    if (!activeConversationId) return;
     let cancelled = false;
 
     const applyRow = (row) => {
@@ -274,12 +304,12 @@ export default function Support() {
       setConvStatus(row?.status || DEFAULT_SUPPORT_STATUS);
     };
 
-    base44.entities.SupportConversation.filter({ id: user.id })
+    base44.entities.SupportConversation.filter({ id: activeConversationId })
       .then((rows) => applyRow(rows?.[0]))
       .catch(() => {});
 
     const unsub = base44.entities.SupportConversation.subscribe((rows) => {
-      const mine = Array.isArray(rows) ? rows.find((r) => r.id === user.id) : null;
+      const mine = Array.isArray(rows) ? rows.find((r) => r.id === activeConversationId) : null;
       // Không tìm thấy dòng của mình trong payload Realtime không có nghĩa
       // là đã bị xóa (Realtime ở đây phát TOÀN BỘ bảng, không phải riêng
       // user này) - chỉ áp dụng khi thật sự tìm thấy, giữ nguyên state hiện
@@ -291,7 +321,7 @@ export default function Support() {
       cancelled = true;
       if (typeof unsub === "function") unsub();
     };
-  }, [user?.id]);
+  }, [activeConversationId]);
 
   // Đánh dấu "Read" cho tin admin gửi mà khách CHƯA xem, mỗi khi danh sách
   // tin nhắn đổi VÀ tab đang thật sự mở (document visible) - đối xứng với
@@ -342,13 +372,13 @@ export default function Support() {
   // ở trên (không đụng vào cơ chế cache/grace-period đang chạy cho tin mới) -
   // chỉ thêm tin CŨ HƠN tin cũ nhất đang có vào đầu danh sách.
   const loadOlderMessages = async () => {
-    if (loadingOlderRef.current || !hasMoreOlderRef.current || !user?.id || messages.length === 0) return;
+    if (loadingOlderRef.current || !hasMoreOlderRef.current || !activeConversationId || messages.length === 0) return;
     const oldest = messages[0];
     if (!oldest?.created_date || !scrollRef.current) return;
     loadingOlderRef.current = true;
     prependScrollAdjustRef.current = scrollRef.current.scrollHeight;
     try {
-      const older = await fetchMessagesPage(user.id, { beforeCreatedAt: oldest.created_date, limit: 30 });
+      const older = await fetchMessagesPage(activeConversationId, { beforeCreatedAt: oldest.created_date, limit: 30 });
       if (!older || older.length === 0) {
         hasMoreOlderRef.current = false;
         prependScrollAdjustRef.current = null;
@@ -383,7 +413,7 @@ export default function Support() {
   const resendMessage = async (content, attachments, topic) => {
     await base44.entities.Message.create({
       sender: "user",
-      conversation_id: user.id,
+      conversation_id: activeConversationId,
       user_id: user.id,
       content,
       attachments: attachments || [],
@@ -404,7 +434,7 @@ export default function Support() {
   };
 
   const handleSend = async (text, files, topic) => {
-    if (!user) {
+    if (!user || !activeConversationId) {
       toast.error("Vui lòng đăng nhập để gửi tin nhắn");
       return;
     }
@@ -449,7 +479,7 @@ export default function Support() {
       } catch (e) {}
 
       // Immediate reload (resendMessage() ở trên đã tự bắn "vinclub_msg_update")
-      await loadMessages(user.id, user);
+      await loadMessages(activeConversationId, user);
     } catch (e) {
       toast.error("Không thể gửi tin nhắn. Vui lòng thử lại.");
     } finally {
