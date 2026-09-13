@@ -299,7 +299,23 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
         freshItems.filter((t) => t.type === "withdraw")
       );
     });
-    return () => unsub();
+
+    // "users" trước đây chỉ tải ĐÚNG 1 LẦN lúc mount, không hề cập nhật lại
+    // - hội viên MỚI đăng ký rồi nạp/rút tiền ngay trong lúc Admin đang mở
+    // sẵn tab này sẽ hiện "Thành viên VinClub" (placeholder rỗng) ở userMap
+    // cho tới khi Admin tự tải lại trang. Subscribe thêm vào bảng users để
+    // tên/email luôn khớp thời gian thực, giống cách UsersTab.jsx đã làm.
+    const unsubUsers = base44.entities.User.subscribe((freshUsers) => {
+      if (!Array.isArray(freshUsers)) return;
+      const map = {};
+      freshUsers.forEach((u) => { if (u?.id) map[u.id] = u; });
+      setUsers(Object.values(map));
+    });
+
+    return () => {
+      unsub();
+      unsubUsers();
+    };
   }, [fetchUsers, fetchTxs, applyTxLists]);
 
   // ── Derived data ───────────────────────────────────────────────
