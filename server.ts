@@ -151,9 +151,9 @@ async function sendTelegramMessage(
     };
     if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
     if (replyMarkup) body.reply_markup = replyMarkup;
-    // Gửi vào đúng Forum Topic của khách hàng (xem ensureForumTopic()) - nếu
-    // nhóm Telegram chưa bật Forum Topics thì tham số này bị Telegram bỏ qua
-    // (tin vẫn gửi bình thường vào nhóm, không lỗi).
+    // Gửi vào đúng Forum Topic của khách hàng (xem ensureForumTopicForUser())
+    // - nếu nhóm Telegram chưa bật Forum Topics thì tham số này bị Telegram
+    // bỏ qua (tin vẫn gửi bình thường vào nhóm, không lỗi).
     if (messageThreadId) body.message_thread_id = messageThreadId;
 
     const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -771,22 +771,34 @@ function fmtVnd(n: number): string {
 const TELEGRAM_TOPIC_NAME_MAX = 128;
 
 /**
- * "Phân loại từng người dùng tại nhóm Telegram" - mỗi khách hàng có 1 Forum
- * Topic riêng trong nhóm (support_conversations.telegram_thread_id), thay vì
- * mọi khách đan xen chung 1 luồng tin nhắn. Trả về message_thread_id để gắn
- * vào sendTelegramMessage() bên dưới - trả về null nếu nhóm Telegram CHƯA
- * bật Forum Topics (Admin phải tự bật trong cài đặt nhóm) hoặc ghi Postgres
- * thất bại - KHÔNG chặn/ném lỗi, để luồng forward CSKH vẫn hoạt động bình
- * thường (gửi vào nhóm không phân loại) như trước khi có tính năng này.
+ * "Phân loại từng KHÁCH HÀNG tại nhóm Telegram" - mỗi khách có 1 Forum Topic
+ * RIÊNG VÀ DUY NHẤT (bảng telegram_customer_threads, khóa theo user_id ổn
+ * định suốt đời), để Admin xem được liền mạch TOÀN BỘ lịch sử trò chuyện của
+ * 1 khách ở đúng 1 chỗ.
+ *
+ * QUAN TRỌNG: khóa theo user_id, KHÔNG phải conversation_id - từ khi có
+ * "bắt đầu hội thoại mới nếu khách rời trang CSKH >= 10 phút"
+ * (cskh_rotating_conversation_id.sql, xem src/lib/cskhConversation.js), 1
+ * khách hàng có THỂ có NHIỀU conversation_id khác nhau theo thời gian (phía
+ * khách không xem lại được lịch sử cũ - đúng ý đồ thiết kế), nhưng đó là
+ * hành vi chỉ áp dụng cho TRẢI NGHIỆM PHÍA KHÁCH - phía Admin trên Telegram
+ * vẫn cần lưu trữ/xem lại được TOÀN BỘ lịch sử của khách đó, nên phải gom
+ * theo user_id chứ không theo từng conversation_id rời rạc.
+ *
+ * Trả về message_thread_id để gắn vào sendTelegramMessage() bên dưới - trả
+ * về null nếu nhóm Telegram CHƯA bật Forum Topics (Admin phải tự bật trong
+ * cài đặt nhóm) hoặc ghi Postgres thất bại - KHÔNG chặn/ném lỗi, để luồng
+ * forward CSKH vẫn hoạt động bình thường (gửi vào nhóm không phân loại) như
+ * trước khi có tính năng này.
  */
-async function ensureForumTopic(conversationId: string, userName: string): Promise<number | null> {
-  if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID || !conversationId) return null;
+async function ensureForumTopicForUser(userId: string, userName: string): Promise<number | null> {
+  if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_CHAT_ID || !userId) return null;
 
   try {
     const { data: existing } = await supabaseAdmin
-      .from("support_conversations")
+      .from("telegram_customer_threads")
       .select("telegram_thread_id")
-      .eq("id", conversationId)
+      .eq("user_id", userId)
       .maybeSingle();
     if (existing?.telegram_thread_id) return existing.telegram_thread_id;
   } catch (e) {
@@ -794,7 +806,7 @@ async function ensureForumTopic(conversationId: string, userName: string): Promi
   }
 
   try {
-    const topicName = (userName || conversationId).slice(0, TELEGRAM_TOPIC_NAME_MAX);
+    const topicName = (userName || userId).slice(0, TELEGRAM_TOPIC_NAME_MAX);
     const resp = await fetch(`${TELEGRAM_API}/createForumTopic`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -814,11 +826,9 @@ async function ensureForumTopic(conversationId: string, userName: string): Promi
     if (!threadId) return null;
 
     try {
-      // upsert vì hội thoại này có thể CHƯA có dòng nào trong
-      // support_conversations (khách hoàn toàn mới, tin đầu tiên).
-      await supabaseAdmin.from("support_conversations").upsert(
-        { id: conversationId, telegram_thread_id: threadId },
-        { onConflict: "id" }
+      await supabaseAdmin.from("telegram_customer_threads").upsert(
+        { user_id: userId, telegram_thread_id: threadId },
+        { onConflict: "user_id" }
       );
     } catch (e) {
       console.error("[Telegram] Không lưu được telegram_thread_id:", e);
@@ -959,15 +969,20 @@ async function syncDeletedMessageToBusiness(oldRow: any) {
 async function forwardUserMessageToTelegramGroup(row: any) {
   if (!supabaseAdmin || !row || row.sender !== "user" || !row.conversation_id) return;
 
-  const userName = await getUserDisplayName(row.conversation_id);
+  // user_id ổn định suốt đời (khác conversation_id - đổi mỗi phiên, xem
+  // cskhConversation.js) - fallback về conversation_id cho dữ liệu cũ/hiếm
+  // gặp thiếu user_id.
+  const userId: string = row.user_id || row.conversation_id;
+  const userName = await getUserDisplayName(userId);
   const attachments: unknown[] = Array.isArray(row.attachments) ? row.attachments : [];
   const content = row.content || row.text || (attachments.length ? "(Đã gửi ảnh - xem bên dưới)" : "(tệp đính kèm)");
   const text = `💬 <b>Tin nhắn CSKH mới</b>\nTừ: ${escapeHtml(userName)}\n\n${escapeHtml(content)}\n\n<i>Trả lời (Reply) tin nhắn này bằng chữ hoặc ảnh - hoặc gõ/gửi ảnh thẳng trong topic của khách nếu nhóm đã bật Forum Topics - để phản hồi trực tiếp cho khách hàng.</i>`;
 
-  // Mỗi khách 1 Forum Topic riêng (xem ensureForumTopic()) - null nếu nhóm
+  // Topic Telegram DUY NHẤT cho khách này (gom mọi conversation_id của cùng
+  // 1 user_id vào 1 chỗ - xem ensureForumTopicForUser()) - null nếu nhóm
   // chưa bật Forum Topics, sendTelegramMessage() vẫn gửi bình thường vào
   // nhóm trong trường hợp đó.
-  const threadId = await ensureForumTopic(row.conversation_id, userName);
+  const threadId = await ensureForumTopicForUser(userId, userName);
   const telegramMessageId = await sendTelegramMessage(text, undefined, undefined, threadId ?? undefined);
   if (telegramMessageId) {
     try {
@@ -1706,8 +1721,9 @@ function getFallbackMarketResponse(query: string) {
 //    a) REPLY trực tiếp tới 1 tin đã forward trước đó (telegram_message_links) -
 //       cách cũ, luôn hoạt động dù nhóm có bật Forum Topics hay không.
 //    b) Gõ THẲNG trong Forum Topic riêng của khách (message_thread_id khớp
-//       support_conversations.telegram_thread_id, xem ensureForumTopic()) -
-//       không cần bấm Reply mỗi lần, chỉ hoạt động khi nhóm đã bật Topics.
+//       telegram_customer_threads.telegram_thread_id theo user_id, xem
+//       ensureForumTopicForUser()) - không cần bấm Reply mỗi lần, chỉ hoạt
+//       động khi nhóm đã bật Topics.
 //    Tin nhắn thường/chat chit không khớp cách nào ở trên thì bị bỏ qua.
 //    REPLY nhập tay lý do từ chối nạp/rút khớp qua telegram_wallet_links,
 //    xử lý riêng trước 2 nhánh trên.
@@ -1803,13 +1819,27 @@ app.post("/api/telegram-webhook", async (req, res) => {
 
     // (b) Không phải REPLY (hoặc reply không khớp gì) - thử khớp theo Forum
     // Topic đang gõ (gõ thẳng trong topic của khách, không cần bấm Reply).
+    // Topic giờ gắn với user_id (xem ensureForumTopicForUser() - 1 khách có
+    // thể có NHIỀU conversation_id theo thời gian, xem
+    // cskh_rotating_conversation_id.sql), nên phải tra thêm 1 bước: từ
+    // user_id của topic, tìm ĐÚNG hội thoại đang hoạt động (mới nhất) của
+    // khách đó để ghi tin trả lời vào đúng chỗ khách đang thấy trong app.
     if (!conversationId && messageThreadId) {
-      const { data: conv } = await supabaseAdmin
-        .from("support_conversations")
-        .select("id")
+      const { data: thread } = await supabaseAdmin
+        .from("telegram_customer_threads")
+        .select("user_id")
         .eq("telegram_thread_id", messageThreadId)
         .maybeSingle();
-      if (conv) conversationId = conv.id;
+      if (thread?.user_id) {
+        const { data: conv } = await supabaseAdmin
+          .from("support_conversations")
+          .select("id")
+          .eq("user_id", thread.user_id)
+          .order("last_message_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (conv) conversationId = conv.id;
+      }
     }
 
     if (!conversationId) {
