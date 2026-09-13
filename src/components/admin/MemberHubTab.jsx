@@ -46,6 +46,12 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
     // Listen to real-time sync events
     const unsubMsg = base44.entities.Message.subscribe(() => fetchHubStats());
     const unsubTx = base44.entities.WalletTransaction.subscribe(() => fetchHubStats());
+    // Trước đây "Tổng hội viên" chỉ được tính lại như 1 tác dụng phụ mỗi khi
+    // CÓ tin nhắn/giao dịch mới - hội viên vừa đăng ký xong (chưa nhắn tin,
+    // chưa nạp/rút gì) sẽ không làm badge này tăng cho tới khi có 1 sự kiện
+    // khác xảy ra. Subscribe thẳng vào bảng users để đếm đúng ngay khi có
+    // người đăng ký mới.
+    const unsubUsers = base44.entities.User.subscribe(() => fetchHubStats());
 
     const handleMsgUpdate = () => fetchHubStats();
     const handleBalUpdate = () => fetchHubStats();
@@ -66,6 +72,7 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
     return () => {
       if (typeof unsubMsg === "function") unsubMsg();
       if (typeof unsubTx === "function") unsubTx();
+      if (typeof unsubUsers === "function") unsubUsers();
       window.removeEventListener("vinclub:msg_update", handleMsgUpdate);
       window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
       window.removeEventListener("storage", handleMsgUpdate);
