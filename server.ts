@@ -828,7 +828,22 @@ async function ensureForumTopic(conversationId: string, userName: string): Promi
 // riêng lẻ.
 function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
   let attempt = 0;
+  // "generation" chống hiệu ứng dây chuyền: removeChannel() chạy bất đồng bộ
+  // và KHÔNG đảm bảo gỡ kênh cũ khỏi socket kịp thời - client Realtime nội bộ
+  // (Phoenix socket) tự retry kết nối SOCKET độc lập với backoff của ta (và
+  // nhanh hơn nhiều), nên 1 kênh cũ "tưởng đã bỏ" vẫn có thể tiếp tục tự bắn
+  // CLOSED/CHANNEL_ERROR mỗi lần socket retry. Nếu không chặn, mỗi lần đó lại
+  // tạo THÊM 1 kênh mới rồi lịch tiếp - số kênh cũ chưa kịp gỡ dồn lại, mỗi
+  // vòng socket retry bắn callback của TẤT CẢ kênh cũ cùng lúc, khiến số "lần
+  // thử" tăng phi tuyến tính chỉ trong vài chục giây thay vì đúng theo backoff
+  // - đã xảy ra thật trên production (hàng nghìn lần thử/phút, cuối cùng vỡ
+  // stack: "RangeError: Maximum call stack size exceeded"). Đánh số thế hệ:
+  // MỌI sự kiện đến từ 1 kênh không phải thế hệ mới nhất đều bị bỏ qua ngay,
+  // nên dù kênh cũ có tự bắn lại bao nhiêu lần cũng không sinh thêm kênh mới
+  // hay tăng "attempt" - chỉ đúng 1 chuỗi kết nối lại được phép hoạt động.
+  let generation = 0;
   const connect = () => {
+    const myGeneration = ++generation;
     const channel = createChannel();
     // Supabase Realtime truyền THÊM tham số thứ 2 (err) cho callback này khi
     // status là CHANNEL_ERROR/TIMED_OUT - chứa lý do THẬT của việc mất kết
@@ -838,6 +853,7 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
     // lặng ngừng hoạt động (khách vẫn gửi tin bình thường trong app, chỉ là
     // Admin không nhận được qua Telegram vì kênh này không kết nối được).
     channel.subscribe((status: string, err?: any) => {
+      if (myGeneration !== generation) return; // Kênh cũ đã bị thay - bỏ qua mọi sự kiện muộn của nó.
       if (status === "SUBSCRIBED") {
         if (attempt > 0) console.log(`[Telegram] ${label}: đã kết nối lại thành công.`);
         attempt = 0;
@@ -861,13 +877,14 @@ function subscribeWithAutoReconnect(createChannel: () => any, label: string) {
         }
         // removeChannel() trả về 1 Promise (không phải chạy đồng bộ) - CHỈ bọc
         // try/catch (như trước đây) không bắt được rejection của chính Promise
-        // đó, dẫn tới "unhandledRejection" nếu nó reject (đã xảy ra thật trên
-        // production: RangeError: Maximum call stack size exceeded). Bọc thêm
-        // .catch() để không bao giờ có promise nào bị bỏ rơi ở đây.
+        // đó, dẫn tới "unhandledRejection" nếu nó reject. Bọc thêm .catch() để
+        // không bao giờ có promise nào bị bỏ rơi ở đây.
         try {
           Promise.resolve(supabaseAdmin!.removeChannel(channel)).catch(() => {});
         } catch (e) {}
-        setTimeout(connect, delayMs);
+        setTimeout(() => {
+          if (myGeneration === generation) connect();
+        }, delayMs);
       }
     });
   };
