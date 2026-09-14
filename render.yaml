@@ -25,27 +25,9 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      # Tùy chọn - cầu nối CSKH + Nạp/Rút tiền <-> Telegram (server.ts): chat
-      # CSKH hai chiều, và lệnh nạp/rút mới forward vào nhóm kèm nút Phê
-      # duyệt/Từ chối để Admin xử lý ngay trên Telegram. Tạo bot qua
-      # @BotFather, lấy CHAT_ID bằng cách thêm bot vào nhóm CSKH rồi gọi
-      # https://api.telegram.org/bot<TOKEN>/getUpdates. Không cấu hình thì
-      # tính năng tự tắt. RENDER_EXTERNAL_URL đã tự có sẵn trên Render nên
-      # KHÔNG cần khai báo TELEGRAM_WEBHOOK_URL riêng.
-      # Để MỖI KHÁCH HÀNG có 1 topic riêng trong nhóm (thay vì tin nhắn mọi
-      # khách đan xen chung 1 luồng): mở nhóm Telegram > Chỉnh sửa nhóm > bật
-      # "Topics" (yêu cầu nhóm ở dạng Supergroup) TRƯỚC khi thêm bot vào -
-      # server.ts tự tạo 1 topic/khách khi khách nhắn tin lần đầu, Admin gõ
-      # thẳng trong topic đó để trả lời (không cần bấm Reply). Nếu không bật
-      # Topics, tính năng CSKH <-> Telegram vẫn hoạt động bình thường như cũ
-      # (1 luồng chung), chỉ là không phân loại theo khách.
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
-        sync: false
-      # Tùy chọn - nhóm RIÊNG cho phê duyệt Nạp/Rút, tách khỏi nhóm CSKH ở
-      # trên - vẫn dùng CHUNG bot (TELEGRAM_BOT_TOKEN), chỉ cần thêm bot vào
-      # cả 2 nhóm. Không khai báo thì Nạp/Rút dùng chung nhóm CSKH như trước
-      # đây (hành vi mặc định, không phá vỡ deployment cũ).
-      - key: TELEGRAM_WALLET_CHAT_ID
-        sync: false
+      # Cầu nối CSKH <-> Telegram KHÔNG còn chạy ở server.ts/Render nữa - đã
+      # chuyển sang Supabase Edge Functions (telegram-cskh-outbound,
+      # telegram-webhook) + Database Webhook, cấu hình TELEGRAM_BOT_TOKEN/
+      # TELEGRAM_CHAT_ID/TELEGRAM_WEBHOOK_SECRET như Edge Function secrets
+      # trong Supabase Dashboard, không phải ở đây. Duyệt Nạp/Rút qua Telegram
+      # đã bị gỡ bỏ hoàn toàn - chỉ còn duyệt trong Admin Panel.

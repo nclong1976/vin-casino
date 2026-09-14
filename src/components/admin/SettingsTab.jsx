@@ -51,14 +51,14 @@ function TelegramBridgeHealthCard() {
         <h3 className="text-sm font-bold text-black">Tình trạng cầu nối Telegram</h3>
       </div>
       <p className="text-[11px] text-gray-500 mb-2">
-        Trạng thái gửi tin nhắn/giao dịch sang Telegram theo thời gian thực - không cần tự gửi thử để kiểm tra.
+        Trạng thái gửi tin nhắn CSKH sang Telegram theo thời gian thực - không cần tự gửi thử để kiểm tra. (Duyệt
+        Nạp/Rút qua Telegram đã ngừng dùng, chỉ còn duyệt trong Admin Panel.)
       </p>
       {!health ? (
         <div className="text-xs text-gray-400 py-2">Đang tải...</div>
       ) : (
         <div className="divide-y divide-gray-100">
           <BridgeChannelRow label="Kênh CSKH" channel={health.cskh} />
-          <BridgeChannelRow label="Kênh Nạp/Rút" channel={health.wallet} />
         </div>
       )}
     </div>
