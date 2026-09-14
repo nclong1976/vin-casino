@@ -17,7 +17,7 @@ const previewType = (file) => {
   return "file";
 };
 
-export default function ChatInput({ onSend, sending, onTyping }) {
+export default function ChatInput({ onSend, sending, onTyping, showQuickTopics = true }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);
   // Chủ đề đã chọn (bấm 1 chip QUICK_TOPICS) - đi kèm tin nhắn tiếp theo để
@@ -93,22 +93,27 @@ export default function ChatInput({ onSend, sending, onTyping }) {
   return (
     <div className="w-full bg-white border-t border-gray-200/80 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-40 relative pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-4xl mx-auto px-3 pt-2 pb-2.5">
-        {/* Quick Topic Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
-          {QUICK_TOPICS.map((topicLabel, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => {
-                setText(topicLabel);
-                setTopic(topicLabel);
-              }}
-              className="px-2.5 py-1 rounded-full bg-amber-50/80 hover:bg-amber-100 border border-amber-200/90 text-[#948154] text-[10px] font-bold whitespace-nowrap transition-colors shrink-0 shadow-2xs cursor-pointer active:scale-95"
-            >
-              {topicLabel}
-            </button>
-          ))}
-        </div>
+        {/* Chip chủ đề nhanh - CHỈ hiện lúc mới vào (hội thoại chưa có gì
+            ngoài tin chào tự động, xem showQuickTopics ở Support.jsx). Khách
+            đã nhắn qua lại rồi thì ẩn đi, tránh lặp lại gợi ý mỗi lần quay
+            lại trang CSKH - giữ khung nhập liệu là trọng tâm duy nhất. */}
+        {showQuickTopics && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+            {QUICK_TOPICS.map((topicLabel, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setText(topicLabel);
+                  setTopic(topicLabel);
+                }}
+                className="px-2.5 py-1 rounded-full bg-amber-50/80 hover:bg-amber-100 border border-amber-200/90 text-[#948154] text-[10px] font-bold whitespace-nowrap transition-colors shrink-0 shadow-2xs cursor-pointer active:scale-95"
+              >
+                {topicLabel}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* File / Image Previews */}
         {files.length > 0 && (

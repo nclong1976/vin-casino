@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { Headphones, Sparkles, Phone } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
@@ -487,16 +486,14 @@ export default function Support() {
     }
   };
 
-  const userFullName = user?.full_name || user?.name || user?.display_name || (user?.email ? user.email.split("@")[0] : "Quý khách");
-
-  // Link liên hệ trực tiếp CSKH qua Viber. Kênh này CHỈ THÊM VÀO, không thay
-  // thế khung chat trong app hiện có (đã xác nhận giữ song song cả 2 kênh).
+  // Link liên hệ trực tiếp CSKH qua Viber (nút icon trong SupportHeader) -
+  // kênh này CHỈ THÊM VÀO, không thay thế khung chat trong app hiện có.
   const viberContactUrl = "https://viber.me/84898072422";
 
   return (
     <div className="relative h-[100dvh] w-full bg-[#f0f2f5] overflow-hidden flex flex-col justify-between font-['Be_Vietnam_Pro',sans-serif]">
       {/* Fixed Header */}
-      <SupportHeader status={convStatus} />
+      <SupportHeader status={convStatus} viberUrl={viberContactUrl} />
 
       {/* Banner "Đang kết nối lại..." - không chặn UI, chỉ báo trạng thái
           kênh Realtime đang tự nối lại (đã có sẵn từ PR #49) */}
@@ -513,29 +510,6 @@ export default function Support() {
         className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto scroll-smooth px-3.5 py-4 space-y-3"
         style={{ overscrollBehavior: "contain" }}
       >
-        {/* Welcome VIP Greeting Card */}
-        <div className="w-full bg-gradient-to-br from-white via-amber-50/40 to-white rounded-2xl p-4 border border-[#948154]/20 shadow-xs text-center space-y-1.5 mb-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#948154] to-[#6b5e3e] text-white flex items-center justify-center mx-auto shadow-sm">
-            <Headphones className="w-5 h-5" />
-          </div>
-          <h2 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center justify-center gap-1.5">
-            <span>Trung tâm Trợ giúp Khách hàng VinClub</span>
-            <Sparkles className="w-3.5 h-3.5 text-[#948154]" />
-          </h2>
-          <p className="text-[11px] text-gray-600 leading-relaxed max-w-md mx-auto">
-            Xin chào <strong className="text-[#948154] font-bold">{userFullName}</strong>! Kênh hỗ trợ trực tuyến bảo mật đa tầng, kết nối trực tiếp chuyên viên CSKH cấp cao 24/7.
-          </p>
-          <a
-            href={viberContactUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 mt-1 text-[10.5px] font-semibold text-[#7360F2] hover:underline"
-          >
-            <Phone className="w-3 h-3" />
-            Liên hệ trực tiếp CSKH qua Viber
-          </a>
-        </div>
-
         {/* Loading Spinner */}
         {loading && (
           <div className="text-center py-6 text-xs text-gray-400">
@@ -585,7 +559,12 @@ export default function Support() {
       )}
 
       {/* Fixed Fullscreen Chat Input */}
-      <ChatInput onSend={handleSend} sending={sending} onTyping={notifyTyping} />
+      <ChatInput
+        onSend={handleSend}
+        sending={sending}
+        onTyping={notifyTyping}
+        showQuickTopics={messages.length <= 1}
+      />
     </div>
   );
 }

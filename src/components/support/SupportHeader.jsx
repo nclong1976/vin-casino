@@ -1,10 +1,10 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Home, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Home, ShieldCheck, Phone } from "lucide-react";
 import cskhIcon from "@/assets/images/regenerated_image_1786328347646.png";
 import { SUPPORT_STATUS_LABELS } from "@/constants/supportStatus";
 
-export default function SupportHeader({ status }) {
+export default function SupportHeader({ status, viberUrl }) {
   const navigate = useNavigate();
 
   return (
@@ -47,6 +47,21 @@ export default function SupportHeader({ status }) {
           <span className="shrink-0 text-[9px] sm:text-[10px] font-bold px-2 py-1 rounded-full bg-white/20 text-white border border-white/30 whitespace-nowrap">
             {SUPPORT_STATUS_LABELS[status] || status}
           </span>
+        )}
+
+        {/* Nút Viber - thay cho thẻ "Welcome" tĩnh trước đây (trùng lặp với
+            tin chào tự động đã có sẵn trong khung chat) - đưa lên header để
+            luôn thấy được, không chiếm chỗ khung chat. */}
+        {viberUrl && (
+          <a
+            href={viberUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white backdrop-blur-xs transition-all border border-white/20 shrink-0"
+            title="Liên hệ trực tiếp qua Viber"
+          >
+            <Phone className="w-4 h-4" />
+          </a>
         )}
 
         {/* Home Button */}
