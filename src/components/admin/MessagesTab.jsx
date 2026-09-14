@@ -26,7 +26,7 @@ import {
   Clock,
   Pencil,
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { base44, subscribeToConnectionStatus } from "@/api/base44Client";
 import { listSupabaseUsers, subscribeSupabaseUsersTable, fetchMessagesPage } from "@/lib/supabaseDb";
 import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifecycle";
 import { compressImageFile } from "@/lib/imageCompression";
@@ -278,6 +278,13 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  // Trạng thái kênh Realtime THẬT (SUBSCRIBED/CLOSED/CHANNEL_ERROR/...) - cùng
+  // subscribeToConnectionStatus() Support.jsx đang dùng cho banner "Đang kết
+  // nối lại..." phía khách hàng. Badge "● Realtime" trước đây là text tĩnh,
+  // luôn hiện xanh kể cả khi kênh rớt - đổi thành phản ánh đúng trạng thái
+  // thật để Admin không bị đánh lừa là "đang real-time" trong lúc thực ra
+  // kênh đã rớt và chỉ còn poll 20s dự phòng đang gánh.
+  const [connStatus, setConnStatus] = useState(null);
 
   useEffect(() => {
     if (initialSelectedUserId) {
@@ -390,6 +397,12 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       if (typeof unsub === "function") unsub();
       clearInterval(retryInterval);
     };
+  }, []);
+
+  // ── Trạng thái kênh Realtime thật (cho badge "● Realtime" ở header) ──
+  useEffect(() => {
+    const unsub = subscribeToConnectionStatus("Message", setConnStatus);
+    return unsub;
   }, []);
 
   // ── Realtime messages via Supabase Realtime (push chính) + poll an toàn ──
@@ -1016,8 +1029,14 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
                   {fmtTime(new Date(lastUpdate).toISOString())}
                 </span>
               )}
-              <span className="text-[8.5px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                ● Realtime
+              <span
+                className={`text-[8.5px] px-2 py-0.5 rounded-full font-bold ${
+                  connStatus && connStatus !== "SUBSCRIBED"
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-emerald-100 text-emerald-800"
+                }`}
+              >
+                {connStatus && connStatus !== "SUBSCRIBED" ? "● Đang kết nối lại..." : "● Realtime"}
               </span>
               {isSuperAdmin && (
                 <button

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
+import { useConfig } from "@/lib/ConfigContext";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import OverviewTab from "@/components/admin/OverviewTab";
@@ -42,8 +43,16 @@ const TABS = [
 export default function Admin() {
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const { triggerSound } = useConfig();
   const [tab, setTab] = useState("member_hub");
   const [stats, setStats] = useState({});
+  // Id tin nhắn đã biết - dùng để phát hiện "tin khách MỚI thật sự" (không
+  // phải admin tự gửi/sửa/đánh dấu đã đọc) từ callback Message.subscribe()
+  // bên dưới, để phát âm thanh báo động ngay cả khi Admin đang ở tab con
+  // khác (Casino, Dự án...), không chỉ khi đang mở đúng khung chat CSKH.
+  // null = chưa seed (lượt callback đầu tiên lúc mount, dữ liệu cũ có sẵn -
+  // không phát âm thanh cho những tin đã tồn tại từ trước).
+  const knownMessageIdsRef = useRef(null);
   // "Tổng quan" không còn là tab riêng - gộp thành dải số liệu gọn có thể
   // thu/mở phía trên thanh tab, mặc định thu gọn để không chiếm chỗ trên
   // mọi tab.
@@ -99,13 +108,32 @@ export default function Admin() {
     });
   };
 
+  // Báo động (âm thanh) khi có tin nhắn KHÁCH mới thật sự - diff id nhận
+  // được từ callback với Set id đã biết, chỉ tính sender:"user" (bỏ qua tin
+  // admin tự gửi và các UPDATE như đánh dấu đã đọc/sửa tin). fetchStats() ở
+  // trên đã tự refetch số liệu (kể cả unreadMessages) - hàm này CHỈ lo phần
+  // báo động, không lặp lại logic đếm.
+  const handleMessageUpdate = (msgList) => {
+    fetchStats();
+    if (!Array.isArray(msgList)) return;
+    if (knownMessageIdsRef.current === null) {
+      knownMessageIdsRef.current = new Set(msgList.map((m) => m.id));
+      return;
+    }
+    const hasNewUserMessage = msgList.some(
+      (m) => m.sender === "user" && !knownMessageIdsRef.current.has(m.id)
+    );
+    msgList.forEach((m) => knownMessageIdsRef.current.add(m.id));
+    if (hasNewUserMessage) triggerSound("notification");
+  };
+
   useEffect(() => {
     fetchStats();
 
     const unsubs = [
       base44.entities.User.subscribe(() => fetchStats()),
       base44.entities.WalletTransaction.subscribe(() => fetchStats()),
-      base44.entities.Message.subscribe(() => fetchStats()),
+      base44.entities.Message.subscribe(handleMessageUpdate),
       base44.entities.Signature.subscribe(() => fetchStats()),
       base44.entities.Notification.subscribe(() => fetchStats()),
       base44.entities.Transaction.subscribe(() => fetchStats()),
@@ -115,6 +143,17 @@ export default function Admin() {
       unsubs.forEach((u) => typeof u === "function" && u());
     };
   }, []);
+
+  // Tiêu đề tab hiện số tin CSKH chưa đọc (kiểu Gmail/Messenger) - để Admin
+  // biết ngay có tin mới dù đang mở tab trình duyệt khác, không chỉ badge
+  // trong app. Khôi phục tiêu đề gốc khi rời trang Admin.
+  useEffect(() => {
+    const baseTitle = document.title.replace(/^\(\d+\)\s*/, "");
+    document.title = stats.unreadMessages > 0 ? `(${stats.unreadMessages}) ${baseTitle}` : baseTitle;
+    return () => {
+      document.title = baseTitle;
+    };
+  }, [stats.unreadMessages]);
 
   return (
     <div className="min-h-screen bg-gray-50 font-heading">
