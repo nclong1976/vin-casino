@@ -43,3 +43,9 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      # Tùy chọn - nhóm RIÊNG cho phê duyệt Nạp/Rút, tách khỏi nhóm CSKH ở
+      # trên - vẫn dùng CHUNG bot (TELEGRAM_BOT_TOKEN), chỉ cần thêm bot vào
+      # cả 2 nhóm. Không khai báo thì Nạp/Rút dùng chung nhóm CSKH như trước
+      # đây (hành vi mặc định, không phá vỡ deployment cũ).
+      - key: TELEGRAM_WALLET_CHAT_ID
+        sync: false

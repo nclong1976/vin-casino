@@ -349,6 +349,33 @@ function escapeHtml(s: string): string {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Ghi lại "sức khoẻ" của 2 kênh forward Telegram (CSKH và Nạp/Rút) vào 1
+// dòng cấu hình duy nhất (telegram_bridge_health, id='default') - cùng mẫu
+// 1-dòng-jsonb đã dùng cho app_maintenance_config. Admin Panel đọc bảng này
+// qua Realtime để biết cầu nối có đang "chết" hay không, thay vì chỉ phát
+// hiện qua việc khách hàng phàn nàn tin nhắn không tới nơi. Không throttle -
+// đây chỉ là 1 upsert nhỏ, không đáng kể so với chi phí gọi API Telegram.
+async function recordTelegramHealth(channel: "cskh" | "wallet", ok: boolean, errorMessage?: string) {
+  if (!supabaseAdmin) return;
+  try {
+    const { data: current } = await supabaseAdmin
+      .from("telegram_bridge_health")
+      .select("status")
+      .eq("id", "default")
+      .maybeSingle();
+    const status = { ...(current?.status || {}) };
+    const now = new Date().toISOString();
+    status[channel] = ok
+      ? { ...(status[channel] || {}), last_success_at: now }
+      : { ...(status[channel] || {}), last_error: errorMessage || "Lỗi không xác định", last_error_at: now };
+    await supabaseAdmin
+      .from("telegram_bridge_health")
+      .upsert({ id: "default", status, updated_at: now });
+  } catch (e: any) {
+    console.warn("[Telegram] recordTelegramHealth: lỗi ghi trạng thái (bỏ qua):", e?.message || e);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Cầu nối Telegram Business <-> CSKH (xem ghi chú đầy đủ trong migration
 // telegram_business_bridge.sql). Khác hẳn kênh "1 nhóm chung + Forum Topic"
@@ -984,6 +1011,7 @@ async function forwardUserMessageToTelegramGroup(row: any) {
   // nhóm trong trường hợp đó.
   const threadId = await ensureForumTopicForUser(userId, userName);
   const telegramMessageId = await sendTelegramMessage(text, undefined, undefined, threadId ?? undefined);
+  recordTelegramHealth("cskh", telegramMessageId !== null).catch(() => {});
   if (telegramMessageId) {
     try {
       await supabaseAdmin.from("telegram_message_links").insert({
@@ -1397,9 +1425,102 @@ async function handleTelegramWalletCallback(cq: any) {
   }
 }
 
+/** Chuyển tiếp ĐÚNG 1 lệnh nạp/rút "pending" sang nhóm Telegram Nạp/Rút -
+ * logic dùng chung cho CẢ 2 đường: (1) Realtime báo tức thời VÀ (2) vòng
+ * polling dự phòng bên dưới (khi Realtime mất kết nối kéo dài, cùng rủi ro
+ * đã xảy ra thật với kênh CSKH - xem forwardUserMessageToTelegramGroup()).
+ * Tách riêng ra đây để 2 đường gọi chung 1 nguồn logic, không lặp code. */
+async function forwardWalletTransactionToTelegramGroup(row: any) {
+  if (!supabaseAdmin || !row || row.status !== "pending" || !["deposit", "withdraw"].includes(row.type)) return;
+
+  const userName = await getUserDisplayName(row.user_id);
+  const isDeposit = row.type === "deposit";
+  const icon = isDeposit ? "🟢" : "🔴";
+  const label = isDeposit ? "YÊU CẦU NẠP TIỀN" : "YÊU CẦU RÚT TIỀN";
+  let text = `${icon} <b>${label}</b>\nMã GD: <code>${escapeHtml(row.code || row.id)}</code>\nHội viên: ${escapeHtml(userName)}\nSố tiền: <b>${fmtVnd(row.amount)} VNĐ</b>`;
+  if (!isDeposit && row.bank_name) {
+    text += `\nNgân hàng nhận: ${escapeHtml(row.bank_name)} — ${escapeHtml(row.account_number || "")}`;
+    if (row.account_holder) text += ` (${escapeHtml(row.account_holder)})`;
+  }
+  text += `\n\nChọn hành động bên dưới:`;
+
+  const telegramMessageId = await sendTelegramMessage(
+    text,
+    undefined,
+    buildWalletApproveKeyboard(row.id),
+    undefined,
+    TELEGRAM_WALLET_CHAT_ID
+  );
+  recordTelegramHealth("wallet", telegramMessageId !== null).catch(() => {});
+  if (telegramMessageId) {
+    try {
+      await supabaseAdmin.from("telegram_wallet_links").insert({
+        telegram_message_id: telegramMessageId,
+        tx_id: row.id,
+        tx_type: row.type,
+      });
+    } catch (e) {
+      console.error("[Telegram] Không lưu được link giao dịch ví:", e);
+    }
+  }
+}
+
+// Lưới an toàn dự phòng cho kênh Nạp/Rút - cùng lý do và cùng cấu trúc với
+// pollAndForwardUnsentCskhMessages() (kênh CSKH đã từng mất Realtime kéo dài
+// trên production, xem PR #73-#77 - kênh ví trước đây KHÔNG có lưới này,
+// nghĩa là nếu Realtime rớt âm thầm thì lệnh nạp/rút mới sẽ không tới
+// Telegram và KHÔNG ai biết cho tới khi khách hàng thắc mắc).
+let walletPollingCursor: string | null = null;
+async function pollAndForwardUnsentWalletTransactions() {
+  if (!supabaseAdmin) return;
+  try {
+    if (walletPollingCursor === null) {
+      // Lần đầu chạy (server vừa khởi động) - chỉ xử lý giao dịch từ giờ trở
+      // đi, KHÔNG quét ngược lịch sử cũ.
+      walletPollingCursor = new Date().toISOString();
+      return;
+    }
+    const { data: rows, error } = await supabaseAdmin
+      .from("wallet_transactions")
+      .select("id, user_id, type, amount, status, code, bank_name, account_number, account_holder, created_date")
+      .eq("status", "pending")
+      .in("type", ["deposit", "withdraw"])
+      .gt("created_date", walletPollingCursor)
+      .order("created_date", { ascending: true })
+      .limit(50);
+    if (error) {
+      console.error("[Telegram] Polling Nạp/Rút: lỗi đọc giao dịch mới:", error.message);
+      return;
+    }
+    if (!rows || rows.length === 0) return;
+
+    for (const row of rows) {
+      walletPollingCursor = row.created_date;
+      try {
+        const { data: existingLink } = await supabaseAdmin
+          .from("telegram_wallet_links")
+          .select("telegram_message_id")
+          .eq("tx_id", row.id)
+          .limit(1)
+          .maybeSingle();
+        if (existingLink) continue;
+      } catch (e) {}
+
+      await forwardWalletTransactionToTelegramGroup(row).catch((e) =>
+        console.error("[Telegram] Polling Nạp/Rút: lỗi forward giao dịch:", e)
+      );
+    }
+  } catch (e: any) {
+    console.error("[Telegram] Polling Nạp/Rút: lỗi không mong đợi:", e?.message || e);
+  }
+}
+
 /** Lắng nghe lệnh nạp/rút MỚI (status="pending") và forward vào nhóm Telegram (TELEGRAM_WALLET_CHAT_ID, mặc định dùng chung nhóm CSKH) kèm nút Phê duyệt/Từ chối. */
 function startTelegramWalletForwarding() {
   if (!supabaseAdmin || !TELEGRAM_API || !TELEGRAM_WALLET_CHAT_ID) return;
+
+  // Lưới an toàn dự phòng - xem ghi chú ở pollAndForwardUnsentWalletTransactions().
+  setInterval(pollAndForwardUnsentWalletTransactions, 15000);
 
   subscribeWithAutoReconnect(
     () =>
@@ -1409,38 +1530,7 @@ function startTelegramWalletForwarding() {
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "wallet_transactions" },
           async (payload: any) => {
-            const row = payload.new;
-            if (!row || row.status !== "pending" || !["deposit", "withdraw"].includes(row.type)) return;
-
-            const userName = await getUserDisplayName(row.user_id);
-            const isDeposit = row.type === "deposit";
-            const icon = isDeposit ? "🟢" : "🔴";
-            const label = isDeposit ? "YÊU CẦU NẠP TIỀN" : "YÊU CẦU RÚT TIỀN";
-            let text = `${icon} <b>${label}</b>\nMã GD: <code>${escapeHtml(row.code || row.id)}</code>\nHội viên: ${escapeHtml(userName)}\nSố tiền: <b>${fmtVnd(row.amount)} VNĐ</b>`;
-            if (!isDeposit && row.bank_name) {
-              text += `\nNgân hàng nhận: ${escapeHtml(row.bank_name)} — ${escapeHtml(row.account_number || "")}`;
-              if (row.account_holder) text += ` (${escapeHtml(row.account_holder)})`;
-            }
-            text += `\n\nChọn hành động bên dưới:`;
-
-            const telegramMessageId = await sendTelegramMessage(
-              text,
-              undefined,
-              buildWalletApproveKeyboard(row.id),
-              undefined,
-              TELEGRAM_WALLET_CHAT_ID
-            );
-            if (telegramMessageId) {
-              try {
-                await supabaseAdmin!.from("telegram_wallet_links").insert({
-                  telegram_message_id: telegramMessageId,
-                  tx_id: row.id,
-                  tx_type: row.type,
-                });
-              } catch (e) {
-                console.error("[Telegram] Không lưu được link giao dịch ví:", e);
-              }
-            }
+            await forwardWalletTransactionToTelegramGroup(payload.new);
           }
         ),
     "Kênh forward Nạp/Rút"
