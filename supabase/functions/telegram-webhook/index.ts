@@ -412,6 +412,17 @@ Deno.serve(async (request) => {
 
       // (a) Khớp theo REPLY trực tiếp tới 1 tin CSKH đã forward.
       let conversationId: string | null = null;
+      // user_id THẬT của khách (ổn định suốt đời) - KHÁC conversation_id
+      // (xoay vòng mỗi khi khách "bắt đầu hội thoại mới", xem migration
+      // cskh_rotating_conversation_id.sql). RLS phía khách
+      // (messages_select_own_or_admin) so khớp auth.uid() với
+      // messages.user_id - ghi nhầm conversation_id vào đây (lỗi thực tế đã
+      // xảy ra, xem git blame) khiến khách KHÔNG BAO GIỜ đọc được tin admin
+      // vừa trả lời qua Telegram, và phía Admin Panel cũng không tra được
+      // tên hiển thị (usersMap khoá theo user_id thật) - phải resolve đúng
+      // giá trị này y hệt cách sendReply() trong MessagesTab.jsx đang làm
+      // (supportConvMap[cid]?.user_id).
+      let resolvedUserId: string | null = null;
       if (replyToId) {
         const { data: link } = await admin
           .from("telegram_message_links")
@@ -419,6 +430,14 @@ Deno.serve(async (request) => {
           .eq("telegram_message_id", replyToId)
           .maybeSingle();
         if (link) conversationId = link.conversation_id;
+      }
+      if (conversationId) {
+        const { data: conv } = await admin
+          .from("support_conversations")
+          .select("user_id")
+          .eq("id", conversationId)
+          .maybeSingle();
+        if (conv?.user_id) resolvedUserId = conv.user_id;
       }
 
       // (b) Không phải REPLY (hoặc không khớp) - thử khớp theo Forum Topic
@@ -430,6 +449,7 @@ Deno.serve(async (request) => {
           .eq("telegram_thread_id", messageThreadId)
           .maybeSingle();
         if (thread?.user_id) {
+          resolvedUserId = thread.user_id;
           const { data: conv } = await admin
             .from("support_conversations")
             .select("id")
@@ -473,7 +493,13 @@ Deno.serve(async (request) => {
       const { error } = await admin.from("messages").insert({
         id: "id_tg_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
         sender: "admin",
-        user_id: conversationId,
+        // resolvedUserId gần như luôn có giá trị đúng (support_conversations
+        // được tạo với user_id thật ngay từ tin nhắn ĐẦU TIÊN của khách) -
+        // conversationId chỉ dùng làm phương án dự phòng cuối cùng nếu
+        // support_conversations/telegram_customer_threads lỡ chưa có dữ
+        // liệu, để không chặn hẳn việc ghi tin (giữ đúng hành vi cũ trong
+        // trường hợp hiếm này thay vì làm mất tin nhắn).
+        user_id: resolvedUserId || conversationId,
         conversation_id: conversationId,
         content: text,
         attachments,
