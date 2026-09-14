@@ -323,9 +323,39 @@ async function getActiveTelegramBusinessConnection(): Promise<{
   }
 }
 
+/** "Nhận vé" độc quyền forward 1 message_id sang 1 đích (target) cụ thể -
+ * chống gửi trùng khi cùng 1 dòng bị gọi webhook nhiều lần (pg_net không
+ * đảm bảo đúng-1-lần cho net.http_post(), có thể phát lại request; test/
+ * khôi phục dữ liệu chạy lại INSERT cũng gây hiệu ứng tương tự). Dùng
+ * INSERT ... ON CONFLICT DO NOTHING RETURNING (thao tác NGUYÊN TỬ ở tầng
+ * Postgres) thay vì "SELECT kiểm tra trước rồi mới gửi" - cách đó có
+ * khoảng hở đua nhau giữa 2 lượt gọi gần nhau (đã xảy ra thực tế, cách
+ * nhau chỉ 12ms) khiến cả 2 đều thấy "chưa forward" rồi cùng gửi. */
+async function claimForwardOnce(messageId: string | null | undefined, target: "group" | "business"): Promise<boolean> {
+  if (!messageId) return true;
+  try {
+    const { data, error } = await admin
+      .from("telegram_outbound_forward_claims")
+      .insert({ message_id: messageId, target })
+      .select("message_id");
+    if (error) {
+      // Vi phạm khoá chính (đã có người "nhận vé" trước) - KHÔNG coi là lỗi,
+      // đây chính là cơ chế chống trùng hoạt động đúng.
+      if ((error as any).code === "23505") return false;
+      console.error("[Telegram] claimForwardOnce lỗi (cho gửi tiếp để không chặn nhầm):", error);
+      return true;
+    }
+    return !!data?.length;
+  } catch (e) {
+    console.error("[Telegram] claimForwardOnce exception (cho gửi tiếp để không chặn nhầm):", e);
+    return true;
+  }
+}
+
 /** Chuyển tiếp ĐÚNG 1 tin nhắn khách hàng (sender="user") sang nhóm Telegram CSKH. */
 async function forwardUserMessageToTelegramGroup(row: any) {
   if (!row || row.sender !== "user" || !row.conversation_id) return;
+  if (!(await claimForwardOnce(row.id, "group"))) return;
 
   const userId: string = row.user_id || row.conversation_id;
   const userName = await getUserDisplayName(userId);
@@ -377,6 +407,7 @@ async function forwardUserMessageToTelegramGroup(row: any) {
  * Business thì chuyển tiếp sang đúng chat Business của khách đó. */
 async function forwardAdminMessageToBusiness(row: any) {
   if (isTelegramOriginMessageId(row.id)) return;
+  if (!(await claimForwardOnce(row.id, "business"))) return;
 
   const conn = await getActiveTelegramBusinessConnection();
   if (!conn) return;

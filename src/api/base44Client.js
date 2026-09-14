@@ -708,18 +708,32 @@ function ensureSupabaseRealtime(entityName) {
   const onRealtimeEvent = (payload) => {
     // Trang "Quản lý Hội viên & Giao dịch" (Tin nhắn CSKH, Phê duyệt Giao
     // dịch, Hợp đồng) cần cập nhật gần như tức thời khi Admin đang xem -
-    // phát ngay bản vá từ payload thật (không đợi debounce/refetch REST),
-    // song song với lượt refetch đối chiếu đầy đủ vẫn chạy debounce như cũ
-    // bên dưới để tự sửa sai lệch nếu có. "User" đã có đường patch tức thời
-    // riêng ở UsersTab.jsx (subscribeSupabaseUsersTable trực tiếp) nên không
-    // cần thêm ở đây. Các entity khác giữ nguyên hành vi debounce-rồi-refetch
-    // như trước, chưa mở rộng phạm vi sửa.
+    // phát ngay bản vá từ payload thật (không đợi debounce/refetch REST).
+    // "User" đã có đường patch tức thời riêng ở UsersTab.jsx
+    // (subscribeSupabaseUsersTable trực tiếp) nên không cần thêm ở đây. Các
+    // entity khác giữ nguyên hành vi debounce-rồi-refetch như trước, chưa mở
+    // rộng phạm vi sửa.
     if (INSTANT_PATCH_ENTITIES.has(entityName)) {
       const patched = applyRealtimePayloadPatch(entityName, payload);
       if (patched) {
         (subscribers[entityName] || []).forEach((cb) => {
           try { cb(patched); } catch (e) {}
         });
+        // Bản vá từ payload thật đã đủ chính xác - KHÔNG còn lên lịch refetch
+        // toàn bảng "để đối chiếu" như trước nữa. Lỗi thật đã xảy ra: bảng
+        // "messages" mang base64 ảnh khiến 1 lượt refetch full-table (tới
+        // 2000 dòng, kèm hết ảnh) khá nặng - mỗi sự kiện Realtime (kể cả
+        // UPDATE chỉ đổi delivered_at/read_at, xảy ra liên tục) từ MỌI tab
+        // đang mở (mỗi tab admin + mỗi khách đang mở CSKH) đều tự lên lịch 1
+        // lượt refetch như vậy 350ms sau đó - dưới tải thật (nhiều hội thoại
+        // + nhiều tab cùng lúc) hàng loạt lượt refetch trùng thời điểm này
+        // đủ để làm Postgres vượt statement_timeout, khiến CHÍNH lượt refetch
+        // "đối chiếu" đó lỗi và (theo đúng thiết kế ở refetchAndBroadcast()
+        // bên dưới) bị bỏ qua âm thầm - không tự sửa được gì thêm mà chỉ tốn
+        // tài nguyên, có lúc còn góp phần khiến kênh Realtime chung bị nghẽn
+        // theo. Bản vá tức thời từ payload thật vốn đã đủ dữ liệu cho đúng 1
+        // thay đổi vừa xảy ra - không cần đối chiếu lại toàn bộ bảng mỗi lần.
+        return;
       }
     }
     clearTimeout(realtimeRefetchTimers[entityName]);
