@@ -280,8 +280,32 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    // Cache-Control tường minh - lý do "tải lại trang thấy 2 giao diện khác
+    // nhau" mỗi lần deploy: trước đây express.static() không đặt Cache-
+    // Control gì cả, chỉ dựa vào ETag/Last-Modified. Vite đặt hash vào TÊN
+    // file JS/CSS (vd. Admin-DTt_DNZs.js) mỗi lần build - an toàn cache vĩnh
+    // viễn - NHƯNG index.html thì KHÔNG đổi tên, luôn cùng 1 URL "/". Không
+    // ép trình duyệt (hoặc lớp cache trung gian nào đó) luôn tải index.html
+    // MỚI, nó có thể tiếp tục phục vụ bản index.html CŨ đã cache - bản cũ đó
+    // trỏ tới các file JS/CSS hash CŨ, trong khi các thiết bị/tab khác vừa
+    // tải index.html mới trỏ tới hash MỚI - kết quả: các tab hiển thị 2
+    // phiên bản ứng dụng khác nhau cùng lúc, thấy giao diện đổi qua đổi lại
+    // mỗi lần tải lại tuỳ trình duyệt trả về bản index.html nào.
+    app.use(
+      express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith("index.html")) {
+            res.setHeader("Cache-Control", "no-cache");
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            // Chỉ file trong /assets/ mới có hash trong tên (Vite build) -
+            // an toàn cache 1 năm + immutable.
+            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          }
+        },
+      })
+    );
     app.use((req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
