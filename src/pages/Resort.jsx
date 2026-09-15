@@ -195,10 +195,16 @@ export default function Resort() {
               <div className="p-3">
                 <p className="text-[11px] text-gray-500 leading-tight mb-2">{r.desc}</p>
 
-                <div className="grid grid-cols-2 gap-2 pb-2 border-b border-gray-100">
+                <div className="grid grid-cols-3 gap-2 pb-2 border-b border-gray-100">
                   <div>
-                    <p className="text-[8px] text-gray-400">Giá đầu tư</p>
-                    <p className="text-[13px] font-bold text-[#948154]">{r.price}</p>
+                    <p className="text-[8px] text-gray-400">Đầu tư tối thiểu</p>
+                    <p className="text-[12px] font-bold text-[#948154]">
+                      {r.minAmount ? `${new Intl.NumberFormat("vi-VN").format(Number(r.minAmount))} đ` : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[8px] text-gray-400">Diện tích</p>
+                    <p className="text-[12px] font-bold text-[#948154]">{r.area || "Tiêu chuẩn"}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[8px] text-gray-400 flex items-center gap-0.5 justify-end">
