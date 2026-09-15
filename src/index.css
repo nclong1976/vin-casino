@@ -205,3 +205,52 @@
     height: auto;
   }
 }
+
+@layer base {
+  /* Phản hồi khi CHẠM/BẤM (press feedback) mặc định cho toàn app - trước
+     đây chỉ ~20 nút trong hàng trăm nút tự thêm active:scale-* thủ công,
+     còn lại không phản hồi gì lúc chạm, tạo cảm giác "cứng"/chậm trên di
+     động. Đặt trong @layer base (Tailwind luôn xuất base TRƯỚC utilities)
+     nên bất kỳ class active:scale-* viết tay ở từng nút vẫn LUÔN thắng quy
+     tắc chung này - đây chỉ là NỀN mặc định cho chỗ nào chưa tự khai, không
+     đổi hành vi những nút đã tự tinh chỉnh riêng.
+     .cursor-pointer được chọn làm mục tiêu chung (ngoài button/[role=button])
+     vì đây là class đã dùng nhất quán khắp app để đánh dấu "phần tử này bấm
+     được" (thẻ đầu tư, hàng danh sách, chip lọc...) dù không phải thẻ
+     <button> thật. Cố ý KHÔNG áp lên thẻ <a> nói chung: BottomNav.jsx đã có
+     hiệu ứng group-active:scale-90 riêng cho icon con - phóng to thêm cả
+     thẻ <a> cha sẽ chồng lấp 2 hiệu ứng, và link chữ thường co lại lúc chạm
+     trông không tự nhiên. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  .cursor-pointer,
+  a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  .cursor-pointer {
+    transition: transform 0.12s ease-out;
+  }
+
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active,
+  .cursor-pointer:active {
+    transform: scale(0.96);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button,
+    [role="button"],
+    .cursor-pointer {
+      transition: none;
+    }
+    button:active,
+    [role="button"]:active,
+    .cursor-pointer:active {
+      transform: none;
+    }
+  }
+}
