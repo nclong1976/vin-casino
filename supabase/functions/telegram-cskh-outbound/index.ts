@@ -26,6 +26,13 @@ const admin = createClient(SUPABASE_URL, secretKey, {
 });
 
 const TELEGRAM_API = TELEGRAM_BOT_TOKEN ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}` : null;
+// Trần thời gian chờ MỖI lần gọi API Telegram - thấp hơn timeout_milliseconds
+// (10s) mà trigger notify_telegram_cskh_outbound() đặt cho net.http_post(),
+// để hàm này luôn kịp trả lỗi rõ ràng trước khi phía gọi (pg_net) tự bỏ
+// cuộc/phát lại request - 1 lượt gọi Telegram bị treo vô thời hạn (mạng
+// chậm, Telegram phản hồi chậm) từng góp phần gây timeout 504 ở tầng
+// gateway, kéo theo webhook bị gọi lại nhiều lần cho cùng 1 tin nhắn.
+const TELEGRAM_FETCH_TIMEOUT_MS = 8000;
 // Telegram giới hạn ảnh gửi qua sendPhoto tối đa ~10MB - giữ mốc thấp hơn
 // (8MB) cùng ngưỡng đã dùng trước đây ở server.ts, an toàn cho cả ảnh lẫn
 // tránh phình quá cỡ 1 dòng Postgres nếu forward ngược base64.
@@ -66,6 +73,7 @@ async function sendTelegramMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
     const data: any = await resp.json();
     if (!data.ok) {
@@ -92,7 +100,11 @@ async function sendTelegramPhoto(
     if (replyToMessageId) form.append("reply_to_message_id", String(replyToMessageId));
     if (messageThreadId) form.append("message_thread_id", String(messageThreadId));
     form.append("photo", new Blob([buffer]), filename);
-    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: "POST", body: form });
+    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
+    });
     const data: any = await resp.json();
     if (!data.ok) {
       console.error("[Telegram] sendPhoto lỗi:", data.description);
@@ -116,6 +128,7 @@ async function sendTelegramBusinessMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ business_connection_id: businessConnectionId, chat_id: chatId, text, parse_mode: "HTML" }),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
     const data: any = await resp.json();
     if (!data.ok) {
@@ -141,7 +154,11 @@ async function sendTelegramBusinessPhoto(
     form.append("business_connection_id", businessConnectionId);
     form.append("chat_id", String(chatId));
     form.append("photo", new Blob([buffer]), filename);
-    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: "POST", body: form });
+    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
+    });
     const data: any = await resp.json();
     if (!data.ok) {
       console.error("[TelegramBusiness] sendPhoto lỗi:", data.description);
@@ -264,6 +281,7 @@ async function ensureForumTopicForUser(userId: string, userName: string): Promis
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, name: topicName }),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
     const data: any = await resp.json();
     if (!data.ok) {
@@ -342,13 +360,24 @@ async function claimForwardOnce(messageId: string | null | undefined, target: "g
       // Vi phạm khoá chính (đã có người "nhận vé" trước) - KHÔNG coi là lỗi,
       // đây chính là cơ chế chống trùng hoạt động đúng.
       if ((error as any).code === "23505") return false;
-      console.error("[Telegram] claimForwardOnce lỗi (cho gửi tiếp để không chặn nhầm):", error);
-      return true;
+      // LỖI THẬT ĐÃ XẢY RA (không phải 23505 - vd timeout/mất kết nối tới
+      // Postgres khi hệ thống đang tải cao): trước đây nhánh này "cho gửi
+      // tiếp để không chặn nhầm" (return true), nhưng chính điều đó là
+      // nguyên nhân 1 tin nhắn khách bị forward LẶP LẠI 5 LẦN vào nhóm
+      // Telegram thật (xác nhận qua telegram_message_links: 5 dòng cùng
+      // message_id trong khi telegram_outbound_forward_claims chỉ có ĐÚNG
+      // 1 dòng - tức 4 trong 5 lượt gọi đã lọt qua nhánh lỗi này). KHÔNG
+      // chắc chắn mình là người "nhận vé" duy nhất thì phải DỪNG (fail
+      // closed) - webhook vốn đã được gọi lại nhiều lần cho cùng 1 dòng
+      // (pg_net không đảm bảo đúng-1-lần), nên bỏ qua lượt này vẫn còn cơ
+      // hội ở lượt gọi lại tiếp theo, không mất hẳn.
+      console.error("[Telegram] claimForwardOnce lỗi (bỏ qua lượt này, không chắc đã nhận vé):", error);
+      return false;
     }
     return !!data?.length;
   } catch (e) {
-    console.error("[Telegram] claimForwardOnce exception (cho gửi tiếp để không chặn nhầm):", e);
-    return true;
+    console.error("[Telegram] claimForwardOnce exception (bỏ qua lượt này, không chắc đã nhận vé):", e);
+    return false;
   }
 }
 
