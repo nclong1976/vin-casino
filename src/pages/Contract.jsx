@@ -114,6 +114,7 @@ export default function Contract() {
           user={user}
           signature={signature}
           dailyRateLabel={tx.payout_model === "DAILY_ACCRUAL" ? formatDailyRatePercent(tx.rate, tx.duration_days) : null}
+          createdDate={tx.created_date}
         />
 
         <DailyPayoutSchedule tx={tx} />

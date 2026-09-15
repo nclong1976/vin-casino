@@ -17,9 +17,19 @@ export default function ContractDocument({
   total,
   user,
   signature,
-  dailyRateLabel
+  dailyRateLabel,
+  createdDate
 }) {
-  const today = new Date().toLocaleDateString("vi-VN");
+  // createdDate = tx.created_date (thời điểm giao dịch ĐÃ được tạo/ký thật) -
+  // BẮT BUỘC dùng giá trị này khi xem lại 1 hợp đồng đã ký (Contract.jsx),
+  // KHÔNG được lấy new Date() lúc render vì mỗi lần khách/admin mở lại trang
+  // xem hợp đồng, ngày ký sẽ tự nhảy sang đúng ngày đang xem - đây chính là
+  // lỗi thực tế đã xảy ra. Chỉ khi CHƯA có createdDate (bước xem trước hợp
+  // đồng ở DepositModal, giao dịch chưa được tạo) mới lùi về ngày giờ hiện
+  // tại. Luôn quy đổi theo giờ Việt Nam (Asia/Ho_Chi_Minh) - không dùng
+  // timezone mặc định của trình duyệt/máy chủ, tránh lệch ngày gần nửa đêm.
+  const contractDate = createdDate ? new Date(createdDate) : new Date();
+  const today = contractDate.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
   const [dd, mm, yyyy] = today.split("/");
 
   const rateLabel = TERM_RATE_LABEL;
@@ -37,7 +47,10 @@ export default function ContractDocument({
         <div className="w-6 border-t border-gray-300 mx-auto my-1" />
         <h2 className="text-[14px] font-bold text-black mt-1 tracking-wide">HỢP ĐỒNG HỢP TÁC ĐẦU TƯ</h2>
         <p className="text-[9px] text-gray-400">
-          Số: VC/{Date.now().toString().slice(-6)}/HĐHTĐT
+          {/* Đánh số theo contractDate (ổn định 1 khi đã có createdDate) thay
+          vì Date.now() (đổi số mỗi lần render, khiến số hợp đồng "nhảy" mỗi
+          lần khách/admin mở lại trang xem hợp đồng đã ký). */}
+          Số: VC/{contractDate.getTime().toString().slice(-6)}/HĐHTĐT
         </p>
       </div>
 

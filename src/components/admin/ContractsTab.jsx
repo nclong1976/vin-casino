@@ -145,7 +145,7 @@ export default function ContractsTab() {
                 <div className="min-w-0">
                   <p className="text-[13px] font-bold text-black">{tx.project_title}</p>
                   <p className="text-[10px] text-gray-400">
-                    {new Date(tx.created_date).toLocaleString("vi-VN")}
+                    {new Date(tx.created_date).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}
                   </p>
                 </div>
                 <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${sc.color} shrink-0`}>
