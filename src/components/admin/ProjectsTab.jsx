@@ -559,37 +559,47 @@ function ProjectEditModal({ project, onClose, onSave }) {
             />
           </div>
 
-          {/* Price & Rate Grid */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.main}</label>
-              <input
-                type="number"
-                value={form.price_per_m2}
-                onChange={(e) => set("price_per_m2", Number(e.target.value) || 0)}
-                placeholder="35000000"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-mono focus:outline-none focus:border-[#948154]"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.str}</label>
-              <input
-                value={form.priceStr}
-                onChange={(e) => set("priceStr", e.target.value)}
-                placeholder="35 triệu/m²"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">Lợi nhuận %/ngày:</label>
-            <input
-              value={form.rate}
-              onChange={(e) => set("rate", e.target.value)}
-              placeholder="vd: 1.25%/ngày"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-            />
-          </div>
+          {/* Price & Rate Grid - ẨN cho "Đầu tư nghỉ dưỡng": trang người dùng
+              (Resort.jsx) không còn đọc price_per_m2/priceStr/rate để hiển
+              thị nữa (đã đổi ô "Giá đầu tư" thành "Đầu tư tối thiểu" +
+              "Diện tích" - xem 2 ô bên dưới), giữ 3 ô này cho admin nhập chỉ
+              gây rối, tưởng có tác dụng mà không hề ảnh hưởng gì tới màn
+              hình người dùng thấy. Các mục khác (VinHomes/Dự Án/Chứng
+              khoán) vẫn dùng các trường này, không đụng tới. */}
+          {form.category !== "Đầu tư nghỉ dưỡng" && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.main}</label>
+                  <input
+                    type="number"
+                    value={form.price_per_m2}
+                    onChange={(e) => set("price_per_m2", Number(e.target.value) || 0)}
+                    placeholder="35000000"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-mono focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.str}</label>
+                  <input
+                    value={form.priceStr}
+                    onChange={(e) => set("priceStr", e.target.value)}
+                    placeholder="35 triệu/m²"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Lợi nhuận %/ngày:</label>
+                <input
+                  value={form.rate}
+                  onChange={(e) => set("rate", e.target.value)}
+                  placeholder="vd: 1.25%/ngày"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+            </>
+          )}
 
           {/* Lãi suất TOÀN KỲ & Kỳ hạn - 2 trường DUY NHẤT dùng để tính lãi */}
           <div className="grid grid-cols-2 gap-2">
