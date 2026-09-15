@@ -595,41 +595,6 @@ export function subscribeAppMaintenanceConfig(callback) {
   );
 }
 
-/** "Sức khoẻ" cầu nối Telegram (kênh CSKH + Nạp/Rút), ghi bởi server.ts
- * (recordTelegramHealth()) - cùng mẫu 1-dòng-jsonb như AppMaintenanceConfig
- * ở trên. Admin-only (RLS telegram_bridge_health_select_admin_only). */
-export async function getTelegramBridgeHealth() {
-  try {
-    const { data, error } = await supabase
-      .from('telegram_bridge_health')
-      .select('status')
-      .eq('id', 'default')
-      .maybeSingle();
-    if (error) {
-      console.warn('[SupabaseDb] getTelegramBridgeHealth error:', error.message);
-      return null;
-    }
-    return data?.status || null;
-  } catch (e) {
-    console.warn('[SupabaseDb] getTelegramBridgeHealth exception:', e);
-    return null;
-  }
-}
-
-export function subscribeTelegramBridgeHealth(callback) {
-  return subscribeChannelWithAutoReconnect(() =>
-    supabase
-      .channel(nextChannelName('public:telegram_bridge_health'))
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'telegram_bridge_health', filter: `id=eq.default` },
-        (payload) => {
-          if (typeof callback === 'function') callback(payload?.new?.status || null);
-        }
-      )
-  );
-}
-
 /**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu

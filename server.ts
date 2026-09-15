@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Lưới an toàn toàn tiến trình: TRƯỚC ĐÂY 1 lỗi bất kỳ không bắt được ở bất kỳ
-// đâu (kể cả trong 1 job nền không quan trọng như forward Telegram) sẽ crash
+// đâu (kể cả trong 1 job nền không quan trọng) sẽ crash
 // CẢ server (Express + Socket.io + mọi API nạp/rút/CSKH...) - đã từng xảy ra
 // thật: kênh Realtime "forward Nạp/Rút" mất kết nối kéo dài, lặp lại quá
 // nhanh/quá nhiều lần khiến console/log bị "bão" tới mức tràn ngăn xếp
@@ -30,8 +30,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // Gói Render Free tự cho service "ngủ" sau ~15 phút không có request HTTP nào
-// tới. Cầu nối CSKH <-> Telegram đã chuyển hẳn sang Supabase Edge Functions +
-// Database Webhook, và job cộng lãi hàng ngày theo cấp VIP đã chuyển sang
+// tới. Job cộng lãi hàng ngày theo cấp VIP đã chuyển sang
 // pg_cron chạy thẳng trong Postgres (xem migration
 // 20260915090000_daily_interest_pg_cron.sql, job "credit-daily-interest") -
 // cả 2 tính năng này KHÔNG còn phụ thuộc self-ping/Render còn thức hay không

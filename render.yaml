@@ -22,9 +22,6 @@ services:
       # Dashboard > Database > Cron Jobs, job "credit-daily-interest", xem
       # migration 20260915090000_daily_interest_pg_cron.sql). SUPABASE_URL/
       # SUPABASE_SERVICE_ROLE_KEY không còn được server.ts dùng tới nữa.
-      # Cầu nối CSKH <-> Telegram KHÔNG còn chạy ở server.ts/Render nữa - đã
-      # chuyển sang Supabase Edge Functions (telegram-cskh-outbound,
-      # telegram-webhook) + Database Webhook, cấu hình TELEGRAM_BOT_TOKEN/
-      # TELEGRAM_CHAT_ID/TELEGRAM_WEBHOOK_SECRET như Edge Function secrets
-      # trong Supabase Dashboard, không phải ở đây. Duyệt Nạp/Rút qua Telegram
-      # đã bị gỡ bỏ hoàn toàn - chỉ còn duyệt trong Admin Panel.
+      # Cầu nối CSKH <-> Telegram đã bị gỡ bỏ hoàn toàn (xem migration
+      # 20260915120000_remove_telegram_bridge.sql) - CSKH chỉ còn chạy trong
+      # Admin Panel/app, không đồng bộ sang Telegram nữa.
