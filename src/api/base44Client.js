@@ -1,5 +1,6 @@
 import { appParams } from '@/lib/app-params';
 import { NEWS_DATA } from '@/constants/newsData';
+import { supabase } from '@/lib/supabase';
 import {
   upsertSupabaseUser,
   updateSupabaseUser,
@@ -1093,13 +1094,29 @@ class FallbackBase44Client {
 
     this.integrations = {
       Core: {
+        // Upload file THẬT lên Supabase Storage (bucket "chat-attachments",
+        // xem migration 20260915110000_cskh_storage_bucket.sql) thay vì mã
+        // hoá base64 rồi nhét thẳng vào Postgres như trước - đây là nguyên
+        // nhân chính khiến gửi/tải ảnh CSKH chậm (base64 nặng hơn ~37% so
+        // với file gốc, không được trình duyệt cache, bị kéo về kèm MỌI
+        // lượt tải danh sách tin nhắn dù chỉ đang xem tin nhắn chữ). Ném
+        // lỗi (throw) khi upload thất bại thay vì tự âm thầm lùi về base64
+        // ở ĐÂY - cả 3 nơi gọi hàm này (Support.jsx, MessagesTab.jsx,
+        // NotificationsTab.jsx) đã sẵn có try/catch tự lùi về
+        // FileReader.readAsDataURL() khi UploadFile() lỗi, nên không cần
+        // trùng lặp logic dự phòng ở tầng này - chỉ cần báo lỗi trung thực.
         UploadFile: async ({ file }) => {
-          return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve({ file_url: reader.result });
-            reader.onerror = () => resolve({ file_url: null });
-            reader.readAsDataURL(file);
-          });
+          const ext = (file.name || '').includes('.')
+            ? file.name.split('.').pop().toLowerCase()
+            : (file.type || '').split('/')[1]?.toLowerCase().split('+')[0] || 'bin';
+          const path = `${crypto.randomUUID()}.${ext}`;
+          const { error } = await supabase.storage
+            .from('chat-attachments')
+            .upload(path, file, { contentType: file.type || undefined, upsert: false });
+          if (error) throw error;
+          const { data } = supabase.storage.from('chat-attachments').getPublicUrl(path);
+          if (!data?.publicUrl) throw new Error('Không lấy được URL công khai sau khi upload');
+          return { file_url: data.publicUrl };
         }
       }
     };
