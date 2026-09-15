@@ -17,14 +17,11 @@ services:
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false
-      # Bắt buộc CHỈ CHO tính năng cộng lãi hàng ngày theo cấp VIP
-      # (server.ts gọi RPC credit_daily_interest_batch). KHÔNG dùng tiền tố
-      # VITE_ - key này không bao giờ được lộ ra trình duyệt. Lấy trong
-      # Supabase Dashboard > Project Settings > API > "service_role" secret.
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
+      # Job cộng lãi hàng ngày theo cấp VIP KHÔNG còn chạy ở server.ts/Render
+      # nữa - đã chuyển sang pg_cron chạy thẳng trong Postgres (Supabase
+      # Dashboard > Database > Cron Jobs, job "credit-daily-interest", xem
+      # migration 20260915090000_daily_interest_pg_cron.sql). SUPABASE_URL/
+      # SUPABASE_SERVICE_ROLE_KEY không còn được server.ts dùng tới nữa.
       # Cầu nối CSKH <-> Telegram KHÔNG còn chạy ở server.ts/Render nữa - đã
       # chuyển sang Supabase Edge Functions (telegram-cskh-outbound,
       # telegram-webhook) + Database Webhook, cấu hình TELEGRAM_BOT_TOKEN/
