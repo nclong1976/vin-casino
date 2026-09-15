@@ -465,20 +465,26 @@ export default function Support() {
 
       await resendMessage(text.trim(), attachments, topic);
 
-      // Send real-time notification to Admin flow
-      try {
-        const uName = user?.full_name || user?.name || user?.display_name || user?.email;
-        await base44.entities.Notification.create({
-          title: "Tin nhắn CSKH mới từ hội viên",
-          content: `Hội viên ${uName} vừa gửi tin nhắn: "${text.trim() || 'Hình ảnh/Tệp đính kèm'}"`,
-          type: "admin",
-          user_id: "admin",
-          is_read: false,
-        });
-      } catch (e) {}
+      // Thông báo cho Admin - KHÔNG await: Message.create() ở resendMessage()
+      // trên đã tự đẩy bubble optimistic + Realtime lo phần Admin nhận tin,
+      // đây chỉ là thông báo phụ (chuông/badge) - đợi thêm 1 round-trip
+      // Postgres nữa ở đây chỉ cộng thêm độ trễ cảm nhận cho người gửi mà
+      // không đổi gì về việc Admin nhận tin nhanh hay chậm.
+      const uName = user?.full_name || user?.name || user?.display_name || user?.email;
+      base44.entities.Notification.create({
+        title: "Tin nhắn CSKH mới từ hội viên",
+        content: `Hội viên ${uName} vừa gửi tin nhắn: "${text.trim() || 'Hình ảnh/Tệp đính kèm'}"`,
+        type: "admin",
+        user_id: "admin",
+        is_read: false,
+      }).catch(() => {});
 
-      // Immediate reload (resendMessage() ở trên đã tự bắn "vinclub_msg_update")
-      await loadMessages(activeConversationId, user);
+      // KHÔNG reload lại danh sách ở đây: Message.create() (trong
+      // resendMessage()) đã tự notifySubscribers() bản optimistic RỒI bản
+      // thật ngay khi Postgres xác nhận - Message.subscribe() ở effect phía
+      // trên đã áp thẳng cả 2 lượt vào state. Gọi loadMessages() thêm ở đây
+      // là 1 round-trip REST thừa, chỉ làm nút gửi giữ trạng thái "đang gửi"
+      // lâu hơn mà không đổi gì nội dung hiển thị.
     } catch (e) {
       toast.error("Không thể gửi tin nhắn. Vui lòng thử lại.");
     } finally {
