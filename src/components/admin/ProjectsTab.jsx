@@ -522,7 +522,8 @@ function ProjectEditModal({ project, onClose, onSave }) {
         </div>
 
         <div className="p-3.5 space-y-3">
-          {/* Tên dự án */}
+          {/* ─── Thông tin cơ bản ─── */}
+          <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">Thông tin cơ bản</p>
           <div>
             <label className="text-[10px] font-bold text-gray-700 block mb-1">Tên dự án (*):</label>
             <input
@@ -532,111 +533,157 @@ function ProjectEditModal({ project, onClose, onSave }) {
               className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
             />
           </div>
-
-          {/* Danh mục 4 Mục Đầu tư */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">Danh mục Phân loại Đầu tư (4 Mục):</label>
-            <select
-              value={form.category}
-              onChange={(e) => set("category", e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white font-semibold"
-            >
-              <option value="Dự Án">1. Dự Án (Thương mại, Hạ tầng, VinFast)</option>
-              <option value="VinHomes">2. VinHomes (Bất động sản & Đất nền)</option>
-              <option value="Đầu tư nghỉ dưỡng">3. Đầu tư nghỉ dưỡng (Vinpearl Resort & Condotel)</option>
-              <option value="Đầu tư chứng khoán">4. Đầu tư chứng khoán (Cổ phiếu & Tài chính)</option>
-            </select>
-          </div>
-
-          {/* Địa điểm / Khu vực */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">Khu vực / Địa điểm:</label>
-            <input
-              value={form.location}
-              onChange={(e) => set("location", e.target.value)}
-              placeholder="Ví dụ: Gia Lâm, Hà Nội"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-            />
-          </div>
-
-          {/* Price & Rate Grid - ẨN cho "Đầu tư nghỉ dưỡng": trang người dùng
-              (Resort.jsx) không còn đọc price_per_m2/priceStr/rate để hiển
-              thị nữa (đã đổi ô "Giá đầu tư" thành "Đầu tư tối thiểu" +
-              "Diện tích" - xem 2 ô bên dưới), giữ 3 ô này cho admin nhập chỉ
-              gây rối, tưởng có tác dụng mà không hề ảnh hưởng gì tới màn
-              hình người dùng thấy. Các mục khác (VinHomes/Dự Án/Chứng
-              khoán) vẫn dùng các trường này, không đụng tới. */}
-          {form.category !== "Đầu tư nghỉ dưỡng" && (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.main}</label>
-                  <input
-                    type="number"
-                    value={form.price_per_m2}
-                    onChange={(e) => set("price_per_m2", Number(e.target.value) || 0)}
-                    placeholder="35000000"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-mono focus:outline-none focus:border-[#948154]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.str}</label>
-                  <input
-                    value={form.priceStr}
-                    onChange={(e) => set("priceStr", e.target.value)}
-                    placeholder="35 triệu/m²"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-gray-700 block mb-1">Lợi nhuận %/ngày:</label>
-                <input
-                  value={form.rate}
-                  onChange={(e) => set("rate", e.target.value)}
-                  placeholder="vd: 1.25%/ngày"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-                />
-              </div>
-            </>
-          )}
-
-          {/* Lãi suất TOÀN KỲ & Kỳ hạn - 2 trường DUY NHẤT dùng để tính lãi */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Lãi suất toàn kỳ (%):</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.total_term_interest_rate}
-                onChange={(e) => set("total_term_interest_rate", e.target.value)}
-                placeholder="90"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-              />
-              {isDailyAccrualCategory(form.category) ? (
-                <p className="text-[9px] text-emerald-600 mt-0.5 font-semibold">
-                  Giải ngân hàng ngày, ~{formatDailyRatePercent(form.total_term_interest_rate, getCycleDays(form))} - gốc hoàn trả ngày cuối.
-                </p>
-              ) : (
-                <p className="text-[9px] text-gray-400 mt-0.5">Lãi cho TRỌN kỳ hạn, trả 1 lần khi đáo hạn.</p>
-              )}
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Danh mục:</label>
+              <select
+                value={form.category}
+                onChange={(e) => set("category", e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white font-semibold"
+              >
+                <option value="Dự Án">1. Dự Án</option>
+                <option value="VinHomes">2. VinHomes</option>
+                <option value="Đầu tư nghỉ dưỡng">3. Nghỉ dưỡng</option>
+                <option value="Đầu tư chứng khoán">4. Chứng khoán</option>
+              </select>
             </div>
             <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Kỳ hạn ({termUnit}):</label>
+              <label className="text-[10px] font-bold text-gray-700 block mb-1">Địa điểm:</label>
               <input
-                type="number"
-                min="1"
-                step="1"
-                value={termValueInUnit}
-                onChange={(e) => setTermValueInUnit(e.target.value)}
-                placeholder={termUnit === "phút" ? "64800" : termUnit === "giờ" ? "120" : "45"}
+                value={form.location}
+                onChange={(e) => set("location", e.target.value)}
+                placeholder="Gia Lâm, Hà Nội"
                 className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
               />
-              <p className="text-[9px] text-gray-400 mt-0.5">
-                Đúng đơn vị hiển thị cho người dùng ở mục này (= {form.term_duration_minutes || 0} phút lưu thật).
-              </p>
             </div>
+          </div>
+
+          {/* ─── Số liệu đầu tư - gộp TẤT CẢ trường số liệu vào 1 khối duy
+              nhất (trước đây rải rác 4 chỗ khác nhau trong form: đầu, giữa,
+              cuối - khó dò khi cần sửa nhanh 1 con số). Đúng mẫu box viền
+              màu như 3 khối "Thông tin riêng" bên dưới, cho nhất quán. */}
+          <div className="space-y-2 p-2.5 rounded-xl bg-gray-50 border border-gray-200">
+            <p className="text-[10px] font-bold text-gray-600">Số liệu đầu tư</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Vốn tối thiểu (₫):</label>
+                <input
+                  value={form.minAmount}
+                  onChange={(e) => set("minAmount", e.target.value)}
+                  placeholder="2800000000"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Diện tích:</label>
+                <input
+                  value={form.area}
+                  onChange={(e) => set("area", e.target.value)}
+                  placeholder="80-120m²"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+            </div>
+
+            {/* Lãi suất TOÀN KỲ & Kỳ hạn - 2 trường DUY NHẤT dùng để tính lãi */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Lãi suất toàn kỳ (%):</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.total_term_interest_rate}
+                  onChange={(e) => set("total_term_interest_rate", e.target.value)}
+                  placeholder="90"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Kỳ hạn ({termUnit}):</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={termValueInUnit}
+                  onChange={(e) => setTermValueInUnit(e.target.value)}
+                  placeholder={termUnit === "phút" ? "64800" : termUnit === "giờ" ? "120" : "45"}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+            </div>
+            {isDailyAccrualCategory(form.category) ? (
+              <p className="text-[9px] text-emerald-600 -mt-1 font-semibold">
+                Giải ngân hàng ngày, ~{formatDailyRatePercent(form.total_term_interest_rate, getCycleDays(form))} - gốc hoàn trả ngày cuối.
+              </p>
+            ) : (
+              <p className="text-[9px] text-gray-400 -mt-1">Lãi trọn kỳ hạn, trả 1 lần khi đáo hạn (= {form.term_duration_minutes || 0} phút lưu thật).</p>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Quy mô:</label>
+                <input
+                  value={form.scale}
+                  onChange={(e) => set("scale", e.target.value)}
+                  placeholder="420 ha"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-700 block mb-1">Tiến độ (%):</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={form.progress}
+                  onChange={(e) => set("progress", parseInt(e.target.value) || 0)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                />
+              </div>
+            </div>
+
+            {/* Đơn giá/Giá niêm yết/Lợi nhuận %-ngày - ẨN cho "Đầu tư nghỉ
+                dưỡng": trang người dùng (Resort.jsx) không còn đọc
+                price_per_m2/priceStr/rate để hiển thị nữa (đã đổi ô "Giá
+                đầu tư" thành "Vốn tối thiểu"+"Diện tích" ở trên), giữ 3 ô
+                này cho admin nhập chỉ gây rối, tưởng có tác dụng mà không
+                ảnh hưởng gì tới màn hình người dùng. Các mục khác
+                (VinHomes/Dự Án/Chứng khoán) vẫn dùng, không đụng tới. */}
+            {form.category !== "Đầu tư nghỉ dưỡng" && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.main}</label>
+                    <input
+                      type="number"
+                      value={form.price_per_m2}
+                      onChange={(e) => set("price_per_m2", Number(e.target.value) || 0)}
+                      placeholder="35000000"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] font-mono bg-white focus:outline-none focus:border-[#948154]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-700 block mb-1">{priceLabels.str}</label>
+                    <input
+                      value={form.priceStr}
+                      onChange={(e) => set("priceStr", e.target.value)}
+                      placeholder="35 triệu/m²"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-700 block mb-1">Lợi nhuận %/ngày:</label>
+                  <input
+                    value={form.rate}
+                    onChange={(e) => set("rate", e.target.value)}
+                    placeholder="vd: 1.25%/ngày"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] bg-white focus:outline-none focus:border-[#948154]"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Trường riêng cho từng Mục Đầu tư - trang người dùng tương ứng
@@ -719,33 +766,10 @@ function ProjectEditModal({ project, onClose, onSave }) {
             </div>
           )}
 
-          {/* Area & Progress Grid */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Diện tích tiêu chuẩn:</label>
-              <input
-                value={form.area}
-                onChange={(e) => set("area", e.target.value)}
-                placeholder="80-120m²"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Tiến độ hoàn thiện (%):</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={form.progress}
-                onChange={(e) => set("progress", parseInt(e.target.value) || 0)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-              />
-            </div>
-          </div>
-
-          {/* Image URL */}
+          {/* ─── Hình ảnh & mô tả ─── */}
+          <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">Hình ảnh &amp; mô tả</p>
           <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">URL Hình ảnh minh họa:</label>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Hình ảnh (URL):</label>
             <input
               value={form.image}
               onChange={(e) => set("image", e.target.value)}
@@ -758,46 +782,23 @@ function ProjectEditModal({ project, onClose, onSave }) {
               </div>
             )}
           </div>
-
-          {/* Description */}
           <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">Mô tả chi tiết dự án:</label>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Mô tả:</label>
             <textarea
               value={form.description}
               onChange={(e) => set("description", e.target.value)}
               rows={2}
-              placeholder="Mô tả đặc điểm nổi bật, tiềm năng tăng trưởng, pháp lý..."
+              placeholder="Đặc điểm nổi bật, tiềm năng tăng trưởng, pháp lý..."
               className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] resize-none"
             />
           </div>
 
-          {/* Min Amount & Scale */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Số tiền tối thiểu (₫):</label>
-              <input
-                value={form.minAmount}
-                onChange={(e) => set("minAmount", e.target.value)}
-                placeholder="2800000000"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-gray-700 block mb-1">Quy mô dự án:</label>
-              <input
-                value={form.scale}
-                onChange={(e) => set("scale", e.target.value)}
-                placeholder="420 ha"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
-              />
-            </div>
-          </div>
-
-          {/* Is Active Checkbox */}
+          {/* ─── Trạng thái ─── */}
+          <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">Trạng thái</p>
           <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold text-black">Mở nhận vốn đầu tư (Bật)</p>
-              <p className="text-[9px] text-gray-500">Dự án luôn hiển thị với người dùng; tắt = vẫn hiện nhưng khóa gửi tiền/ký hợp đồng mới</p>
+              <p className="text-[11px] font-bold text-black">Mở nhận vốn đầu tư</p>
+              <p className="text-[9px] text-gray-500">Tắt = vẫn hiện với người dùng nhưng khóa gửi tiền/ký hợp đồng mới</p>
             </div>
             <input
               type="checkbox"
