@@ -218,10 +218,13 @@ export default function DepositModal({ project, onClose }) {
         project_name: project.title,
         amount,
         method: selectedMethod.label,
-        // rate/profit/total/matures_at gửi lên chỉ mang tính tham khảo -
-        // trigger compute_transaction_interest() ở Postgres LUÔN tính lại
-        // từ investment_projects.total_term_interest_rate theo project_id,
-        // client không còn khả năng tự khai lãi suất/lãi dự kiến sai lệch.
+        // rate/profit/total/matures_at/created_date gửi lên chỉ mang tính
+        // tham khảo - trigger compute_transaction_interest() ở Postgres
+        // LUÔN tính lại từ investment_projects.total_term_interest_rate
+        // theo project_id, và LUÔN gán created_date bằng now() của máy chủ
+        // (không tin đồng hồ thiết bị khách hàng có thể bị chỉnh sai) -
+        // client không còn khả năng tự khai lãi suất/lãi dự kiến/ngày ký
+        // hợp đồng sai lệch.
         rate: totalTermInterestRate,
         duration_days: days,
         profit,
@@ -229,8 +232,7 @@ export default function DepositModal({ project, onClose }) {
         status: "completed",
         contract_status: "approved",
         signature_type: signature.type,
-        signature_content: signature.content,
-        created_date: new Date().toISOString()
+        signature_content: signature.content
       });
 
       await base44.entities.WalletTransaction.create({

@@ -156,7 +156,8 @@ export default function StocksTab({ onNavigateToProjects }) {
         status: orderForm.status,
         contract_status: orderForm.status === "completed" ? "approved" : "pending",
         note: orderForm.note,
-        created_date: new Date().toISOString(),
+        // Không gửi created_date - trigger compute_transaction_interest()
+        // ở Postgres LUÔN tự gán bằng now() của máy chủ.
       });
       if (result?.__supabaseSynced === false) {
         toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");

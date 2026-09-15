@@ -74,7 +74,9 @@ export default function TradeSheet({ stock, onClose }) {
         status: "completed",
         contract_status: "approved",
         note: `Đặt lệnh ${up ? "MUA" : "BÁN"} ${qty} CP ${stock.symbol}`,
-        created_date: new Date().toISOString(),
+        // Không gửi created_date - trigger compute_transaction_interest()
+        // ở Postgres LUÔN tự gán bằng now() của máy chủ, không tin đồng hồ
+        // thiết bị khách hàng.
       });
 
       await base44.entities.WalletTransaction.create({
