@@ -8,6 +8,7 @@ import ContractsTab from "@/components/admin/ContractsTab";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import { base44 } from "@/api/base44Client";
+import { countSupabaseUsers } from "@/lib/supabaseDb";
 
 export default function MemberHubTab({ initialSubTab = "users" }) {
   const [subTab, setSubTab] = useState(initialSubTab); // 'users' | 'messages' | 'transactions' | 'contracts'
@@ -26,16 +27,23 @@ export default function MemberHubTab({ initialSubTab = "users" }) {
     Promise.all([
       base44.entities.Message.list("-created_date", 200).catch(() => []),
       base44.entities.WalletTransaction.filter({ status: "pending" }, "-created_date", 200).catch(() => []),
-      base44.entities.User.list().catch(() => []),
+      // Chỉ cần ĐẾM (badge "Tổng hội viên"), không cần dữ liệu từng người -
+      // countSupabaseUsers() dùng count:'exact', head:true nên Postgres chỉ
+      // trả về 1 con số. Trước đây dùng base44.entities.User.list() (SELECT
+      // * FROM users KHÔNG giới hạn) chỉ để lấy .length rồi vứt hết dữ liệu
+      // - hàm này bị gọi lại mỗi khi có 1 tin nhắn/giao dịch/hội viên mới ở
+      // BẤT KỲ đâu (3 subscribe bên dưới), nên đây là 1 trong những nguồn
+      // tốn kém nhất trong toàn app.
+      countSupabaseUsers().catch(() => 0),
       // "Hợp đồng" trước đây là tab riêng ở Admin.jsx (đọc Transaction có
       // chữ ký) - giờ gộp làm subtab thứ 4 tại đây, cần đếm số hợp đồng
       // đang chờ duyệt để hiện badge y hệt cách 3 subtab kia đang làm.
       base44.entities.Transaction.filter({ signature_content: { $exists: true } }, "-created_date", 100).catch(() => []),
-    ]).then(([msgs, pendingTxs, users, signedTxs]) => {
+    ]).then(([msgs, pendingTxs, usersCount, signedTxs]) => {
       const unread = (msgs || []).filter((m) => m.sender === "user" && !m.read_at).length;
       setUnreadMsgCount(unread);
       setPendingTxCount((pendingTxs || []).length);
-      setTotalUsersCount((users || []).length);
+      setTotalUsersCount(usersCount);
       setPendingContractsCount((signedTxs || []).filter((t) => (t.contract_status || "pending") === "pending").length);
     });
   };

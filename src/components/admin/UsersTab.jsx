@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { listSupabaseUsers, deleteSupabaseUser, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
+import { listSupabaseUsers, listSupabaseUsersPage, deleteSupabaseUser, subscribeSupabaseUsersTable } from "@/lib/supabaseDb";
+import { pollWithBackoff } from "@/lib/pollWithBackoff";
 import { subscribeOnlineUsers } from "@/lib/presence";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
@@ -115,14 +116,29 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
     // Refetch định kỳ nhẹ làm lưới an toàn phòng khi kênh realtime bị rớt
     // (mất mạng, tab chuyển nền lâu) - không còn phải tính lại từ hàng trăm
     // giao dịch mỗi lần như trước nên có thể giãn chu kỳ ra nhiều.
-    const pollInterval = setInterval(() => {
-      fetchUsers(false);
-    }, 30000);
+    //
+    // Dùng pollWithBackoff() thay vì setInterval(30000) cố định: nếu backend
+    // đang gặp sự cố thật (vd. 522) khiến lượt tải thất bại, setInterval cũ
+    // vẫn cứ đều đặn gọi lại đúng câu SELECT * FROM users tốn kém mỗi 30
+    // giây - mọi phiên admin đang mở đều làm vậy cùng lúc, cộng dồn thành 1
+    // đợt dội liên tục ngay lúc backend yếu nhất. pollWithBackoff() giãn
+    // cách ra theo cấp số nhân khi thất bại liên tiếp (dùng
+    // listSupabaseUsersPage() - throw thật khi lỗi, khác listSupabaseUsers()
+    // vốn tự nuốt lỗi trả về [] nên không có tín hiệu để biết mà giãn cách).
+    const stopPoll = pollWithBackoff(
+      () => listSupabaseUsersPage({ limit: 2000 }).then((r) => r.rows),
+      {
+        baseMs: 30000,
+        maxMs: 300000,
+        onResult: (rows) => setUsers(rows || []),
+        onError: (err) => console.warn("[UsersTab] poll lưới an toàn thất bại, sẽ tự giãn cách thử lại:", err?.message || err),
+      }
+    );
 
     return () => {
       if (typeof unsubSupabase === "function") unsubSupabase();
       if (typeof unsubPresence === "function") unsubPresence();
-      clearInterval(pollInterval);
+      stopPoll();
     };
   }, [fetchUsers]);
 

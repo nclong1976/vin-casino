@@ -27,7 +27,8 @@ import {
   Pencil,
 } from "lucide-react";
 import { base44, subscribeToConnectionStatus } from "@/api/base44Client";
-import { listSupabaseUsers, subscribeSupabaseUsersTable, fetchMessagesPage } from "@/lib/supabaseDb";
+import { listSupabaseUsersPage, subscribeSupabaseUsersTable, fetchMessagesPage } from "@/lib/supabaseDb";
+import { pollWithBackoff } from "@/lib/pollWithBackoff";
 import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifecycle";
 import { compressImageFile } from "@/lib/imageCompression";
 import { useTypingIndicator } from "@/hooks/useTypingIndicator";
@@ -338,35 +339,43 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   // UsersTab.jsx.
   useEffect(() => {
     let cancelled = false;
-    const loadUsers = async () => {
-      try {
-        const [usrs, supaUsrs] = await Promise.all([
-          base44.entities.User.list().catch(() => []),
-          listSupabaseUsers().catch(() => []),
-        ]);
-        if (cancelled) return;
-        const map = {};
-        (Array.isArray(usrs) ? usrs : []).forEach((u) => {
-          if (u?.id) map[u.id] = u;
-          if (u?.email) map[u.email] = u;
-        });
-        (Array.isArray(supaUsrs) ? supaUsrs : []).forEach((su) => {
-          if (!su) return;
-          const key = su.id || su.email;
-          if (key) map[key] = { ...(map[key] || {}), ...su };
-        });
-        setUsersMap(map);
-      } catch {}
+    // Trước đây gọi SONG SONG cả base44.entities.User.list() LẪN
+    // listSupabaseUsers() rồi merge - 2 hàm này cùng đọc thẳng bảng "users"
+    // (User.list() cũng chỉ là fetchFromSupabase('User') → listSupabaseUsers()
+    // nếu cache chưa đủ mới), nên phần lớn thời gian đây là 2 lượt SELECT *
+    // FROM users TỐN KÉM chạy trùng nhau cho cùng 1 kết quả - không có ích
+    // gì thêm, chỉ tốn gấp đôi. Giờ chỉ còn 1 nguồn duy nhất
+    // (listSupabaseUsersPage - có giới hạn + throw thật khi lỗi, cần cho
+    // pollWithBackoff bên dưới phân biệt được "lỗi" với "danh sách rỗng").
+    const fetchUsersMap = () => listSupabaseUsersPage({ limit: 2000 }).then((r) => r.rows);
+    const applyRows = (rows) => {
+      if (cancelled || !Array.isArray(rows)) return;
+      const map = {};
+      rows.forEach((u) => {
+        if (u?.id) map[u.id] = u;
+        if (u?.email) map[u.email] = u;
+      });
+      setUsersMap(map);
     };
-    loadUsers();
+    fetchUsersMap().then(applyRows).catch(() => {});
 
-    const unsubUsers = subscribeSupabaseUsersTable(() => loadUsers());
-    const retryInterval = setInterval(loadUsers, 30000);
+    const unsubUsers = subscribeSupabaseUsersTable(() => {
+      fetchUsersMap().then(applyRows).catch(() => {});
+    });
+    // pollWithBackoff thay setInterval(30000) cố định: lỗi liên tiếp (vd.
+    // 522) sẽ tự giãn cách thử lại thay vì cứ đều đặn dội lại câu truy vấn
+    // tốn kém mỗi 30 giây bất kể đang lỗi hay không - xem pollWithBackoff.js.
+    const stopPoll = pollWithBackoff(fetchUsersMap, {
+      baseMs: 30000,
+      maxMs: 300000,
+      onResult: applyRows,
+      onError: (err) => console.warn("[MessagesTab] poll usersMap lưới an toàn thất bại, sẽ tự giãn cách thử lại:", err?.message || err),
+    });
 
     return () => {
       cancelled = true;
       if (typeof unsubUsers === "function") unsubUsers();
-      clearInterval(retryInterval);
+      stopPoll();
     };
   }, []);
 

@@ -14,6 +14,7 @@ import {
   Settings as SettingsIcon
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { countSupabaseUsers } from "@/lib/supabaseDb";
 import { useAuth } from "@/lib/AuthContext";
 import { useConfig } from "@/lib/ConfigContext";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
@@ -70,14 +71,18 @@ export default function Admin() {
 
   const fetchStats = () => {
     Promise.all([
-      base44.entities.User.list().catch(() => []),
+      // Chỉ cần ĐẾM (badge "Tổng hội viên"), không cần dữ liệu từng người -
+      // countSupabaseUsers() dùng count:'exact', head:true nên Postgres chỉ
+      // trả về 1 con số, không kéo theo toàn bộ bảng users như
+      // base44.entities.User.list() (đã sửa lỗi này ở supabaseDb.js).
+      countSupabaseUsers().catch(() => 0),
       base44.entities.Transaction.filter({ signature_content: { $exists: true } }, "-created_date", 100).catch(() => []),
       base44.entities.Message.list("-created_date", 100).catch(() => []),
       base44.entities.Project.list().catch(() => []),
       base44.entities.Transaction.list("-created_date", 100).catch(() => []),
       base44.entities.WalletTransaction.filter({ type: "withdraw" }, "-created_date", 200).catch(() => []),
       base44.entities.WalletTransaction.filter({ type: "deposit" }, "-created_date", 200).catch(() => []),
-    ]).then(([users, signedTxs, messages, projects, allTxs, wTxs, dTxs]) => {
+    ]).then(([usersCount, signedTxs, messages, projects, allTxs, wTxs, dTxs]) => {
       const totalInvested = allTxs.reduce((s, t) => s + (t.amount || 0), 0);
       const totalProfit = allTxs.reduce((s, t) => s + (t.profit || 0), 0);
       const pendingWithdrawalsCount = wTxs.filter((t) => (t.status || "pending") === "pending").length;
@@ -90,7 +95,7 @@ export default function Admin() {
       const totalPendingHub = pendingWithdrawalsCount + pendingDepositsCount + unreadMessagesCount + pendingContractsCount;
 
       setStats({
-        users: users.length,
+        users: usersCount,
         pendingContracts: pendingContractsCount,
         pendingWithdrawals: pendingWithdrawalsCount,
         pendingDeposits: pendingDepositsCount,

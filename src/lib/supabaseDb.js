@@ -30,12 +30,30 @@ export async function getSupabaseUser(id) {
   }
 }
 
+// LỖI NGHIÊM TRỌNG NHẤT đã vá ở đây: hàm này trước đây SELECT * FROM users
+// KHÔNG có .limit() nào cả - mọi lần gọi (Admin.jsx, MemberHubTab.jsx,
+// MessagesTab.jsx, NotificationsTab.jsx, StocksTab.jsx, UsersTab.jsx - 6 nơi
+// gọi trực tiếp hoặc qua base44.entities.User.list()) đều kéo về TOÀN BỘ
+// bảng users, bất kể bảng có 10 hay 100.000 dòng. Đây chính là truy vấn có
+// khả năng cao nhất gây timeout/522 khi số hội viên tăng lên, và tệ hơn:
+// MemberHubTab.jsx/Admin.jsx gọi lại hàm này (kéo lại NGUYÊN bảng) mỗi khi
+// có 1 tin nhắn/giao dịch/hội viên mới xảy ra ở BẤT KỲ đâu trong hệ thống
+// (subscribe realtime rồi refetch toàn bộ) - tần suất truy vấn tốn kém này
+// tăng theo hoạt động của TOÀN hệ thống chứ không phải theo nhu cầu thật.
+// Thêm .limit() ở đây chặn đứng nguy cơ "không giới hạn" ngay tại nguồn -
+// không đổi hành vi hiện tại (số hội viên thật còn rất xa mốc này) nhưng
+// đặt trần cứng cho tương lai. Ai cần duyệt tiếp qua ngưỡng này dùng
+// listSupabaseUsersPage() (keyset, xem bên dưới) hoặc countSupabaseUsers()
+// (chỉ cần đếm, không cần kéo dữ liệu).
+const USERS_LIST_HARD_CAP = 2000;
+
 export async function listSupabaseUsers() {
   try {
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(USERS_LIST_HARD_CAP);
 
     if (error) {
       console.warn(`[SupabaseDb] listSupabaseUsers error:`, error.message);
@@ -46,6 +64,59 @@ export async function listSupabaseUsers() {
     console.warn(`[SupabaseDb] listSupabaseUsers exception:`, e);
     return [];
   }
+}
+
+/**
+ * Đếm số hội viên THẬT SỰ (head:true → Postgres chỉ trả về con số, không
+ * kéo theo bất kỳ dòng dữ liệu nào) - dùng cho nơi CHỈ cần `.length` (badge
+ * "Tổng hội viên" ở Admin.jsx/MemberHubTab.jsx) thay vì gọi listSupabaseUsers()
+ * rồi vứt bỏ toàn bộ dữ liệu, chỉ giữ lại con số đếm.
+ */
+export async function countSupabaseUsers() {
+  try {
+    const { count, error } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true });
+    if (error) {
+      console.warn('[SupabaseDb] countSupabaseUsers error:', error.message);
+      return 0;
+    }
+    return count || 0;
+  } catch (e) {
+    console.warn('[SupabaseDb] countSupabaseUsers exception:', e);
+    return 0;
+  }
+}
+
+/**
+ * Phân trang THẬT (keyset, không phải OFFSET) để duyệt tiếp danh sách hội
+ * viên vượt quá USERS_LIST_HARD_CAP - cùng mẫu với fetchMessagesPage() bên
+ * dưới. OFFSET (LIMIT/OFFSET) chậm dần khi offset lớn (Postgres vẫn phải
+ * quét bỏ qua từng ấy dòng); keyset chỉ cần 1 index seek bất kể đang ở
+ * "trang" thứ bao nhiêu, vì luôn lọc theo created_at nhỏ hơn con trỏ lần
+ * trước, không đếm qua số dòng bị bỏ qua.
+ * @param {{limit?: number, cursor?: {createdAt: string} | null}} [options]
+ */
+export async function listSupabaseUsersPage({ limit = 100, cursor } = {}) {
+  let query = supabase
+    .from('users')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (cursor?.createdAt) query = query.lt('created_at', cursor.createdAt);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[SupabaseDb] listSupabaseUsersPage error:', error.message);
+    throw new Error(error.message);
+  }
+  const rows = data || [];
+  const last = rows[rows.length - 1];
+  return {
+    rows,
+    // null khi đã hết trang (số dòng trả về < limit yêu cầu).
+    nextCursor: rows.length === limit && last ? { createdAt: last.created_at } : null,
+  };
 }
 
 export async function upsertSupabaseUser(user) {
@@ -1236,4 +1307,57 @@ export async function fetchMessagesPage(conversationId, { beforeCreatedAt, limit
     throw new Error(error.message);
   }
   return data || [];
+}
+
+// ==========================================
+// 5. PHÂN TRANG THẬT (keyset) cho investment_projects/support_conversations/
+//    transactions - genericListEntity() ở trên chỉ lấy "N bản ghi mới nhất"
+//    (limit không offset - một CỬA SỔ, không phải phân trang thật): bản ghi
+//    cũ hơn ngưỡng đó không có cách nào xem tiếp. Hàm dưới đây cho phép
+//    duyệt tiếp bằng con trỏ created_date, cùng mẫu fetchMessagesPage() ở
+//    trên - dùng keyset (WHERE created_date < cursor) thay vì OFFSET vì
+//    OFFSET càng lớn Postgres càng phải quét bỏ qua nhiều dòng hơn (chậm
+//    dần theo số trang đã lật), trong khi keyset luôn chỉ 1 index seek bất
+//    kể đang ở trang thứ bao nhiêu.
+// ==========================================
+/**
+ * @param {'Transaction'|'SupportConversation'|'Project'} entityName
+ * @param {{filter?: object, beforeCreatedAt?: string, limit?: number}} [options]
+ */
+export async function fetchEntityPage(entityName, { filter = {}, beforeCreatedAt, limit = 50 } = {}) {
+  const table = ENTITY_TABLE_MAP[entityName];
+  if (!table) return { rows: [], nextCursor: null };
+  let query = supabase.from(table).select(selectColumnsFor(entityName));
+  Object.entries(filter || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) query = query.eq(key, value);
+  });
+  query = query.order('created_date', { ascending: false }).limit(limit);
+  if (beforeCreatedAt) query = query.lt('created_date', beforeCreatedAt);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn(`[SupabaseDb] fetchEntityPage(${entityName}) error:`, error.message);
+    throw new Error(error.message);
+  }
+  const rows = data || [];
+  const last = rows[rows.length - 1];
+  return {
+    rows,
+    nextCursor: rows.length === limit && last ? last.created_date : null,
+  };
+}
+
+/** Phân trang giao dịch (transactions) - tiện dùng trực tiếp không cần nhớ tên entity. */
+export function fetchTransactionsPage(options) {
+  return fetchEntityPage('Transaction', options);
+}
+
+/** Phân trang hội thoại CSKH (support_conversations) - cho danh sách hội thoại phía admin. */
+export function fetchSupportConversationsPage(options) {
+  return fetchEntityPage('SupportConversation', options);
+}
+
+/** Phân trang dự án đầu tư (investment_projects). */
+export function fetchProjectsPage(options) {
+  return fetchEntityPage('Project', options);
 }
