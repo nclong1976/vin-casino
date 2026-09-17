@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock } from "lucide-react";
+import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock, Megaphone, Send, ImagePlus, Users, Shield } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
-import { isDailyAccrualCategory, getCycleDays, formatDailyRatePercent, getProjectTermUnit } from "@/lib/investmentTerms";
+import {
+  isDailyAccrualCategory,
+  getCycleDays,
+  formatDailyRatePercent,
+  getProjectTermUnit,
+  buildProjectAnnouncementDraft,
+  resolveProjectOpenClose,
+} from "@/lib/investmentTerms";
 
 const fmtSchedule = (iso) => {
   if (!iso) return "";
@@ -26,6 +33,11 @@ export default function ProjectsTab({ filterRequest }) {
   const [togglingId, setTogglingId] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  // Soạn & gửi thông báo trực tiếp cho 1 dự án - chuyển từ mục "Soạn thông
+  // báo mới" (NotificationsTab.jsx, loại "Đầu tư & Dự án") sang đây để
+  // admin gửi ngay từ thẻ dự án, không phải rời trang rồi tự tìm lại đúng
+  // dự án ở nơi khác (xem ProjectNotifyModal bên dưới).
+  const [notifyingProject, setNotifyingProject] = useState(null);
 
   // ProjectsTab giờ luôn mount sẵn (Admin.jsx chỉ ẩn/hiện bằng CSS thay vì
   // unmount) nên không còn nhận filter mới qua remount - phải tự áp dụng
@@ -300,13 +312,19 @@ export default function ProjectsTab({ filterRequest }) {
               </div>
 
               {/* Action Toolbar: Edit, Delete & Investment Toggle Switch */}
-              <div className="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-gray-100 flex-wrap">
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => setEditing(p)}
                     className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10.5px] font-bold flex items-center gap-1 transition-all"
                   >
                     <Pencil className="w-3 h-3 text-[#948154]" /> Chỉnh sửa
+                  </button>
+                  <button
+                    onClick={() => setNotifyingProject(p)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10.5px] font-bold flex items-center gap-1 transition-all"
+                  >
+                    <Megaphone className="w-3 h-3" /> Gửi thông báo
                   </button>
                   <button
                     onClick={() => setDeleting(p)}
@@ -387,6 +405,253 @@ export default function ProjectsTab({ filterRequest }) {
           onSave={handleSave}
         />
       )}
+
+      {/* Gửi thông báo trực tiếp cho 1 dự án */}
+      {notifyingProject && (
+        <ProjectNotifyModal
+          project={notifyingProject}
+          onClose={() => setNotifyingProject(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Soạn & gửi thông báo (Notification.create) gắn thẳng với 1 dự án cụ thể -
+// chuyển từ NotificationsTab.jsx (loại "Đầu tư & Dự án" trong "Soạn thông
+// báo mới") sang đây để mở ngay từ thẻ dự án, đỡ phải rời trang rồi tự tìm
+// lại đúng dự án ở nơi khác. Cùng logic gửi/snapshot số liệu dự án như
+// trước (xem handleSendNotification cũ), chỉ khác là dự án đã biết sẵn
+// (prop), không cần ô tìm kiếm/chọn dự án nữa.
+function ProjectNotifyModal({ project, onClose }) {
+  const draft = buildProjectAnnouncementDraft(project);
+  const [title, setTitle] = useState(draft.title);
+  const [content, setContent] = useState(draft.content);
+  const [targetType, setTargetType] = useState("all"); // 'all' | 'admins'
+  const [imageUrl, setImageUrl] = useState(project.image || "");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(project.image || "");
+  const [sending, setSending] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleImageFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImagePreview(reader.result);
+      setImageUrl("");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSend = async () => {
+    if (!title.trim()) return toast.error("Vui lòng nhập tiêu đề thông báo");
+    if (!content.trim()) return toast.error("Vui lòng nhập nội dung thông báo");
+
+    setSending(true);
+    try {
+      let finalImg = imageUrl.trim();
+      if (imageFile) {
+        try {
+          const res = await base44.integrations.Core.UploadFile({ file: imageFile });
+          finalImg = res?.file_url || imagePreview;
+        } catch {
+          finalImg = imagePreview;
+        }
+      }
+
+      // Snapshot số liệu dự án lúc gửi (không phải tham chiếu sống) - dự án
+      // có thể bị sửa/khoá sau này nhưng thông báo cũ vẫn phải hiển thị đúng
+      // số liệu tại thời điểm gửi. Các field này không nằm trong whitelist
+      // cột Notification (ENTITY_COLUMNS trong supabaseDb.js) nên tự động
+      // rơi vào cột "extra" jsonb, không cần đổi schema.
+      const { openIso, closeIso } = resolveProjectOpenClose(project);
+      const projectSnapshot = {
+        project_id: project.id,
+        project_category: project.category,
+        project_rate: project.total_term_interest_rate,
+        project_duration_minutes: project.term_duration_minutes,
+        project_min_amount: project.minAmount ?? project.min_amount,
+        project_scale: project.scale,
+        project_open_at: openIso || undefined,
+        project_close_at: closeIso || undefined,
+      };
+
+      const created = await base44.entities.Notification.create({
+        title: title.trim(),
+        content: content.trim(),
+        image: finalImg || undefined,
+        type: "project",
+        user_id: targetType === "admins" ? "admin" : null,
+        is_read: false,
+        created_date: new Date().toISOString(),
+        ...projectSnapshot,
+      });
+
+      if (created?.__supabaseSynced === false) {
+        toast.error("Gửi thất bại - máy chủ từ chối ghi thông báo. Vui lòng thử lại.");
+        return;
+      }
+
+      // Đồng bộ chuông thông báo tức thì giữa các tab đang mở, cùng mẫu
+      // NotificationsTab.jsx đang dùng.
+      localStorage.setItem("vinclub:balance_updated", Date.now().toString());
+      toast.success(
+        `✅ Đã gửi thông báo về "${project.title || project.name}" tới ${
+          targetType === "admins" ? "toàn bộ Quản trị viên" : "tất cả hội viên toàn ứng dụng"
+        }!`
+      );
+      onClose();
+    } catch (e) {
+      toast.error("Không thể gửi thông báo. Vui lòng thử lại.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-xs p-3"
+      onClick={() => !sending && onClose()}
+    >
+      <div
+        className="w-full max-w-md bg-white rounded-2xl overflow-hidden shadow-2xl border border-gray-200 max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 bg-gradient-to-r from-[#17130e] to-[#2e261a] text-white flex items-center justify-between shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-[13px] font-bold flex items-center gap-1.5 truncate">
+              <Megaphone className="w-4 h-4 text-[#e8c87a] shrink-0" /> Gửi thông báo dự án
+            </h3>
+            <p className="text-[10px] text-[#caa45a] truncate">{project.title || project.name}</p>
+          </div>
+          <button
+            onClick={() => !sending && onClose()}
+            className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3 overflow-y-auto flex-1">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetType("all")}
+              className={`p-2 rounded-xl border text-[11px] font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                targetType === "all"
+                  ? "bg-[#948154] text-white border-[#948154] shadow-xs"
+                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Toàn bộ Ứng dụng</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetType("admins")}
+              className={`p-2 rounded-xl border text-[11px] font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                targetType === "admins"
+                  ? "bg-[#948154] text-white border-[#948154] shadow-xs"
+                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+              }`}
+            >
+              <Shield className="w-4 h-4" />
+              <span>Chỉ Ban Quản Trị</span>
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-gray-700">Tiêu đề thông báo *</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-[12px] font-semibold focus:outline-none focus:border-[#948154] transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-gray-700">Nội dung thông báo *</label>
+            <textarea
+              rows={5}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-[11.5px] leading-relaxed focus:outline-none focus:border-[#948154] transition-colors resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-gray-700 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <ImagePlus className="w-3.5 h-3.5 text-[#948154]" /> Hình ảnh (mặc định lấy ảnh dự án):
+              </span>
+              {imagePreview && (
+                <button
+                  type="button"
+                  onClick={() => { setImageFile(null); setImagePreview(""); setImageUrl(""); }}
+                  className="text-[10px] text-red-500 hover:underline"
+                >
+                  Gỡ bỏ ảnh
+                </button>
+              )}
+            </label>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={imageUrl}
+                onChange={(e) => { setImageUrl(e.target.value); setImagePreview(e.target.value); setImageFile(null); }}
+                placeholder="Dán link ảnh (https://...)"
+                className="flex-1 px-3 py-1.5 rounded-xl border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              />
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <ImagePlus className="w-3.5 h-3.5" /> Tải từ máy
+              </button>
+            </div>
+
+            {imagePreview && (
+              <div className="relative w-full h-28 rounded-xl overflow-hidden border border-gray-200 bg-gray-50 mt-1.5">
+                <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => !sending && onClose()}
+            disabled={sending}
+            className="px-4 py-2.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-700 text-[12px] font-bold transition-colors cursor-pointer"
+          >
+            Hủy bỏ
+          </button>
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={sending || !title.trim() || !content.trim()}
+            className="px-5 py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] disabled:opacity-50 text-white text-[12px] font-bold shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            {sending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Đang gửi...
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" /> Gửi thông báo
+              </>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
