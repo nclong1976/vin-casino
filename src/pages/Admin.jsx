@@ -10,7 +10,6 @@ import {
   TrendingUp,
   LogOut,
   Newspaper,
-  Settings as SettingsIcon
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { countSupabaseUsers } from "@/lib/supabaseDb";
@@ -33,13 +32,17 @@ import SettingsTab from "@/components/admin/SettingsTab";
 // 1 tab "Đầu tư CK & Casino" (InvestmentCasinoTab.jsx) - cùng nhóm vận
 // hành sản phẩm đầu tư/giải trí, tách riêng chỉ chiếm thêm chỗ trên thanh
 // tab cấp cao nhất mà không có lý do nghiệp vụ nào bắt buộc phải tách.
+// "Cài đặt hệ thống" không còn là tab riêng - chuyển hẳn vào khối "Tổng
+// quan hệ thống" thu/mở (xem bên dưới, đã hiện sẵn ở MỌI tab), cùng cách
+// "Tổng quan" trước đây cũng từng được gộp ra khỏi thanh tab - SettingsTab
+// chỉ có 1 công tắc bảo trì toàn trang, không thao tác thường xuyên như
+// các tab còn lại, đặt cạnh số liệu tổng quan hợp lý hơn 1 tab riêng.
 const TABS = [
   { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
   { id: "investment_casino", label: "Đầu tư CK & Casino", icon: TrendingUp },
   { id: "projects", label: "Dự án", icon: FolderOpen },
   { id: "news", label: "Tin tức", icon: Newspaper },
   { id: "notifications", label: "Thông báo", icon: Bell },
-  { id: "settings", label: "Cài đặt hệ thống", icon: SettingsIcon },
 ];
 
 export default function Admin() {
@@ -252,8 +255,13 @@ export default function Admin() {
                 transition={{ duration: 0.18, ease: "easeOut" }}
                 className="overflow-hidden"
               >
-                <div className="pt-2 max-h-[70vh] overflow-y-auto">
+                <div className="pt-2 max-h-[70vh] overflow-y-auto space-y-4">
                   <OverviewTab stats={stats} />
+                  {/* "Cài đặt hệ thống" gộp vào đây - xem ghi chú tại TABS
+                      ở trên. AdminErrorBoundary riêng vì đây là khối duy
+                      nhất trong panel này có thao tác ghi (bật/tắt bảo
+                      trì), không chỉ hiển thị số liệu như OverviewTab. */}
+                  <AdminErrorBoundary><SettingsTab /></AdminErrorBoundary>
                 </div>
               </motion.div>
             )}
@@ -292,9 +300,6 @@ export default function Admin() {
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "notifications"}>
           <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
-        </AnimatedTabPanel>
-        <AnimatedTabPanel active={tab === "settings"}>
-          <AdminErrorBoundary><SettingsTab /></AdminErrorBoundary>
         </AnimatedTabPanel>
       </div>
     </div>
