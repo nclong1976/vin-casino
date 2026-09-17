@@ -27,7 +27,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { base44, subscribeToConnectionStatus } from "@/api/base44Client";
-import { listSupabaseUsersPage, subscribeSupabaseUsersTable, fetchMessagesPage } from "@/lib/supabaseDb";
+import { listSupabaseUsersPage, subscribeSupabaseUsersTable, fetchMessagesPageByUser } from "@/lib/supabaseDb";
 import { pollWithBackoff } from "@/lib/pollWithBackoff";
 import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifecycle";
 import { compressImageFile } from "@/lib/imageCompression";
@@ -299,11 +299,12 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const [editText, setEditText] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
 
-  // Cache riêng theo hội thoại (fetchMessagesPage - src/lib/supabaseDb.js,
-  // WHERE conversation_id + LIMIT thật) - KHÔNG thay thế "messages" (mảng
-  // toàn cục nuôi danh sách hội thoại + realtime, xem applyMessages() bên
-  // dưới), chỉ MERGE THÊM vào currentMessages để thấy đủ lịch sử 1 hội thoại
-  // cụ thể thay vì chỉ 300 tin gần nhất TOÀN HỆ THỐNG.
+  // Cache riêng theo khách (fetchMessagesPageByUser - src/lib/supabaseDb.js,
+  // WHERE user_id + LIMIT thật, khóa theo user_id để không mất lịch sử qua
+  // các lần rotate conversation_id) - KHÔNG thay thế "messages" (mảng toàn
+  // cục nuôi danh sách hội thoại + realtime, xem applyMessages() bên dưới),
+  // chỉ MERGE THÊM vào currentMessages để thấy đủ lịch sử 1 khách cụ thể
+  // thay vì chỉ 300 tin gần nhất TOÀN HỆ THỐNG.
   const [conversationPageCache, setConversationPageCache] = useState({});
   const [loadingOlder, setLoadingOlder] = useState(false);
   const hasMoreOlderRef = useRef({});
@@ -316,7 +317,9 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const prevMsgCountRef = useRef(0);
   const prevConvRef = useRef(null);
 
-  const { peerTyping, notifyTyping } = useTypingIndicator(selectedUser, "admin");
+  // useTypingIndicator được gọi PHÍA DƯỚI, sau khi currentConv đã tính xong
+  // (xem ghi chú tại đó) - vị trí gọi hook không nhất thiết phải ở đầu
+  // component, chỉ cần gọi vô điều kiện & cùng thứ tự mỗi lần render.
 
   // Đóng danh sách mẫu khi bấm ra ngoài - cùng cách NotificationBell.jsx
   // đang đóng dropdown của nó.
@@ -517,9 +520,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       return;
     }
-    const count = messages.filter(
-      (m) => (m.conversation_id || m.user_id) === selectedUser
-    ).length;
+    const count = messages.filter((m) => m.user_id === selectedUser).length;
     if (count !== prevMsgCountRef.current) {
       prevMsgCountRef.current = count;
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -535,37 +536,64 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   }, [replyText]);
 
   // ── Memoized conversations grouping ─────────────────────────────
+  // Nhóm theo user_id THẬT (ổn định vĩnh viễn cho 1 khách) thay vì
+  // conversation_id - conversation_id có thể ROTATE qua thời gian (khách
+  // rời trang CSKH ≥10 phút thì lần quay lại sau nhận 1 conversation_id mới,
+  // xem src/lib/cskhConversation.js - KHÔNG đụng vào file đó). Nhóm theo
+  // conversation_id cũ khiến 1 khách đã rotate bị tách thành "khách mới"
+  // riêng trong sidebar admin, và khi admin trả lời trong hội thoại đã
+  // rotate, tin bị ghi với conversation_id CŨ - Support.jsx (khách) lọc
+  // cứng theo conversation_id đang active nên không bao giờ thấy được tin
+  // đó. Mỗi nhóm giữ thêm latestConversationId (conversation_id của tin mới
+  // nhất) - dùng làm proxy "conversation_id đang active" khi gửi trả lời/
+  // đổi trạng thái hội thoại/đặt tên kênh typing-indicator, vì ngay khi
+  // khách rotate xong, tin/hội thoại kế tiếp của khách luôn mang
+  // conversation_id mới đó.
   const { conversations, convList } = useMemo(() => {
     const convMap = {};
     (Array.isArray(messages) ? messages : []).forEach((m) => {
       if (!m) return;
-      const cid = String(m.conversation_id || m.user_id || m.sender || "unknown");
-      if (!convMap[cid]) {
-        const u = usersMap[cid] || usersMap[m.user_id] || null;
-        const supportConv = supportConvMap[cid] || null;
-        convMap[cid] = {
-          id: cid,
-          userName: u?.full_name || u?.name || u?.email || (cid !== "unknown" ? `Khách #${cid.slice(0, 6)}` : "Khách"),
-          userEmail: u?.email || "—",
+      const uid = String(m.user_id || m.conversation_id || m.sender || "unknown");
+      if (!convMap[uid]) {
+        convMap[uid] = {
+          id: uid,
+          latestConversationId: m.conversation_id || uid,
           messages: [],
           lastDate: m.created_date || new Date().toISOString(),
           unread: 0,
+        };
+      }
+      const g = convMap[uid];
+      g.messages.push(m);
+      if (m.sender === "user" && !m.read_at) g.unread++;
+      if (!g.lastDate || m.created_date >= g.lastDate) {
+        g.lastDate = m.created_date;
+        if (m.conversation_id) g.latestConversationId = m.conversation_id;
+      }
+    });
+
+    const list = Object.values(convMap)
+      .map((g) => {
+        const u = usersMap[g.id] || null;
+        const supportConv = supportConvMap[g.latestConversationId] || null;
+        return {
+          ...g,
+          userName: u?.full_name || u?.name || u?.email || (g.id !== "unknown" ? `Khách #${g.id.slice(0, 6)}` : "Khách"),
+          userEmail: u?.email || "—",
           status: supportConv?.status || DEFAULT_SUPPORT_STATUS,
           priority: supportConv?.priority || DEFAULT_PRIORITY,
           assignedAdminId: supportConv?.assigned_admin_id || null,
           assignedAdminName: supportConv?.assigned_admin_name || null,
           topic: supportConv?.topic || null,
         };
-      }
-      convMap[cid].messages.push(m);
-      if (m.sender === "user" && !m.read_at) convMap[cid].unread++;
-      if (m.created_date > convMap[cid].lastDate) convMap[cid].lastDate = m.created_date;
-    });
+      })
+      .sort((a, b) => new Date(b.lastDate) - new Date(a.lastDate));
 
-    const list = Object.values(convMap).sort(
-      (a, b) => new Date(b.lastDate) - new Date(a.lastDate)
-    );
-    return { conversations: convMap, convList: list };
+    const map = {};
+    list.forEach((c) => {
+      map[c.id] = c;
+    });
+    return { conversations: map, convList: list };
   }, [messages, usersMap, supportConvMap]);
 
   // Danh sách chủ đề để lọc - lấy TRỰC TIẾP từ dữ liệu thật (topic đã ghi
@@ -585,10 +613,23 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
 
   const currentConv = selectedUser ? conversations[selectedUser] : null;
 
+  // Kênh typing-indicator phải trùng TÊN với kênh Support.jsx (khách) đang
+  // lắng nghe - khách dùng đúng conversation_id ĐANG ACTIVE của họ
+  // (getActiveConversationId(), cskhConversation.js), nên phía admin phải
+  // dùng latestConversationId (proxy tốt nhất hiện có cho "hội thoại đang
+  // active của khách"), KHÔNG dùng selectedUser (giờ là user_id) trực tiếp -
+  // đặt sau currentConv vì cần latestConversationId đã tính ở đó; vị trí gọi
+  // hook không nhất thiết phải ở đầu component, chỉ cần vô điều kiện & cùng
+  // thứ tự mỗi lần render.
+  const { peerTyping, notifyTyping } = useTypingIndicator(
+    currentConv?.latestConversationId || selectedUser,
+    "admin"
+  );
+
   // Hợp nhất tin từ "messages" (mảng toàn cục, realtime) VỚI trang riêng đã
-  // tải qua fetchMessagesPage() (conversationPageCache) - dedup theo id, sắp
-  // theo thời gian tăng dần. Không có currentConv (chưa có tin nào trong
-  // "messages" cho hội thoại này) vẫn phải hiện được lịch sử từ page cache.
+  // tải qua fetchMessagesPageByUser() (conversationPageCache) - dedup theo
+  // id, sắp theo thời gian tăng dần. Không có currentConv (chưa có tin nào
+  // trong "messages" cho khách này) vẫn phải hiện được lịch sử từ page cache.
   const currentMessages = useMemo(() => {
     const fromGlobal = currentConv ? currentConv.messages : [];
     const fromPageCache = (selectedUser && conversationPageCache[selectedUser]) || [];
@@ -624,17 +665,20 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     [conversations]
   );
 
-  // Seed lịch sử ĐÚNG hội thoại đang mở qua fetchMessagesPage() (thật WHERE
-  // conversation_id, không phải slice từ 300 tin gần nhất TOÀN HỆ THỐNG) -
-  // chạy cho cả 2 đường vào 1 hội thoại (bấm chọn qua openConversation() lẫn
+  // Seed lịch sử ĐÚNG khách đang mở qua fetchMessagesPageByUser() (thật WHERE
+  // user_id, không phải slice từ 300 tin gần nhất TOÀN HỆ THỐNG) - chạy cho
+  // cả 2 đường vào 1 hội thoại (bấm chọn qua openConversation() lẫn
   // initialSelectedUserId truyền thẳng từ nơi khác), vì cả 2 đều đổi
-  // selectedUser. Không đụng "messages" (mảng toàn cục) - chỉ ghi vào
-  // conversationPageCache, merge ở currentMessages phía trên.
+  // selectedUser (giờ luôn là user_id, xem ghi chú useMemo nhóm hội thoại ở
+  // trên). Lọc theo user_id thay vì conversation_id để không bỏ sót lịch sử
+  // trước khi khách rotate conversation_id. Không đụng "messages" (mảng
+  // toàn cục) - chỉ ghi vào conversationPageCache, merge ở currentMessages
+  // phía trên.
   useEffect(() => {
     if (!selectedUser) return;
     hasMoreOlderRef.current[selectedUser] = true;
     let cancelled = false;
-    fetchMessagesPage(selectedUser, { limit: 50 })
+    fetchMessagesPageByUser(selectedUser, { limit: 50 })
       .then((page) => {
         if (cancelled || !page) return;
         setConversationPageCache((prev) => ({ ...prev, [selectedUser]: page }));
@@ -656,7 +700,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     setLoadingOlder(true);
     prependScrollAdjustRef.current = scrollRef.current.scrollHeight;
     try {
-      const older = await fetchMessagesPage(selectedUser, {
+      const older = await fetchMessagesPageByUser(selectedUser, {
         beforeCreatedAt: oldest.created_date,
         limit: 30,
       });
@@ -800,15 +844,17 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     if (type === "msg") {
       setMessages((prev) => prev.filter((m) => m.id !== target.id));
       // currentMessages (mảng thật sự render lên màn hình) hợp nhất "messages"
-      // (toàn cục) VỚI conversationPageCache (lịch sử tải qua fetchMessagesPage) -
-      // chỉ lọc "messages" ở trên KHÔNG đủ, vì mọi tin nhắn từng hiển thị đều
-      // đã được nạp vào conversationPageCache khi mở hội thoại/cuộn lên xem
-      // lịch sử cũ. Không dọn ở đây, tin nhắn "đã xóa" vẫn tiếp tục hiển thị
-      // vĩnh viễn vì phần cache này không có cơ chế nào khác để loại bỏ nó.
-      const cid = target.conversation_id;
-      if (cid) {
+      // (toàn cục) VỚI conversationPageCache (lịch sử tải qua
+      // fetchMessagesPageByUser, giờ khóa theo user_id - xem ghi chú useMemo
+      // nhóm hội thoại) - chỉ lọc "messages" ở trên KHÔNG đủ, vì mọi tin
+      // nhắn từng hiển thị đều đã được nạp vào conversationPageCache khi mở
+      // hội thoại/cuộn lên xem lịch sử cũ. Không dọn ở đây, tin nhắn "đã
+      // xóa" vẫn tiếp tục hiển thị vĩnh viễn vì phần cache này không có cơ
+      // chế nào khác để loại bỏ nó.
+      const uid = target.user_id;
+      if (uid) {
         setConversationPageCache((prev) =>
-          prev[cid] ? { ...prev, [cid]: prev[cid].filter((m) => m.id !== target.id) } : prev
+          prev[uid] ? { ...prev, [uid]: prev[uid].filter((m) => m.id !== target.id) } : prev
         );
       }
       try { await base44.entities.Message.delete(target.id); }
@@ -910,15 +956,22 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const handleReply = useCallback(async () => {
     if ((!replyText.trim() && files.length === 0) || !selectedUser || sending) return;
     setSending(true);
+    // conversationId = latestConversationId của khách đang mở (proxy cho
+    // "hội thoại đang active" phía khách - xem ghi chú useTypingIndicator ở
+    // trên), rơi về selectedUser (chính user_id) nếu khách này CHƯA có tin
+    // nhắn nào (admin chủ động mở hội thoại mới từ UsersTab/TransactionsTab
+    // qua initialSelectedUserId) - cùng quy ước conversation_id=user_id lúc
+    // khởi tạo mà trigger reopen_support_conversation_on_customer_message
+    // đã dùng cho hội thoại đầu tiên của 1 khách.
+    const conversationId = currentConv?.latestConversationId || selectedUser;
     // Admin vừa trả lời nghĩa là hội thoại không còn "chờ phản hồi" nữa -
     // tự chuyển về "open". Không đụng tới "closed" (admin tự đóng có chủ ý,
     // 1 tin nhắn thêm vào sau đó - vd ghi chú - không nên tự ý mở lại) hay
     // "open" (không có gì đổi).
-    if (supportConvMap[selectedUser]?.status === "pending") {
-      patchConversationStatus(selectedUser, { status: "open" });
+    if (currentConv?.status === "pending") {
+      patchConversationStatus(conversationId, { status: "open" });
     }
     const content = replyText.trim();
-    const cid = selectedUser;
     setReplyText("");
     const pendingFiles = files;
     setFiles([]);
@@ -950,13 +1003,20 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       // notify, KHÔNG cần tự quản lý mảng optimistic riêng nữa (cách làm cũ
       // dễ hiện 2 bubble trùng khi Realtime cũng đẩy tin thật về gần như
       // cùng lúc).
-      await sendReply(cid, content, attachments, supportConvMap[cid]?.user_id || usersMap[cid]?.id);
+      // userId = selectedUser TRỰC TIẾP - giờ luôn là user_id thật của khách
+      // (xem ghi chú useMemo nhóm hội thoại ở trên), không cần tra ngược qua
+      // supportConvMap/usersMap như trước (đúng chỗ trước đây có thể lấy
+      // nhầm giá trị nếu selectedUser là 1 conversation_id đã rotate không
+      // khớp khóa nào trong 2 map đó, khiến userId cuối cùng rơi về "cid" -
+      // 1 conversation_id giả làm user_id - và tin admin gửi ra không bao
+      // giờ tới đúng khách theo RLS).
+      await sendReply(conversationId, content, attachments, selectedUser);
     } catch {
       toast.error("Không thể gửi phản hồi");
     } finally {
       setSending(false);
     }
-  }, [replyText, files, selectedUser, sending, supportConvMap, usersMap, patchConversationStatus, sendReply]);
+  }, [replyText, files, selectedUser, sending, currentConv, patchConversationStatus, sendReply]);
 
   // Tin lỗi (message.__status === "failed") được GIỮ LẠI trên màn hình kèm
   // nút "Gửi lại" thay vì bị xoá như cách làm cũ.
@@ -1068,7 +1128,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
             </span>
             <select
               value={currentConv.priority}
-              onChange={(e) => changeConvPriority(currentConv.id, e.target.value)}
+              onChange={(e) => changeConvPriority(currentConv.latestConversationId, e.target.value)}
               className={`text-[9px] font-bold border-none rounded-full px-2 py-1 focus:outline-none cursor-pointer ${PRIORITY_BADGE_CLASSES[currentConv.priority] || PRIORITY_BADGE_CLASSES.normal}`}
             >
               {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
@@ -1083,7 +1143,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               </span>
             ) : (
               <button
-                onClick={() => assignToSelf(currentConv.id)}
+                onClick={() => assignToSelf(currentConv.latestConversationId)}
                 className="text-[9px] font-bold px-2.5 py-1 rounded-full bg-[#948154] text-white hover:bg-[#7a6c44] transition-colors cursor-pointer"
               >
                 Nhận xử lý
@@ -1091,7 +1151,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
             )}
             <select
               value={currentConv.status}
-              onChange={(e) => changeConvStatus(currentConv.id, e.target.value)}
+              onChange={(e) => changeConvStatus(currentConv.latestConversationId, e.target.value)}
               className="ml-auto text-[9.5px] border border-gray-200 rounded-full px-2 py-1 focus:outline-none focus:border-[#948154] cursor-pointer"
             >
               <option value="open">Đang mở</option>

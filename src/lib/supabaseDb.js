@@ -1309,6 +1309,33 @@ export async function fetchMessagesPage(conversationId, { beforeCreatedAt, limit
   return data || [];
 }
 
+// Như fetchMessagesPage() ở trên nhưng lọc theo user_id (khách hàng) thay vì
+// conversation_id - cskhConversation.js (KHÔNG được đụng vào) rotate
+// conversation_id mỗi khi khách rời trang CSKH ≥10 phút, nên 1 khách có thể
+// có NHIỀU conversation_id qua thời gian trong khi user_id luôn cố định.
+// Admin cần xem/gửi theo user_id để không bị "lạc" giữa các lượt rotate.
+/**
+ * @param {string} userId
+ * @param {{beforeCreatedAt?: string, limit?: number}} [options]
+ */
+export async function fetchMessagesPageByUser(userId, { beforeCreatedAt, limit = 50 } = {}) {
+  if (!userId) return [];
+  let query = supabase
+    .from('messages')
+    .select(selectColumnsFor('Message'))
+    .eq('user_id', userId)
+    .order('created_date', { ascending: false })
+    .limit(limit);
+  if (beforeCreatedAt) query = query.lt('created_date', beforeCreatedAt);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[SupabaseDb] fetchMessagesPageByUser error:', error.message);
+    throw new Error(error.message);
+  }
+  return data || [];
+}
+
 // ==========================================
 // 5. PHÂN TRANG THẬT (keyset) cho investment_projects/support_conversations/
 //    transactions - genericListEntity() ở trên chỉ lấy "N bản ghi mới nhất"
