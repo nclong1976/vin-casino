@@ -43,6 +43,20 @@ const TIER_COLORS = {
   Diamond: "bg-blue-100 text-blue-900 border-blue-300",
 };
 
+// membership_tier ↔ vip_level luôn phải khớp 1-1 (đúng nhãn đã dùng ở dropdown
+// "Hạng thành viên" bên dưới: "Member (VIP 0)"... và lúc đăng ký mới -
+// Register.jsx luôn gán cặp Member/"VIP 0"). Trước đây form này có state
+// `vipLevel` lấy từ user.vip_level và gửi lại y nguyên lúc lưu, nhưng KHÔNG
+// có ô nhập nào cho nó cả - nếu admin đổi "Hạng thành viên" mà cột vip_level
+// không tự đổi theo, 2 cột lệch nhau (tier mới nhưng vip_level cũ) trong khi
+// đây là 2 cột lẽ ra luôn phải đồng bộ.
+const TIER_TO_VIP_LEVEL = {
+  Member: "VIP 0",
+  Gold: "VIP 1",
+  Platinum: "VIP 2",
+  Diamond: "VIP 3",
+};
+
 export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const { user: currentAdmin } = useAuth();
   const isSuperAdmin = isSuperAdminUser(currentAdmin);
@@ -66,6 +80,14 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const [totalDeposited, setTotalDeposited] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [dailyInterestEnabled, setDailyInterestEnabled] = useState(false);
+  // is_super_admin: cấp quyền CAO NHẤT hệ thống (xoá vĩnh viễn user, xoá tin
+  // nhắn CSKH...) - cột này đã tồn tại và được isSuperAdminUser() (isAdminUser.js)
+  // đọc thật để cấp quyền, nhưng trước đây KHÔNG có ô nào trong toàn bộ admin
+  // panel để xem/đổi nó - cách DUY NHẤT tạo 1 Super Admin là sửa thẳng
+  // database. Thêm ở đây, gate y hệt "Vai trò hệ thống" bên dưới (chỉ Super
+  // Admin hiện tại mới được cấp/thu hồi quyền Super Admin của người khác).
+  const [isSuperAdminFlag, setIsSuperAdminFlag] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState("");
 
   // Editable Bank Info
   const [bankName, setBankName] = useState("");
@@ -100,6 +122,8 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
       setTotalDeposited(Number(user.total_deposited || 0));
       setIsLocked(!!user.is_locked);
       setDailyInterestEnabled(!!user.daily_interest_enabled);
+      setIsSuperAdminFlag(!!user.is_super_admin);
+      setAvatarUrl(user.avatar_url || "");
       setBankName(user.bank_name || "");
       setAccountNumber(user.account_number || "");
       setAccountHolder(user.account_holder || user.full_name || user.name || "");
@@ -201,20 +225,31 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
         referral_code: referralCode,
         role: role,
         membership_tier: tier,
-        vip_level: vipLevel,
+        // Luôn suy ra vip_level ĐÚNG từ "Hạng thành viên" (tier) thay vì gửi
+        // lại state vipLevel cũ - trước đây không có ô nhập riêng cho
+        // vip_level nên nếu admin đổi tier mà quên đồng bộ, 2 cột lệch nhau.
+        vip_level: TIER_TO_VIP_LEVEL[tier] || vipLevel,
         is_locked: isLocked,
+        is_super_admin: isSuperAdminFlag,
+        avatar_url: avatarUrl,
         bank_name: bankName,
         account_number: accountNumber,
         account_holder: accountHolder,
       };
       await base44.entities.User.update(user.id, profilePayload).catch(() => {});
 
-      // Create Audit Log
+      // Create Audit Log - ghi rõ thay đổi Super Admin (đặc quyền cao nhất
+      // hệ thống) nếu có, để lại dấu vết rõ ràng cho hành động nhạy cảm này.
+      const superAdminChanged = isSuperAdminFlag !== !!user.is_super_admin;
       await base44.entities.AuditLog.create({
-        action: "UPDATE_USER_FULL_PROFILE",
+        action: superAdminChanged
+          ? (isSuperAdminFlag ? "GRANT_SUPER_ADMIN" : "REVOKE_SUPER_ADMIN")
+          : "UPDATE_USER_FULL_PROFILE",
         user_id: user.id,
         user_name: fullName || user.email,
-        notes: `Admin cập nhật: Vai trò: ${role.toUpperCase()}, Số dư: ${fmt(balance)} VNĐ, Hạng: ${tier}, SĐT: ${phone}`,
+        notes: superAdminChanged
+          ? `Admin ${isSuperAdminFlag ? "CẤP" : "THU HỒI"} quyền Super Admin cho ${fullName || user.email}`
+          : `Admin cập nhật: Vai trò: ${role.toUpperCase()}, Số dư: ${fmt(balance)} VNĐ, Hạng: ${tier}, SĐT: ${phone}`,
         created_date: new Date().toISOString(),
       }).catch(() => {});
 
@@ -726,6 +761,48 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                       </select>
                     </div>
                   </div>
+
+                  {/* Super Admin - cấp quyền CAO NHẤT hệ thống (xoá vĩnh viễn
+                      user, xoá tin nhắn CSKH - is_super_admin() được
+                      isAdminUser.js đọc thật để cấp quyền). Trước đây KHÔNG
+                      có ô nào trong toàn bộ admin panel để xem/đổi cột này -
+                      cách DUY NHẤT tạo 1 Super Admin là sửa thẳng database.
+                      Gate y hệt "Vai trò hệ thống" ở trên: chỉ Super Admin
+                      hiện tại mới cấp/thu hồi được quyền này cho người khác -
+                      trigger Postgres protect_privileged_user_fields() đã vá
+                      thêm guard escalation riêng cho cột is_super_admin
+                      (migration protect_is_super_admin_escalation), disable
+                      ở đây chỉ là lớp UX rõ ràng thêm, không phải lớp chặn
+                      DUY NHẤT. */}
+                  <div className="p-2.5 rounded-xl bg-red-50/60 border border-red-200 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-bold text-red-900 flex items-center gap-1">
+                        <ShieldAlert className="w-3.5 h-3.5" /> Super Admin
+                      </p>
+                      <p className="text-[9px] text-gray-500">
+                        Quyền cao nhất: xoá vĩnh viễn tài khoản, xoá tin nhắn CSKH.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={isSuperAdminFlag}
+                      onChange={(e) => setIsSuperAdminFlag(e.target.checked)}
+                      disabled={!isSuperAdmin}
+                      title={!isSuperAdmin ? "Chỉ Super Admin mới có quyền cấp/thu hồi Super Admin" : undefined}
+                      className="w-4 h-4 accent-red-600 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-600 block mb-1">Ảnh đại diện (URL)</label>
+                    <input
+                      type="text"
+                      value={avatarUrl}
+                      onChange={(e) => setAvatarUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[11px] font-mono focus:outline-none focus:border-[#948154]"
+                    />
+                  </div>
                 </div>
 
                 <button
@@ -802,11 +879,51 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
                     </span>
                   </div>
 
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Tên đăng nhập (Username)</span>
+                    <span className="font-mono font-semibold text-black">{user.username || "Chưa đặt"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-gray-500 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Ngày nạp lần đầu</span>
+                    <span className="font-semibold text-gray-700">
+                      {user.first_deposit_date ? new Date(user.first_deposit_date).toLocaleString("vi-VN") : "Chưa nạp lần nào"}
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500 flex items-center gap-1"><KeyRound className="w-3.5 h-3.5" /> Mã định danh Database (ID)</span>
                     <span className="font-mono text-[10px] text-gray-600">{user.id}</span>
                   </div>
                 </div>
+
+                {avatarUrl && (
+                  <div className="flex items-center gap-3 bg-gray-50 rounded-2xl p-3 border border-gray-200">
+                    <img
+                      src={avatarUrl}
+                      alt="Ảnh đại diện"
+                      className="w-12 h-12 rounded-full object-cover border border-gray-200 shrink-0"
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-bold text-gray-600">Ảnh đại diện hiện tại</p>
+                      <p className="text-[9.5px] text-gray-400 font-mono truncate">{avatarUrl}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* metadata: cột JSONB không rõ cấu trúc/mục đích - chỉ hiện
+                    thô để tham khảo (KHÔNG cho sửa trực tiếp ở đây, tránh ghi
+                    đè hỏng dữ liệu có thể đang được chỗ khác trong hệ thống
+                    phụ thuộc vào đúng cấu trúc hiện có mà admin không biết). */}
+                {user.metadata && Object.keys(user.metadata).length > 0 && (
+                  <div className="bg-gray-50 rounded-2xl p-3.5 border border-gray-200">
+                    <p className="text-[10px] font-bold text-gray-600 mb-1.5">Metadata (chỉ xem)</p>
+                    <pre className="text-[9.5px] font-mono text-gray-600 whitespace-pre-wrap break-all">
+                      {JSON.stringify(user.metadata, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
 
