@@ -8,7 +8,6 @@ import {
   ArrowLeft,
   Bell,
   TrendingUp,
-  Dices,
   LogOut,
   Newspaper,
   Settings as SettingsIcon
@@ -23,18 +22,20 @@ import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
-import StocksTab from "@/components/admin/StocksTab";
-import CasinoTab from "@/components/admin/CasinoTab";
+import InvestmentCasinoTab from "@/components/admin/InvestmentCasinoTab";
 import NewsTab from "@/components/admin/NewsTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 
 // "Hợp đồng" đã gộp vào subtab thứ 4 của "Quản lý Hội viên & Giao dịch"
 // (MemberHubTab) - cùng bản chất "hàng chờ duyệt" như subtab Phê duyệt
 // Giao dịch, tách tab riêng chỉ gây phân mảnh điều hướng không cần thiết.
+// "Đầu tư chứng khoán" + "Quản lý Casino" gộp tương tự thành 2 subtab của
+// 1 tab "Đầu tư CK & Casino" (InvestmentCasinoTab.jsx) - cùng nhóm vận
+// hành sản phẩm đầu tư/giải trí, tách riêng chỉ chiếm thêm chỗ trên thanh
+// tab cấp cao nhất mà không có lý do nghiệp vụ nào bắt buộc phải tách.
 const TABS = [
   { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
-  { id: "stocks", label: "Đầu tư chứng khoán", icon: TrendingUp },
-  { id: "casino", label: "Quản lý Casino", icon: Dices },
+  { id: "investment_casino", label: "Đầu tư CK & Casino", icon: TrendingUp },
   { id: "projects", label: "Dự án", icon: FolderOpen },
   { id: "news", label: "Tin tức", icon: Newspaper },
   { id: "notifications", label: "Thông báo", icon: Bell },
@@ -273,18 +274,15 @@ export default function Admin() {
         <AnimatedTabPanel active={tab === "member_hub"}>
           <AdminErrorBoundary><MemberHubTab /></AdminErrorBoundary>
         </AnimatedTabPanel>
-        <AnimatedTabPanel active={tab === "stocks"}>
+        <AnimatedTabPanel active={tab === "investment_casino"}>
           <AdminErrorBoundary>
-            <StocksTab
+            <InvestmentCasinoTab
               onNavigateToProjects={() => {
                 requestProjectsFilter("STOCKS");
                 setTab("projects");
               }}
             />
           </AdminErrorBoundary>
-        </AnimatedTabPanel>
-        <AnimatedTabPanel active={tab === "casino"}>
-          <AdminErrorBoundary><CasinoTab /></AdminErrorBoundary>
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "projects"}>
           <AdminErrorBoundary><ProjectsTab filterRequest={projectsFilterRequest} /></AdminErrorBoundary>
