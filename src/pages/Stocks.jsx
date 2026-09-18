@@ -43,7 +43,12 @@ function mapProjectToStock(p) {
     price: price.toLocaleString("vi-VN"),
     change,
     spark: synthesizeSpark(price, change),
-    is_active: p.is_active ?? true,
+    // Đầu tư chứng khoán LUÔN mở giao dịch cho người chơi - không phụ thuộc
+    // is_active thật của Project (trường dùng chung cho MỌI danh mục qua
+    // ProjectsTab.jsx, admin có thể lỡ khóa nhầm khi quản lý danh sách
+    // chung). Cố định true ở đây để trang này không bao giờ hiện "Tạm khóa
+    // giao dịch" cho cổ phiếu, bất kể giá trị is_active trong Postgres.
+    is_active: true,
     description: p.description || "",
   };
 }

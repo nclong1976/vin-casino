@@ -238,7 +238,12 @@ export default function ProjectsTab({ filterRequest }) {
         </div>
       ) : (
         filtered.map((p) => {
-          const isActive = p.is_active ?? true;
+          // "Đầu tư chứng khoán" LUÔN mở giao dịch cho người chơi (Stocks.jsx
+          // cố định is_active=true phía hiển thị, không đọc field thật nữa) -
+          // phản ánh đúng ở đây để không hiện nhầm trạng thái "Tạm khóa" cho
+          // 1 danh mục mà khách hàng sẽ không bao giờ thấy bị khóa thật.
+          const isStockCategory = p.category === "Đầu tư chứng khoán";
+          const isActive = isStockCategory ? true : p.is_active ?? true;
           return (
             <div
               key={p.id}
@@ -335,18 +340,27 @@ export default function ProjectsTab({ filterRequest }) {
                   </button>
                 </div>
 
-                {/* Toggle Switch */}
+                {/* Toggle Switch - vô hiệu hóa riêng cho "Đầu tư chứng khoán":
+                    danh mục này luôn mở giao dịch cho người chơi (Stocks.jsx
+                    không đọc is_active thật nữa), nút bật/tắt ở đây không còn
+                    tác dụng gì nếu bấm nên khóa lại để không gây hiểu nhầm. */}
                 <div className="flex items-center gap-2">
                   <span className={`text-[9.5px] font-bold ${isActive ? "text-green-700" : "text-amber-800"}`}>
-                    {togglingId === p.id ? "Đang cập nhật..." : isActive ? "Mở đầu tư (Bật)" : "Tạm khóa (Tắt)"}
+                    {isStockCategory
+                      ? "Luôn mở giao dịch"
+                      : togglingId === p.id
+                      ? "Đang cập nhật..."
+                      : isActive
+                      ? "Mở đầu tư (Bật)"
+                      : "Tạm khóa (Tắt)"}
                   </span>
                   <button
                     onClick={() => toggleActive(p)}
-                    disabled={togglingId === p.id}
-                    title={isActive ? "Khóa nhận vốn đầu tư" : "Mở nhận vốn đầu tư"}
+                    disabled={togglingId === p.id || isStockCategory}
+                    title={isStockCategory ? "Cổ phiếu luôn mở giao dịch, không thể khóa" : isActive ? "Khóa nhận vốn đầu tư" : "Mở nhận vốn đầu tư"}
                     className={`relative inline-flex h-6 w-11 items-center justify-center rounded-full transition-colors focus:outline-none disabled:cursor-wait ${
                       isActive ? "bg-green-600" : "bg-gray-300"
-                    }`}
+                    } ${isStockCategory ? "opacity-70 cursor-not-allowed" : ""}`}
                   >
                     {togglingId === p.id ? (
                       <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
@@ -1059,56 +1073,72 @@ function ProjectEditModal({ project, onClose, onSave }) {
           </div>
 
           {/* ─── Trạng thái ─── */}
-          <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">Trạng thái</p>
-          <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between">
-            <div>
-              <p className="text-[11px] font-bold text-black">Mở nhận vốn đầu tư</p>
-              <p className="text-[9px] text-gray-500">Tắt = vẫn hiện với người dùng nhưng khóa gửi tiền/ký hợp đồng mới</p>
+          {/* "Đầu tư chứng khoán" LUÔN mở giao dịch cho người chơi (Stocks.jsx
+              cố định is_active=true phía hiển thị, không đọc field thật) -
+              ẩn hẳn khóa thủ công + hẹn giờ mở/tắt cho danh mục này, tránh
+              admin tưởng đã khóa/hẹn giờ thành công trong khi không có tác
+              dụng gì với cổ phiếu. */}
+          {form.category === "Đầu tư chứng khoán" ? (
+            <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200">
+              <p className="text-[11px] font-bold text-indigo-800">Đầu tư chứng khoán luôn mở giao dịch</p>
+              <p className="text-[9px] text-gray-500 mt-0.5">
+                Danh mục này không hỗ trợ khóa thủ công hay hẹn giờ tự động Mở/Tắt - người chơi luôn mua/bán được.
+              </p>
             </div>
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => set("is_active", e.target.checked)}
-              className="w-4 h-4 accent-[#948154] cursor-pointer"
-            />
-          </div>
+          ) : (
+            <>
+              <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide">Trạng thái</p>
+              <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-bold text-black">Mở nhận vốn đầu tư</p>
+                  <p className="text-[9px] text-gray-500">Tắt = vẫn hiện với người dùng nhưng khóa gửi tiền/ký hợp đồng mới</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(e) => set("is_active", e.target.checked)}
+                  className="w-4 h-4 accent-[#948154] cursor-pointer"
+                />
+              </div>
 
-          {/* Hẹn giờ tự động Mở/Tắt */}
-          <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 space-y-2">
-            <p className="text-[11px] font-bold text-blue-900 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" /> Hẹn giờ tự động Mở/Tắt (tùy chọn)
-            </p>
-            <div>
-              <label className="text-[10px] font-semibold text-gray-700 block mb-1">Tự động MỞ lúc:</label>
-              <input
-                type="datetime-local"
-                value={toLocalInputValue(form.scheduled_open_at)}
-                onChange={(e) => set("scheduled_open_at", fromLocalInputValue(e.target.value))}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold text-gray-700 block mb-1">Tự động TẮT lúc:</label>
-              <input
-                type="datetime-local"
-                value={toLocalInputValue(form.scheduled_close_at)}
-                onChange={(e) => set("scheduled_close_at", fromLocalInputValue(e.target.value))}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white"
-              />
-            </div>
-            {(form.scheduled_open_at || form.scheduled_close_at) && (
-              <button
-                type="button"
-                onClick={() => { set("scheduled_open_at", ""); set("scheduled_close_at", ""); }}
-                className="text-[10px] font-semibold text-red-600 hover:underline"
-              >
-                Hủy hẹn giờ
-              </button>
-            )}
-            <p className="text-[9px] text-gray-500">
-              Hệ thống sẽ tự động bật/tắt "Mở nhận vốn đầu tư" đúng thời điểm đã hẹn, không cần thao tác thủ công.
-            </p>
-          </div>
+              {/* Hẹn giờ tự động Mở/Tắt */}
+              <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 space-y-2">
+                <p className="text-[11px] font-bold text-blue-900 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" /> Hẹn giờ tự động Mở/Tắt (tùy chọn)
+                </p>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-700 block mb-1">Tự động MỞ lúc:</label>
+                  <input
+                    type="datetime-local"
+                    value={toLocalInputValue(form.scheduled_open_at)}
+                    onChange={(e) => set("scheduled_open_at", fromLocalInputValue(e.target.value))}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-700 block mb-1">Tự động TẮT lúc:</label>
+                  <input
+                    type="datetime-local"
+                    value={toLocalInputValue(form.scheduled_close_at)}
+                    onChange={(e) => set("scheduled_close_at", fromLocalInputValue(e.target.value))}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154] bg-white"
+                  />
+                </div>
+                {(form.scheduled_open_at || form.scheduled_close_at) && (
+                  <button
+                    type="button"
+                    onClick={() => { set("scheduled_open_at", ""); set("scheduled_close_at", ""); }}
+                    className="text-[10px] font-semibold text-red-600 hover:underline"
+                  >
+                    Hủy hẹn giờ
+                  </button>
+                )}
+                <p className="text-[9px] text-gray-500">
+                  Hệ thống sẽ tự động bật/tắt "Mở nhận vốn đầu tư" đúng thời điểm đã hẹn, không cần thao tác thủ công.
+                </p>
+              </div>
+            </>
+          )}
 
           {/* Submit */}
           <button
