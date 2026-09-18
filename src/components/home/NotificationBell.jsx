@@ -79,10 +79,11 @@ export default function NotificationBell() {
         // phải id thật), VÀ tin riêng của chính tài khoản này (n.user_id ===
         // user.id) - nhóm cuối này trước đây bị loại hẳn khỏi chuông (mọi
         // thông tin gắn 1 tài khoản đều đẩy vào khung chat CSKH, xem
-        // lib/notifyUser.js), nhưng riêng 2 thông báo rút tiền ("đang chờ
-        // phê duyệt" và "Biến động số dư") giờ được tạo thẳng vào bảng
-        // notifications theo user_id để hiện ở đây thay vì làm loãng khung
-        // chat thật với CSKH.
+        // lib/notifyUser.js), nhưng mọi thông báo trạng thái giao dịch (nạp/
+        // rút tiền duyệt hoặc từ chối, hợp đồng đầu tư duyệt/từ chối, admin
+        // cộng/trừ ví thủ công, dự án đáo hạn tự động) giờ tạo thẳng vào
+        // bảng notifications theo user_id để hiện ở đây - khung chat CSKH
+        // chỉ còn dùng để trò chuyện trực tiếp giữa admin và khách.
         const readSet = getReadSet(user.id);
         const userNotifs = (list || [])
           .filter(n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin"))

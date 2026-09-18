@@ -70,13 +70,16 @@ export async function runDailyYieldAndMaturityCheck(user) {
       const result = await resolveProjectMaturityPayout(tx.id).catch(() => null);
       if (!result?.paid) continue;
 
-      // Thông báo cho người dùng
-      await base44.entities.Message.create({
-        sender: "admin",
-        conversation_id: user.id,
+      // Thông báo cho người dùng - gửi vào chuông Thông báo (Notification),
+      // KHÔNG ghi vào khung chat CSKH (Message) nữa. CSKH chỉ dùng để trò
+      // chuyện trực tiếp giữa admin và khách; mọi thông báo trạng thái giao
+      // dịch/dự án tự động đều đi qua chuông riêng của từng tài khoản.
+      await base44.entities.Notification.create({
+        title: "Dự án đã đáo hạn",
+        content: `Dạ dự án đầu tư của Quý khách đã đáo hạn ạ.\n\nDự án: ${result.project_title || tx.project_title}\nTổng nhận: ${Number(result.payout_amount || 0).toLocaleString("vi-VN")} VNĐ (Gồm vốn + lãi)\n\nSố tiền đã được tự động cộng vào Ví VinClub của Quý khách.`,
+        type: "project",
         user_id: user.id,
-        content: `[DỰ ÁN ĐÃ ĐÁO HẠN KẾT THÚC THỜI GIAN THỰC]\n\nDạ dự án đầu tư của Quý khách đã đáo hạn ạ.\n\nDự án: ${result.project_title || tx.project_title}\nTổng nhận: ${Number(result.payout_amount || 0).toLocaleString("vi-VN")} VNĐ (Gồm vốn + lãi)\n\nSố tiền đã được tự động cộng vào Ví VinClub của Quý khách.`,
-        attachments: []
+        is_read: false,
       }).catch(() => null);
 
       // Bắn sự kiện cập nhật số dư

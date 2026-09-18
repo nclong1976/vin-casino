@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Check, X, FileSignature } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
 import { formatDailyRatePercent } from "@/lib/investmentTerms";
 
@@ -20,7 +19,7 @@ export default function ContractsTab() {
   const [filter, setFilter] = useState("pending");
   // Chặn click đúp / double-submit trong lúc đang chờ update() - không có
   // khoá phía server (contract_status không phải tiền, chỉ là trạng thái
-  // hiển thị) nên khoá client-side là đủ để tránh gửi trùng notifyUser.
+  // hiển thị) nên khoá client-side là đủ để tránh gửi trùng thông báo.
   const [processingId, setProcessingId] = useState(null);
 
   const fetch = () => {
@@ -62,7 +61,7 @@ export default function ContractsTab() {
   const handleAction = async (tx, action) => {
     // Idempotency: chặn double-click và race giữa 2 tab admin - nếu hợp
     // đồng đã được xử lý (không còn "pending") thì bỏ qua, không gửi
-    // notifyUser trùng lặp cho người dùng.
+    // thông báo trùng lặp cho người dùng.
     if (processingId || (tx.contract_status || "pending") !== "pending") return;
     setProcessingId(tx.id);
     try {
@@ -74,17 +73,29 @@ export default function ContractsTab() {
       if (tx.user_id) {
         // Trước đây chỉ báo khi DUYỆT - hợp đồng bị TỪ CHỐI không thông báo
         // gì cho người dùng, họ chỉ biết khi tự vào lại xem danh sách.
-        await notifyUser(tx.user_id, action === "approved"
-          ? {
-              title: "Hợp đồng đã được duyệt",
-              content: `Dạ hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) của Quý khách đã được duyệt thành công. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ. Cảm ơn Quý khách đã tin tưởng đồng hành cùng VinClub!`,
-              type: "contract",
-            }
-          : {
-              title: "Hợp đồng bị từ chối",
-              content: `Dạ rất tiếc, hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) của Quý khách chưa thể được duyệt. Quý khách vui lòng liên hệ CSKH để được hỗ trợ thêm ạ.`,
-              type: "contract",
-            });
+        //
+        // Gửi thẳng vào chuông Thông báo (Notification, user_id = khách cụ
+        // thể) - KHÔNG dùng notifyUser() nữa (hàm đó ghi vào khung chat
+        // CSKH). CSKH chỉ dùng để trò chuyện trực tiếp giữa admin và khách,
+        // mọi thông báo trạng thái giao dịch (duyệt/từ chối hợp đồng, nạp/
+        // rút, đáo hạn...) đều đi qua chuông riêng của từng tài khoản.
+        const { title, content } =
+          action === "approved"
+            ? {
+                title: "Hợp đồng đã được duyệt",
+                content: `Dạ hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) của Quý khách đã được duyệt thành công. Tổng nhận dự kiến: ${(tx.total || 0).toLocaleString("vi-VN")} VNĐ. Cảm ơn Quý khách đã tin tưởng đồng hành cùng VinClub!`,
+              }
+            : {
+                title: "Hợp đồng bị từ chối",
+                content: `Dạ rất tiếc, hợp đồng đầu tư "${tx.project_title}" (${(tx.amount || 0).toLocaleString("vi-VN")} VNĐ) của Quý khách chưa thể được duyệt. Quý khách vui lòng liên hệ CSKH để được hỗ trợ thêm ạ.`,
+              };
+        await base44.entities.Notification.create({
+          title,
+          content,
+          type: "contract",
+          user_id: tx.user_id,
+          is_read: false,
+        });
       }
       toast.success(action === "approved" ? "Đã duyệt hợp đồng" : "Đã từ chối hợp đồng");
       // Không cần fetch() lại REST ở đây nữa: base44.entities.Transaction.
