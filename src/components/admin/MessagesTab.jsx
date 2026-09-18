@@ -32,6 +32,7 @@ import { pollWithBackoff } from "@/lib/pollWithBackoff";
 import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifecycle";
 import { compressImageFile } from "@/lib/imageCompression";
 import { useTypingIndicator } from "@/hooks/useTypingIndicator";
+import { useAutoSaveDraft } from "@/hooks/useAutoSaveDraft";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
@@ -626,6 +627,14 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     "admin"
   );
 
+  // Auto-save nháp ô trả lời - khóa theo user_id (selectedUser, ổn định
+  // vĩnh viễn cho 1 khách, KHÔNG dùng latestConversationId vì giá trị đó có
+  // thể rotate giữa chừng lúc admin đang gõ dở - xem ghi chú useMemo nhóm hội
+  // thoại ở trên) để đổi qua hội thoại khác không bị dính nháp của khách
+  // trước, và quay lại đúng hội thoại cũ vẫn còn nguyên nội dung đang gõ dở.
+  const replyDraftKey = selectedUser ? `vinclub_admin_cskh_draft:${selectedUser}` : null;
+  const { clearDraft: clearReplyDraft } = useAutoSaveDraft(replyDraftKey, replyText, setReplyText);
+
   // Hợp nhất tin từ "messages" (mảng toàn cục, realtime) VỚI trang riêng đã
   // tải qua fetchMessagesPageByUser() (conversationPageCache) - dedup theo
   // id, sắp theo thời gian tăng dần. Không có currentConv (chưa có tin nào
@@ -986,6 +995,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     }
     const content = replyText.trim();
     setReplyText("");
+    clearReplyDraft();
     const pendingFiles = files;
     setFiles([]);
 
@@ -1029,7 +1039,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     } finally {
       setSending(false);
     }
-  }, [replyText, files, selectedUser, sending, currentConv, patchConversationStatus, sendReply]);
+  }, [replyText, files, selectedUser, sending, currentConv, patchConversationStatus, sendReply, clearReplyDraft]);
 
   // Tin lỗi (message.__status === "failed") được GIỮ LẠI trên màn hình kèm
   // nút "Gửi lại" thay vì bị xoá như cách làm cũ.
