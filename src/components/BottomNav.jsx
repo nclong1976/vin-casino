@@ -14,103 +14,116 @@ export default function BottomNav() {
   const isSupport = path === "/support" || path === "/consultation";
 
   return (
-    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] h-16 z-50 pointer-events-none select-none">
-      {/* Soft fade so the floating nav blends into any page background instead of a hard box */}
-      <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/25 via-black/5 to-transparent pointer-events-none" />
+    // Trước đây khối này cố định đúng h-16 dính sát bottom-0 - trên iPhone
+    // có Home Indicator (X trở về sau), thanh nav thật sự nằm CHỒNG lên
+    // đúng vùng cử chỉ vuốt lên của hệ thống, dễ bấm nhầm/khó bấm. Bọc
+    // ngoài KHÔNG còn có chiều cao cố định - chiều cao giờ = 64px (khối
+    // nav thật, không đổi) + env(safe-area-inset-bottom) (khối đệm bên
+    // dưới, xem cuối file) - vẫn neo bottom-0 nên khối nav thật tự động bị
+    // đẩy lên cao hơn đúng bằng bề dày vùng an toàn của thiết bị (0 trên
+    // Android/iPhone không tai thỏ, ~34px trên iPhone có Home Indicator).
+    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] z-50 pointer-events-none select-none">
+      <div className="relative h-16">
+        {/* Soft fade so the floating nav blends into any page background instead of a hard box */}
+        <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/25 via-black/5 to-transparent pointer-events-none" />
 
-      <div className="relative z-10 flex items-center justify-between h-full px-1.5 pb-1 pointer-events-auto">
-        {/* Main Nav Pill */}
-        <div className="flex-1 min-h-[51px] bg-secondary rounded-[23px] shadow-[inset_0_0_0_3px_#16100b] flex items-center justify-between px-6">
-          {/* Home */}
-          <Link to="/" className="flex flex-col items-center gap-1 group relative">
+        <div className="relative z-10 flex items-center justify-between h-full px-1.5 pb-1 pointer-events-auto">
+          {/* Main Nav Pill */}
+          <div className="flex-1 min-h-[51px] bg-secondary rounded-[23px] shadow-[inset_0_0_0_3px_#16100b] flex items-center justify-between px-6">
+            {/* Home */}
+            <Link to="/" className="flex flex-col items-center gap-1 group relative">
+              <img
+                className={`w-[17px] h-4 object-contain transition-all group-active:scale-90 ${
+                  isHome ? "brightness-125 scale-105" : "opacity-75 hover:opacity-100"
+                }`}
+                src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/997bcc3f6_0d192f421_df32c1b5f7db0ce361b63bc7095f22f1aa25d407.png"
+                alt="Home"
+              />
+              <span
+                className={`text-figma-9 leading-figma-11 transition-colors ${
+                  isHome ? "font-bold text-[#b59d68]" : "font-normal text-figma-text-4"
+                }`}
+              >
+                Trang chủ
+              </span>
+            </Link>
+
+            {/* Membership Card */}
+            <Link to="/card" className="relative -mt-1 group">
+              <div
+                className={`absolute inset-0 bg-[#948154]/20 rounded-full blur-md transition-opacity ${
+                  isCard ? "opacity-100" : "opacity-0 group-hover:opacity-60"
+                }`}
+              />
+              <img
+                className={`w-8 h-8 object-contain relative z-10 transition-transform group-active:scale-90 ${
+                  isCard ? "scale-110 drop-shadow-[0_0_6px_rgba(181,157,104,0.6)]" : ""
+                }`}
+                src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/5a54623ee_6403c5d8f_464b19a56ec1fa81e654a1ece22e482687d3839e.png"
+                alt="Thẻ thành viên"
+              />
+            </Link>
+
+            {/* Profile */}
+            <Link to="/profile" className="flex flex-col items-center gap-1 group relative">
+              <img
+                className={`w-3.5 h-[17px] object-contain transition-all group-active:scale-90 ${
+                  isProfile ? "brightness-125 scale-105" : "opacity-75 hover:opacity-100"
+                }`}
+                src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/799d16aa0_105523af2_5ae0e8ec7d4e6c73d294b706aed29c33351add41.png"
+                alt="Profile"
+              />
+              <span
+                className={`text-figma-10 leading-figma-12 transition-colors ${
+                  isProfile ? "font-bold text-[#b59d68]" : "font-normal text-figma-text-3"
+                }`}
+              >
+                Cá nhân
+              </span>
+            </Link>
+          </div>
+
+          {/* Floating Action (CSKH) */}
+          <Link
+            to="/support"
+            className="w-[45px] flex flex-col items-center justify-center gap-1 group shrink-0 relative"
+          >
+            {unreadCskh > 0 && (
+              <span className="absolute top-0 right-1.5 min-w-[13px] h-[13px] px-0.5 rounded-full bg-red-500 text-white text-[7px] font-bold flex items-center justify-center z-10">
+                {unreadCskh > 9 ? "9+" : unreadCskh}
+              </span>
+            )}
             <img
-              className={`w-[17px] h-4 object-contain transition-all group-active:scale-90 ${
-                isHome ? "brightness-125 scale-105" : "opacity-75 hover:opacity-100"
+              className={`w-5 h-5 object-contain transition-all group-active:scale-90 filter drop-shadow-xs ${
+                isSupport ? "scale-110 brightness-110" : "opacity-85 hover:opacity-100"
               }`}
-              src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/997bcc3f6_0d192f421_df32c1b5f7db0ce361b63bc7095f22f1aa25d407.png"
-              alt="Home"
+              src={cskhIcon}
+              alt="Support"
+              referrerPolicy="no-referrer"
             />
             <span
-              className={`text-figma-9 leading-figma-11 transition-colors ${
-                isHome ? "font-bold text-[#b59d68]" : "font-normal text-figma-text-4"
+              className={`text-figma-9 leading-figma-11 text-center transition-colors ${
+                isSupport ? "font-bold text-[#b59d68]" : "font-normal text-figma-text-2"
               }`}
             >
-              Trang chủ
-            </span>
-          </Link>
-
-          {/* Membership Card */}
-          <Link to="/card" className="relative -mt-1 group">
-            <div
-              className={`absolute inset-0 bg-[#948154]/20 rounded-full blur-md transition-opacity ${
-                isCard ? "opacity-100" : "opacity-0 group-hover:opacity-60"
-              }`}
-            />
-            <img
-              className={`w-8 h-8 object-contain relative z-10 transition-transform group-active:scale-90 ${
-                isCard ? "scale-110 drop-shadow-[0_0_6px_rgba(181,157,104,0.6)]" : ""
-              }`}
-              src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/5a54623ee_6403c5d8f_464b19a56ec1fa81e654a1ece22e482687d3839e.png"
-              alt="Thẻ thành viên"
-            />
-          </Link>
-
-          {/* Profile */}
-          <Link to="/profile" className="flex flex-col items-center gap-1 group relative">
-            <img
-              className={`w-3.5 h-[17px] object-contain transition-all group-active:scale-90 ${
-                isProfile ? "brightness-125 scale-105" : "opacity-75 hover:opacity-100"
-              }`}
-              src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/799d16aa0_105523af2_5ae0e8ec7d4e6c73d294b706aed29c33351add41.png"
-              alt="Profile"
-            />
-            <span
-              className={`text-figma-10 leading-figma-12 transition-colors ${
-                isProfile ? "font-bold text-[#b59d68]" : "font-normal text-figma-text-3"
-              }`}
-            >
-              Cá nhân
+              Cskh
             </span>
           </Link>
         </div>
 
-        {/* Floating Action (CSKH) */}
-        <Link
-          to="/support"
-          className="w-[45px] flex flex-col items-center justify-center gap-1 group shrink-0 relative"
-        >
-          {unreadCskh > 0 && (
-            <span className="absolute top-0 right-1.5 min-w-[13px] h-[13px] px-0.5 rounded-full bg-red-500 text-white text-[7px] font-bold flex items-center justify-center z-10">
-              {unreadCskh > 9 ? "9+" : unreadCskh}
-            </span>
-          )}
+        {/* Home Indicator Bar */}
+        <div className="absolute bottom-0 left-0 w-full flex justify-center pb-1 z-20 pointer-events-none">
           <img
-            className={`w-5 h-5 object-contain transition-all group-active:scale-90 filter drop-shadow-xs ${
-              isSupport ? "scale-110 brightness-110" : "opacity-85 hover:opacity-100"
-            }`}
-            src={cskhIcon}
-            alt="Support"
-            referrerPolicy="no-referrer"
+            className="w-[331px] h-2 object-contain"
+            src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/d711c8a6a_3ab4ea6d0_3b87849880050ff7d5883ecd8f638b21b524f2d3.png"
+            alt=""
+            aria-hidden="true"
           />
-          <span
-            className={`text-figma-9 leading-figma-11 text-center transition-colors ${
-              isSupport ? "font-bold text-[#b59d68]" : "font-normal text-figma-text-2"
-            }`}
-          >
-            Cskh
-          </span>
-        </Link>
+        </div>
       </div>
 
-      {/* Home Indicator Bar */}
-      <div className="absolute bottom-0 left-0 w-full flex justify-center pb-1 z-20 pointer-events-none">
-        <img
-          className="w-[331px] h-2 object-contain"
-          src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/d711c8a6a_3ab4ea6d0_3b87849880050ff7d5883ecd8f638b21b524f2d3.png"
-          alt=""
-          aria-hidden="true"
-        />
-      </div>
+      {/* Đệm vùng an toàn dưới cùng - xem ghi chú ở div bọc ngoài phía trên. */}
+      <div style={{ height: "env(safe-area-inset-bottom)" }} className="pointer-events-none" />
     </div>
   );
 }

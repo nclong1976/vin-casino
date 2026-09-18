@@ -198,11 +198,37 @@
 
     font-family: 'Inter', sans-serif;
 
+    /* Chặn hiệu ứng "rubber-band" kéo giật ở mép trên/dưới trang (iOS) và
+       cử chỉ "kéo để làm mới" bị kích hoạt nhầm (Android Chrome) khi người
+       dùng vuốt quá đầu/cuối danh sách - hành vi trình duyệt mặc định này
+       làm lộ khoảng trắng/đen phía sau nội dung, phá vỡ cảm giác "như app
+       thật" khi mở dưới dạng PWA đã cài vào màn hình chính. Các khung cuộn
+       RIÊNG cần bounce/pull-to-refresh của chính nó (nếu có) tự đặt lại
+       overscroll-behavior cục bộ, không bị ảnh hưởng bởi dòng này.
+       overscroll-behavior-y (không phải -x) vì overflow ngang đã bị khoá
+       hẳn ở trên rồi. */
+    overscroll-behavior-y: none;
   }
 
   img, video, svg {
     max-width: 100%;
     height: auto;
+  }
+
+  /* Chặn Safari iOS tự động phóng to (zoom) TOÀN TRANG mỗi khi người dùng
+     chạm vào 1 ô nhập liệu có font-size hiển thị < 16px - hành vi mặc định
+     của WebKit trên iOS (Android Chrome không bị), xảy ra ở HẦU HẾT ô nhập
+     trong app (nhiều nơi dùng text-[10px] đến text-[13px] cho gọn giao
+     diện). Sau khi gõ xong người dùng phải tự pinch-zoom thu lại - trải
+     nghiệm giật/không giống app thật trên iPhone. Ép font-size tối thiểu
+     16px CHỈ áp dụng cho input/select/textarea (không đụng chữ hiển thị
+     xung quanh) và CHỈ trong khung hình điện thoại (max-width: 767px) -
+     màn hình rộng hơn (desktop/tablet ngang) không bị lỗi zoom này nên giữ
+     nguyên cỡ chữ nhỏ gọn như thiết kế gốc. */
+  @media (max-width: 767px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 }
 
