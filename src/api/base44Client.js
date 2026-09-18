@@ -94,11 +94,29 @@ function markDegraded(items) {
  * nên bắt lỗi ở đây và lùi về cache localStorage gần nhất thay vì để 1 truy
  * vấn lỗi trông giống hệt "bảng đã bị xóa sạch", xóa nhầm dữ liệu đang hiện.
  */
+// "messages" là bảng NẶNG nhất trong SUPABASE_READABLE_ENTITIES - cột
+// "attachments" có thể mang ảnh base64 inline tới 1-5MB/dòng (fallback khi
+// upload lên Storage thất bại, xem MessagesTab.jsx/imageCompression.js).
+// Trước đây lượt tải NỀN này (chạy lại mỗi khi mount TRANG BẤT KỲ có dùng
+// Message, VÀ mỗi chu kỳ poll dự phòng 8s/20s ở CẢ Support.jsx lẫn
+// MessagesTab.jsx) luôn kéo 2000 dòng gần nhất KÈM đủ "attachments" - trong
+// khi không có nơi gọi nào trong toàn bộ src/ từng cần quá 300 dòng từ đúng
+// đường đọc này (MessagesTab.jsx tự cắt còn 300, Support.jsx chỉ 10 - lịch
+// sử cũ hơn đã có đường tải riêng theo trang qua fetchMessagesPage()/
+// fetchMessagesPageByUser(), không đi qua đây). 2000 dòng đủ nặng (đã xác
+// nhận qua query_logs, xem migration fix_messages_timeout_and_index.sql) để
+// tự nó là 1 nguồn "chờ load lâu" thật sự mỗi lần tải lại KHÔNG CẦN THIẾT -
+// giảm về đúng 300 (không đổi cột nào, không đổi observable data cho bất kỳ
+// UI nào đang dùng) cắt còn lại ít nhất 6-7 lần khối lượng cho mọi lượt
+// mount/poll của cả 2 phía admin và người chơi.
+const MESSAGE_BACKGROUND_SYNC_LIMIT = 300;
+
 async function fetchFromSupabase(entityName) {
   if (entityName === 'User') return dedupeById(await listSupabaseUsers());
   if (entityName === 'WalletTransaction') return dedupeById(await listSupabaseWalletTransactions({}, '-created_date', 2000));
+  const limit = entityName === 'Message' ? MESSAGE_BACKGROUND_SYNC_LIMIT : 2000;
   try {
-    return dedupeById(await listSupabaseEntity(entityName, {}, '-created_date', 2000));
+    return dedupeById(await listSupabaseEntity(entityName, {}, '-created_date', limit));
   } catch (e) {
     console.warn(`[base44Client] Supabase read lỗi cho ${entityName}, dùng cache cục bộ:`, e?.message || e);
     return markDegraded(getLocalStore(entityName));
@@ -750,6 +768,17 @@ function ensureSupabaseRealtime(entityName) {
   }
 }
 
+// Nhiều nơi độc lập (Admin.jsx, MessagesTab.jsx, Support.jsx...) đều tự gọi
+// list()/filter()/subscribe() cho CÙNG 1 entity gần như đồng thời lúc mount -
+// trước đây MỖI lượt gọi tự kích hoạt 1 round-trip Postgres RIÊNG (_sourceItems()
+// không nhớ gì giữa các lượt gọi chồng lấn), nhân bản không cần thiết đúng
+// lượt tải nặng nhất (Message, xem MESSAGE_BACKGROUND_SYNC_LIMIT) mỗi khi có
+// nhiều component cùng cần dữ liệu 1 lúc. Gộp các lượt gọi trùng thời điểm
+// (trong lúc 1 lượt fetch trước đó cho đúng entity này còn đang chạy) thành
+// đúng 1 request thật, tất cả cùng đợi chung kết quả - không đổi ngữ nghĩa gì
+// (dữ liệu trả về giống hệt), chỉ bớt số round-trip dư thừa.
+const inFlightSourceFetch = {};
+
 class LocalEntityClient {
   constructor(entityName) {
     this.entityName = entityName;
@@ -766,9 +795,19 @@ class LocalEntityClient {
     if (!SUPABASE_READABLE_ENTITIES.has(this.entityName)) {
       return getLocalStore(this.entityName);
     }
-    const items = await fetchFromSupabase(this.entityName);
-    setLocalStore(this.entityName, items);
-    return items;
+    if (inFlightSourceFetch[this.entityName]) {
+      return inFlightSourceFetch[this.entityName];
+    }
+    const fetchPromise = fetchFromSupabase(this.entityName)
+      .then((items) => {
+        setLocalStore(this.entityName, items);
+        return items;
+      })
+      .finally(() => {
+        delete inFlightSourceFetch[this.entityName];
+      });
+    inFlightSourceFetch[this.entityName] = fetchPromise;
+    return fetchPromise;
   }
 
   async list(sort, limit) {
