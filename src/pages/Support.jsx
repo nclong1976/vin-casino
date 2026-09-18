@@ -14,6 +14,18 @@ import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { useIdleSessionTimeout } from "@/hooks/useIdleSessionTimeout";
 import { getActiveConversationId, recordLeftSupport } from "@/lib/cskhConversation";
 
+// Sắp tin nhắn theo created_date, TIE-BREAK bằng id khi trùng giờ (xem ghi
+// chú tại nơi dùng) - dùng chung cho mọi lượt sort trong file này để thứ tự
+// hiển thị luôn nhất quán, không phụ thuộc thứ tự tin đến từ REST/poll/
+// Realtime.
+const byCreatedDateThenId = (a, b) => {
+  const t = new Date(a.created_date || 0) - new Date(b.created_date || 0);
+  if (t !== 0) return t;
+  const ai = String(a.id ?? "");
+  const bi = String(b.id ?? "");
+  return ai < bi ? -1 : ai > bi ? 1 : 0;
+};
+
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_WARNING_MS = 60 * 1000;
 // "Video quá lớn" chỉ là cảnh báo mềm (không nén được video client-side, xem
@@ -201,9 +213,18 @@ export default function Support() {
             merged.set(m.id, m);
           }
         });
-        return Array.from(merged.values()).sort(
-          (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
-        );
+        // So sánh created_date TRƯỚC, nếu TRÙNG GIỜ (cùng mili-giây - hoàn
+        // toàn có thể xảy ra khi 2 tin gần như đồng thời, vd tin optimistic
+        // của mình + tin admin trả lời gần như cùng lúc) thì lấy id làm tiêu
+        // chí phụ CỐ ĐỊNH. Array.sort của JS ổn định (stable) nhưng chỉ giữ
+        // đúng thứ tự sẵn có trong mảng ĐẦU VÀO khi 2 phần tử "bằng nhau" -
+        // mảng đầu vào ở đây (Array.from(merged.values())) có thứ tự phụ
+        // thuộc vào thứ tự chèn vào Map, mà thứ tự đó lại đổi qua từng lượt
+        // gọi (REST/poll/Realtime trả tin theo thứ tự khác nhau, "prev" từ
+        // state cũ chèn sau "incoming") - thiếu tiêu chí phụ cố định khiến 2
+        // tin trùng giờ có thể ĐỔI CHỖ cho nhau giữa các lần render, nhìn
+        // như tin nhắn "tự nhảy" vị trí dù nội dung không hề đổi.
+        return Array.from(merged.values()).sort(byCreatedDateThenId);
       });
   };
 
@@ -390,9 +411,7 @@ export default function Support() {
           prependScrollAdjustRef.current = null;
           return prev;
         }
-        return [...toAdd, ...prev].sort(
-          (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
-        );
+        return [...toAdd, ...prev].sort(byCreatedDateThenId);
       });
     } catch (e) {
       prependScrollAdjustRef.current = null;
@@ -509,11 +528,21 @@ export default function Support() {
         </div>
       )}
 
-      {/* Main Messages View - Full Height Scroll Area */}
+      {/* Main Messages View - Full Height Scroll Area
+          KHÔNG dùng class "scroll-smooth" (scroll-behavior: smooth ở CSS) -
+          class này khiến MỌI thay đổi scrollTop đều tự động chạy hoạt ảnh
+          trượt mượt, kể cả lượt gán scrollTop TRỰC TIẾP trong
+          useLayoutEffect bên dưới (khôi phục đúng vị trí cuộn ngay lập tức
+          sau khi chèn thêm tin CŨ vào đầu danh sách) - lượt gán đó BẮT BUỘC
+          phải tức thời (chạy trước khi trình duyệt vẽ khung hình kế tiếp)
+          để không lộ ra, nhưng bị CSS ép chạy hoạt ảnh trượt nên người dùng
+          nhìn thấy khung chat "giật/nhảy" mỗi lần cuộn lên xem lịch sử cũ.
+          Cuộn mượt khi có tin MỚI vẫn giữ nguyên - tự chỉ định qua
+          scrollTo({behavior:"smooth"}) trong effect tương ứng bên dưới. */}
       <main
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto scroll-smooth px-3.5 py-4 space-y-3"
+        className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto px-3.5 py-4 space-y-3"
         style={{ overscrollBehavior: "contain" }}
       >
         {/* Loading Spinner */}
@@ -526,7 +555,7 @@ export default function Support() {
         {/* Message Bubble List */}
         {messages.map((m) => (
           <MessageBubble
-            key={m.id || Math.random()}
+            key={m.id}
             message={m}
             onRetry={m.sender === "user" && m.__status === "failed" ? () => retryFailedMessage(m) : undefined}
           />

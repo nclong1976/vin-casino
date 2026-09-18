@@ -636,9 +636,22 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     const merged = new Map();
     fromPageCache.forEach((m) => merged.set(m.id, m));
     fromGlobal.forEach((m) => merged.set(m.id, m));
-    return Array.from(merged.values()).sort(
-      (a, b) => new Date(a.created_date) - new Date(b.created_date)
-    );
+    // Tie-break bằng id khi 2 tin TRÙNG created_date (hoàn toàn có thể xảy
+    // ra - vd tin optimistic của khách + admin trả lời gần như đồng thời).
+    // Array.sort ổn định nhưng chỉ giữ đúng thứ tự phần tử "bằng nhau" CÓ
+    // SẴN trong mảng đầu vào - mảng ở đây tới từ Map, thứ tự chèn phụ thuộc
+    // conversationPageCache/currentConv.messages đổi qua từng lượt render
+    // (REST/poll/Realtime khác thứ tự nhau), thiếu tiêu chí phụ cố định
+    // khiến 2 tin trùng giờ có thể đổi chỗ nhau giữa các lần render - nhìn
+    // như tin nhắn "tự nhảy" vị trí dù nội dung không đổi (cùng lớp lỗi vừa
+    // sửa ở Support.jsx phía khách).
+    return Array.from(merged.values()).sort((a, b) => {
+      const t = new Date(a.created_date || 0) - new Date(b.created_date || 0);
+      if (t !== 0) return t;
+      const ai = String(a.id ?? "");
+      const bi = String(b.id ?? "");
+      return ai < bi ? -1 : ai > bi ? 1 : 0;
+    });
   }, [currentConv, conversationPageCache, selectedUser]);
 
   // ── Handlers ─────────────────────────────────────────────────────
@@ -1161,11 +1174,18 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           </div>
         </div>
 
-        {/* Messages scroll area */}
+        {/* Messages scroll area - KHÔNG dùng class "scroll-smooth": class này
+            khiến MỌI thay đổi scrollTop tự chạy hoạt ảnh trượt, kể cả lượt
+            gán scrollTop TRỰC TIẾP trong useLayoutEffect bên dưới (khôi phục
+            đúng vị trí cuộn ngay sau khi chèn thêm tin CŨ vào đầu danh sách)
+            vốn PHẢI tức thời mới đúng, gây cảm giác khung chat "giật/nhảy"
+            mỗi lần cuộn lên xem lịch sử cũ (cùng lỗi vừa sửa ở Support.jsx
+            phía khách). Cuộn mượt khi có tin mới vẫn giữ nguyên qua
+            scrollTo({behavior:"smooth"}) ở nơi gọi tương ứng. */}
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 bg-white rounded-2xl p-4 shadow-xs border border-gray-100 space-y-3 overflow-y-auto scroll-smooth"
+          className="flex-1 bg-white rounded-2xl p-4 shadow-xs border border-gray-100 space-y-3 overflow-y-auto"
           style={{ overscrollBehavior: "contain" }}
         >
           {currentMessages.length === 0 && (
