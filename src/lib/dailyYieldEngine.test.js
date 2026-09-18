@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const listTxsByUser = vi.fn();
-const messageCreate = vi.fn();
+const notificationCreate = vi.fn();
 const resolveProjectMaturityPayout = vi.fn();
 
 vi.mock("@/api/base44Client", () => ({
   base44: {
     entities: {
-      Message: { create: (...a) => messageCreate(...a) },
+      Notification: { create: (...a) => notificationCreate(...a) },
     },
   },
 }));
@@ -22,7 +22,7 @@ const USER = { id: "user-1", is_locked: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  messageCreate.mockResolvedValue({});
+  notificationCreate.mockResolvedValue({});
   resolveProjectMaturityPayout.mockResolvedValue({
     paid: true,
     payout_amount: 1_050_000,
@@ -64,13 +64,13 @@ describe("runDailyYieldAndMaturityCheck — trả đáo hạn dự án", () => {
   // chưa) và xử lý đúng kết quả RPC trả về, KHÔNG còn test lại logic chống
   // trả trùng (đã chuyển hẳn vào RPC, khoá dòng FOR UPDATE).
 
-  it("gọi RPC cho khoản đã đủ kỳ hạn, chưa từng trả, và báo tin nhắn khi RPC xác nhận đã trả", async () => {
+  it("gọi RPC cho khoản đã đủ kỳ hạn, chưa từng trả, và báo thông báo khi RPC xác nhận đã trả", async () => {
     listTxsByUser.mockResolvedValue([maturedTx()]);
 
     await runDailyYieldAndMaturityCheck(USER);
 
     expect(resolveProjectMaturityPayout).toHaveBeenCalledWith("tx-1");
-    expect(messageCreate).toHaveBeenCalledTimes(1);
+    expect(notificationCreate).toHaveBeenCalledTimes(1);
   });
 
   it("KHÔNG gọi RPC nếu chưa đủ thời gian đáo hạn (lọc cục bộ)", async () => {
@@ -91,22 +91,22 @@ describe("runDailyYieldAndMaturityCheck — trả đáo hạn dự án", () => {
     expect(resolveProjectMaturityPayout).not.toHaveBeenCalled();
   });
 
-  it("không báo tin nhắn nếu RPC xác nhận đã trả trước đó rồi (race condition - server là nguồn sự thật cuối cùng)", async () => {
+  it("không báo thông báo nếu RPC xác nhận đã trả trước đó rồi (race condition - server là nguồn sự thật cuối cùng)", async () => {
     listTxsByUser.mockResolvedValue([maturedTx()]);
     resolveProjectMaturityPayout.mockResolvedValue({ paid: false, reason: "already_paid" });
 
     await runDailyYieldAndMaturityCheck(USER);
 
     expect(resolveProjectMaturityPayout).toHaveBeenCalledWith("tx-1");
-    expect(messageCreate).not.toHaveBeenCalled();
+    expect(notificationCreate).not.toHaveBeenCalled();
   });
 
-  it("không báo tin nhắn nếu RPC lỗi (mất mạng...)", async () => {
+  it("không báo thông báo nếu RPC lỗi (mất mạng...)", async () => {
     listTxsByUser.mockResolvedValue([maturedTx()]);
     resolveProjectMaturityPayout.mockResolvedValue(null);
 
     await runDailyYieldAndMaturityCheck(USER);
 
-    expect(messageCreate).not.toHaveBeenCalled();
+    expect(notificationCreate).not.toHaveBeenCalled();
   });
 });
