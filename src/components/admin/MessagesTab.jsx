@@ -679,8 +679,6 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
         setMessages((prev) =>
           prev.map((m) => (unreadMsgs.some((u) => u.id === m.id) ? { ...m, read_at: now } : m))
         );
-        // Báo cho MemberHubTab (badge tổng "chưa đọc" ở tab cha) biết ngay
-        // trong CÙNG tab, không cần đợi round-trip qua Supabase Realtime.
         window.dispatchEvent(new CustomEvent("vinclub:msg_update"));
       } catch {}
     },

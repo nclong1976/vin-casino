@@ -10,6 +10,7 @@ import {
   TrendingUp,
   LogOut,
   Newspaper,
+  MessageSquare,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { countSupabaseUsers } from "@/lib/supabaseDb";
@@ -19,13 +20,14 @@ import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
+import MessagesTab from "@/components/admin/MessagesTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
 import NotificationsTab from "@/components/admin/NotificationsTab";
 import InvestmentCasinoTab from "@/components/admin/InvestmentCasinoTab";
 import NewsTab from "@/components/admin/NewsTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 
-// "Hợp đồng" đã gộp vào subtab thứ 4 của "Quản lý Hội viên & Giao dịch"
+// "Hợp đồng" đã gộp vào subtab thứ 3 của "Quản lý Hội viên & Giao dịch"
 // (MemberHubTab) - cùng bản chất "hàng chờ duyệt" như subtab Phê duyệt
 // Giao dịch, tách tab riêng chỉ gây phân mảnh điều hướng không cần thiết.
 // "Đầu tư chứng khoán" + "Quản lý Casino" gộp tương tự thành 2 subtab của
@@ -37,7 +39,18 @@ import SettingsTab from "@/components/admin/SettingsTab";
 // "Tổng quan" trước đây cũng từng được gộp ra khỏi thanh tab - SettingsTab
 // chỉ có 1 công tắc bảo trì toàn trang, không thao tác thường xuyên như
 // các tab còn lại, đặt cạnh số liệu tổng quan hợp lý hơn 1 tab riêng.
+//
+// "Tin nhắn CSKH" trước đây là subtab thứ 2 bên trong "Quản lý Hội viên &
+// Giao dịch" (2 lượt bấm mới tới được khung chat) - tách hẳn thành 1 tab
+// CẤP CAO NHẤT riêng theo yêu cầu, đặt lên ĐẦU thanh tab vì đây là kênh
+// trò chuyện thời gian thực với khách hàng, cần vào được ngay lập tức
+// (1 lượt bấm). Về mặt kỹ thuật, độ trễ/kết nối Realtime của khung chat
+// không đổi gì (mọi tab cấp cao nhất đã luôn được mount sẵn từ trước - xem
+// AnimatedTabPanel bên dưới - MessagesTab vẫn giữ kết nối Realtime dù admin
+// đang xem tab khác) - tách tab chỉ giúp ĐƯỜNG VÀO ngắn hơn, không phải vá
+// lỗi kết nối.
 const TABS = [
+  { id: "messages", label: "Tin nhắn CSKH", icon: MessageSquare },
   { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
   { id: "investment_casino", label: "Đầu tư CK & Casino", icon: TrendingUp },
   { id: "projects", label: "Dự án", icon: FolderOpen },
@@ -73,6 +86,18 @@ export default function Admin() {
   const requestProjectsFilter = (filter) =>
     setProjectsFilterRequest((r) => ({ filter, nonce: r.nonce + 1 }));
 
+  // "Nhắn tin với khách này" (bấm từ UsersTab/TransactionsTab, cả 2 nằm sâu
+  // trong MemberHubTab) giờ phải nhảy sang tab CẤP CAO NHẤT "messages" thay
+  // vì chỉ đổi subtab nội bộ như trước khi Tin nhắn CSKH còn là subtab -
+  // sở hữu state này ở đây (thay vì trong MemberHubTab) và truyền
+  // onNavigateToChat xuống qua props để MemberHubTab chuyển tiếp cho
+  // UsersTab/TransactionsTab dùng nguyên như cũ.
+  const [chatTargetUserId, setChatTargetUserId] = useState(null);
+  const handleNavigateToChat = (userId) => {
+    setChatTargetUserId(userId);
+    setTab("messages");
+  };
+
   const fetchStats = () => {
     Promise.all([
       // Chỉ cần ĐẾM (badge "Tổng hội viên"), không cần dữ liệu từng người -
@@ -95,8 +120,10 @@ export default function Admin() {
       const pendingContractsCount = signedTxs.filter((t) => (t.contract_status || "pending") === "pending").length;
       // "Hợp đồng" giờ là subtab của "Quản lý Hội viên & Giao dịch" - gộp
       // luôn vào tổng badge của tab đó thay vì có badge riêng ở 1 tab đã
-      // không còn tồn tại.
-      const totalPendingHub = pendingWithdrawalsCount + pendingDepositsCount + unreadMessagesCount + pendingContractsCount;
+      // không còn tồn tại. unreadMessagesCount KHÔNG còn cộng vào đây nữa -
+      // "Tin nhắn CSKH" đã tách thành tab cấp cao nhất riêng với badge
+      // riêng (xem TABS bên dưới), cộng chung vào đây sẽ đếm trùng 2 lần.
+      const totalPendingHub = pendingWithdrawalsCount + pendingDepositsCount + pendingContractsCount;
 
       setStats({
         users: usersCount,
@@ -223,6 +250,11 @@ export default function Admin() {
               <span className="relative z-10 flex items-center gap-1.5">
                 <t.icon className="w-4 h-4" />
                 {t.label}
+                {t.id === "messages" && stats.unreadMessages > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
+                    {stats.unreadMessages}
+                  </span>
+                )}
                 {t.id === "member_hub" && stats.totalPendingHub > 0 && (
                   <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[8px] font-bold animate-pulse">
                     {stats.totalPendingHub}
@@ -279,8 +311,13 @@ export default function Admin() {
           như trước) vì nội dung mỗi khối giờ cố định, không còn đổi qua đổi
           lại giữa các tab để cần tín hiệu "nội dung mới, xoá lỗi cũ" nữa. */}
       <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
+        <AnimatedTabPanel active={tab === "messages"}>
+          <AdminErrorBoundary>
+            <MessagesTab initialSelectedUserId={chatTargetUserId} />
+          </AdminErrorBoundary>
+        </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "member_hub"}>
-          <AdminErrorBoundary><MemberHubTab /></AdminErrorBoundary>
+          <AdminErrorBoundary><MemberHubTab onNavigateToChat={handleNavigateToChat} /></AdminErrorBoundary>
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "investment_casino"}>
           <AdminErrorBoundary>
