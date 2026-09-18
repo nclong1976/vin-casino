@@ -1,10 +1,21 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Volume2, VolumeX, ChevronRight, LogIn, UserPlus } from "lucide-react";
 
 export default function WelcomeIntroPlayer({ onFinish }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Đường dẫn THẬT SỰ người dùng đang đứng khi màn intro này hiện ra (vd
+  // link đặt lại mật khẩu từ email "/reset-password?token=...", hay link
+  // giới thiệu đăng ký "/register?ref=..."). Trước đây "Bỏ qua"/video kết
+  // thúc/lỗi LUÔN hardcode về "/login", bỏ qua hẳn đường dẫn gốc - người
+  // bấm 1 link trực tiếp sẽ bị "lạc" sang màn hình chọn Đăng nhập/Đăng ký
+  // chung chung, mất luôn ngữ cảnh (vd token đặt lại mật khẩu). Dùng path
+  // hiện tại làm đích mặc định thay vì "/login" cứng - 2 nút "Đăng nhập
+  // ngay"/"Đăng ký mới" bên dưới vẫn tự chọn đích rõ ràng của riêng chúng,
+  // không bị ảnh hưởng.
+  const currentPath = location.pathname + location.search;
   const videoRef = useRef(null);
   const [isMuted, setIsMuted] = useState(true);
   const [progress, setProgress] = useState(0);
@@ -44,7 +55,7 @@ export default function WelcomeIntroPlayer({ onFinish }) {
     };
   }, []);
 
-  const handleComplete = (targetRoute = "/login") => {
+  const handleComplete = (targetRoute = currentPath) => {
     sessionStorage.setItem("vinclub_welcome_seen", "true");
     if (typeof onFinish === "function") {
       onFinish(targetRoute);
@@ -85,8 +96,8 @@ export default function WelcomeIntroPlayer({ onFinish }) {
         autoPlay
         muted={isMuted}
         playsInline
-        onEnded={() => handleComplete("/login")}
-        onError={() => handleComplete("/login")}
+        onEnded={() => handleComplete()}
+        onError={() => handleComplete()}
       />
 
       {/* Cinematic Gradient Overlays */}
@@ -121,7 +132,7 @@ export default function WelcomeIntroPlayer({ onFinish }) {
 
         {/* Skip button top-right */}
         <button
-          onClick={() => handleComplete("/login")}
+          onClick={() => handleComplete()}
           className="px-3.5 py-1.5 rounded-full bg-black/40 hover:bg-black/70 backdrop-blur-md border border-white/20 hover:border-[#948154]/60 text-white text-[11.5px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-md"
         >
           <span>Bỏ qua</span>

@@ -4,7 +4,7 @@ import { PenTool, Type, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
-import SignatureHeader from "@/components/signature/SignatureHeader";
+import PageHeader from "@/components/shared/PageHeader";
 import SignaturePad from "@/components/signature/SignaturePad";
 import BottomNav from "@/components/BottomNav";
 
@@ -77,7 +77,7 @@ export default function Signature() {
 
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
-      <SignatureHeader />
+      <PageHeader title="Chữ ký điện tử" headerClassName="bg-white border-b border-gray-100" />
 
       <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {/* Mode toggle */}

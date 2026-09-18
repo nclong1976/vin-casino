@@ -96,7 +96,10 @@ export default function MembershipCard() {
 
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
-      <PageHeader title="Thẻ thành viên VinClub" />
+      {/* /card là 1 trong 4 điểm đến chính của BottomNav (ngang hàng Trang
+          chủ/CSKH/Cá nhân) - không "quay lại" đâu cả, giống Profile.jsx,
+          nên tắt nút quay lại mặc định của PageHeader. */}
+      <PageHeader title="Thẻ thành viên VinClub" showBack={false} />
 
       <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {loading ? (

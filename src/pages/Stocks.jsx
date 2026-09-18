@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import StockHeader from "@/components/stocks/StockHeader";
+import PageHeader from "@/components/shared/PageHeader";
 import MarketSummary from "@/components/stocks/MarketSummary";
 import StockCard from "@/components/stocks/StockCard";
 import TradeSheet from "@/components/stocks/TradeSheet";
@@ -98,7 +98,12 @@ export default function Stocks() {
 
   return (
     <main className="relative w-full min-h-screen bg-[#0d1117] overflow-x-hidden font-heading">
-      <StockHeader />
+      <PageHeader
+        title="ĐẦU TƯ CHỨNG KHOÁN"
+        headerClassName="bg-[#0d1117] border-b border-[#1f2630]"
+        titleClassName="text-white tracking-wide"
+        backButtonClassName="text-white/70 hover:bg-white/10"
+      />
 
       <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
         <MarketSummary />

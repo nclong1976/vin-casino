@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import CasinoHeader from "@/components/casino/CasinoHeader";
+import PageHeader from "@/components/shared/PageHeader";
 import GameCard from "@/components/casino/GameCard";
 import BottomNav from "@/components/BottomNav";
 
@@ -92,7 +92,12 @@ export default function Casino() {
       </AnimatePresence>
 
       <div className="w-full">
-        <CasinoHeader />
+        <PageHeader
+          title="CASINO CORONA"
+          headerClassName="bg-[#120d08] border-b border-[#3a2c14]"
+          titleClassName="text-[#e8c87a] tracking-wide"
+          backButtonClassName="text-[#e8c87a]/70 hover:bg-white/10"
+        />
 
         <div className="w-full max-w-5xl mx-auto px-4 py-6 pb-24">
           <h2 className="text-base sm:text-lg font-bold text-center text-[#e8c87a] tracking-wide mb-1.5 uppercase">

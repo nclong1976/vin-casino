@@ -4,6 +4,7 @@ import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
+import PageHeader from "@/components/shared/PageHeader";
 import ContractDocument from "@/components/projects/ContractDocument";
 import DailyPayoutSchedule from "@/components/profile/DailyPayoutSchedule";
 import SignaturePicker from "@/components/signature/SignaturePicker";
@@ -76,11 +77,7 @@ export default function Contract() {
 
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
-      <header className="sticky top-0 z-40 w-full bg-white border-b border-gray-100 pt-[env(safe-area-inset-top)]">
-        <div className="max-w-4xl mx-auto flex items-center justify-center px-4 py-3">
-          <h1 className="text-[14px] sm:text-base font-bold text-black text-center">Hợp đồng đầu tư</h1>
-        </div>
-      </header>
+      <PageHeader title="Hợp đồng đầu tư" headerClassName="bg-white border-b border-gray-100" />
 
       <div className="max-w-4xl mx-auto px-4 py-4 pb-24 space-y-4">
         {signed && (() => {

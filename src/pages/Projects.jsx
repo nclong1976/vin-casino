@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import ProjectsHeader from "@/components/projects/ProjectsHeader";
+import PageHeader from "@/components/shared/PageHeader";
 import ProjectCard from "@/components/projects/ProjectCard";
 import DepositModal from "@/components/projects/DepositModal";
 import BottomNav from "@/components/BottomNav";
@@ -69,7 +69,12 @@ export default function Projects() {
 
   return (
     <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
-      <ProjectsHeader />
+      <PageHeader
+        title="DỰ ÁN"
+        headerClassName="bg-[#1a1410] border-b border-[#2a2218]"
+        titleClassName="text-[#FDFDFD] tracking-wide"
+        backButtonClassName="text-[#FDFDFD]/70 hover:bg-white/10"
+      />
 
       <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
         {/* Banner Header for VinClub Small Projects & Internal Funds */}
