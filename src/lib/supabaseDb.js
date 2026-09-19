@@ -667,6 +667,31 @@ export function subscribeAppMaintenanceConfig(callback) {
 }
 
 /**
+ * Thông báo đẩy (Web Push) cho quản trị viên - lưu/xoá PushSubscription của
+ * THIẾT BỊ NÀY (mỗi trình duyệt/thiết bị 1 dòng, khoá theo endpoint duy
+ * nhất) vào bảng admin_push_subscriptions. RLS chỉ cho phép admin đọc/ghi
+ * (is_admin()) - xem migration 20260919090000_admin_push_notifications.sql.
+ * Edge Function admin-push-send (Database Webhook, chạy nền trên Supabase,
+ * không phụ thuộc Render) tự gửi push thật tới mọi dòng trong bảng này khi
+ * có sự kiện đáng thông báo.
+ */
+export async function saveAdminPushSubscription({ endpoint, p256dh, auth, adminUserId, userAgent }) {
+  const { error } = await supabase.from('admin_push_subscriptions').upsert({
+    endpoint,
+    p256dh,
+    auth,
+    admin_user_id: adminUserId || null,
+    user_agent: userAgent || null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteAdminPushSubscription(endpoint) {
+  const { error } = await supabase.from('admin_push_subscriptions').delete().eq('endpoint', endpoint);
+  if (error) throw new Error(error.message);
+}
+
+/**
  * Kiểm tra xem một tên tài khoản/định danh (username, số điện thoại, hoặc
  * email) đã tồn tại trên hệ thống (bảng users Supabase - nguồn dữ liệu
  * chung, dùng chung cho mọi thiết bị) hay chưa, để chặn đăng ký trùng lặp.

@@ -17,6 +17,13 @@ services:
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false
+      # Thông báo đẩy (Web Push) cho quản trị viên - đây là VAPID PUBLIC key,
+      # an toàn để đặt thẳng giá trị thật ở đây (không phải secret, sẽ luôn
+      # lộ ra trong bundle client dù có giấu cách nào). PHẢI khớp đúng
+      # VAPID_PUBLIC_KEY cấu hình trong Supabase Edge Function Secrets (xem
+      # migration 20260919090000_admin_push_notifications.sql).
+      - key: VITE_VAPID_PUBLIC_KEY
+        value: BN8zRiHZ3UoMEzCqTorSy4YvOoqSAfkfUwGsf2oHQ-jgJNOAsDDpGF7PBi3u4tnwrs2seLEYJMYth15VJBSvTwQ
       # Job cộng lãi hàng ngày theo cấp VIP KHÔNG còn chạy ở server.ts/Render
       # nữa - đã chuyển sang pg_cron chạy thẳng trong Postgres (Supabase
       # Dashboard > Database > Cron Jobs, job "credit-daily-interest", xem
