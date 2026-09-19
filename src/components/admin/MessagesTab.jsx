@@ -33,6 +33,7 @@ import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifec
 import { compressImageFile } from "@/lib/imageCompression";
 import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { useAutoSaveDraft } from "@/hooks/useAutoSaveDraft";
+import { CSKH_AWAY_THRESHOLD_MS } from "@/lib/cskhConversation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
@@ -113,6 +114,20 @@ const fmtDate = (iso) => {
     d.getDate() === today.getDate();
   if (isToday) return `Hôm nay ${fmtTime(iso)}`;
   return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" }) + " " + fmtTime(iso);
+};
+
+// Nhãn khoảng cách thời gian giữa 2 tin nhắn liên tiếp của CÙNG 1 khách -
+// dùng cho vạch ngăn cách "khách quay lại sau X" (xem currentMessages.map()
+// bên dưới). Chỉ hiện khi khoảng cách >= CSKH_AWAY_THRESHOLD_MS (đúng
+// ngưỡng cskhConversation.js dùng để rotate conversation_id) - đây chính là
+// mốc thật sự khiến khách rơi vào 1 "phiên" mới, không phải mốc tuỳ ý.
+const formatGapLabel = (ms) => {
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} giờ`;
+  const days = Math.round(hours / 24);
+  return `${days} ngày`;
 };
 
 // ─── Stable Avatar ───────────────────────────────────────────────
@@ -1199,9 +1214,32 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           {currentMessages.length === 0 && (
             <p className="text-center text-[11px] text-gray-400 py-4">Chưa có tin nhắn trong hội thoại này</p>
           )}
-          {currentMessages.map((m) => (
+          {currentMessages.map((m, idx) => {
+            // Vạch ngăn cách "khách quay lại sau X" - đối chiếu đúng ngưỡng
+            // cskhConversation.js dùng để tự rotate conversation_id (khách
+            // rời trang CSKH >= 10 phút). Admin trước đây chỉ thấy 1 dòng
+            // tin nhắn liền mạch dù thực ra khách đã rời đi rất lâu giữa 2
+            // tin, không có cách nào phân biệt "khách chat liên tục" với
+            // "khách quay lại sau nhiều ngày" chỉ bằng cách nhìn timestamp
+            // từng dòng.
+            const prev = idx > 0 ? currentMessages[idx - 1] : null;
+            const gapMs = prev
+              ? new Date(m.created_date || 0).getTime() - new Date(prev.created_date || 0).getTime()
+              : 0;
+            const showGapDivider = prev && gapMs >= CSKH_AWAY_THRESHOLD_MS;
+
+            return (
+            <React.Fragment key={m.id}>
+              {showGapDivider && (
+                <div className="flex items-center gap-2 py-1">
+                  <div className="flex-1 h-px bg-gray-100" />
+                  <span className="text-[9px] font-bold text-gray-400 whitespace-nowrap">
+                    Khách quay lại sau {formatGapLabel(gapMs)}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-100" />
+                </div>
+              )}
             <MessageBubble
-              key={m.id}
               m={m}
               isAdmin={m.sender === "admin"}
               senderName={currentConv.userName}
@@ -1219,7 +1257,9 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               status={deriveMessageStatus(m, m.sender === "admin")}
               onRetry={m.sender === "admin" && m.__status === "failed" ? () => retryFailedReply(m) : undefined}
             />
-          ))}
+            </React.Fragment>
+            );
+          })}
 
           {/* Typing indicator - "Khách đang nhập..." */}
           {peerTyping && (

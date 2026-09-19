@@ -6,7 +6,7 @@ import SupportHeader from "@/components/support/SupportHeader";
 import MessageBubble from "@/components/support/MessageBubble";
 import ChatInput from "@/components/support/ChatInput";
 import { DEFAULT_SUPPORT_STATUS } from "@/constants/supportStatus";
-import { fetchMessagesPage } from "@/lib/supabaseDb";
+import { fetchMessagesPage, fetchMessagesPageByUser } from "@/lib/supabaseDb";
 import { markDelivered, markRead } from "@/lib/messageLifecycle";
 import { subscribeToConnectionStatus } from "@/api/base44Client";
 import { compressImageFile } from "@/lib/imageCompression";
@@ -28,6 +28,27 @@ const byCreatedDateThenId = (a, b) => {
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_WARNING_MS = 60 * 1000;
+
+// Lời chào ĐỘNG theo thời gian vắng mặt - phân biệt khách LẦN ĐẦU (chưa từng
+// có tin nhắn nào, dưới BẤT KỲ conversation_id cũ nào) với khách QUEN quay
+// lại sau khi conversation_id đã rotate (xem cskhConversation.js, KHÔNG đụng
+// file đó - hàm này chỉ ĐỌC dữ liệu tin nhắn cũ để chọn câu chào, không ảnh
+// hưởng gì tới logic rotate). Trước đây cả 2 trường hợp đều nhận đúng 1 câu
+// chào tổng quát giống nhau, không phân biệt được "khách mới" và "khách đã
+// từng chat, giờ quay lại sau khi rời trang".
+function buildGreetingContent(userFullName, lastPriorMessageDateIso) {
+  if (!lastPriorMessageDateIso) {
+    return `Kính chào Quý khách ${userFullName}! CSKH VinClub hân hạnh được đồng hành và hỗ trợ Quý khách 24/7. Quý khách cần hỗ trợ dịch vụ nào hôm nay ạ?`;
+  }
+  const hoursAway = (Date.now() - new Date(lastPriorMessageDateIso).getTime()) / (1000 * 60 * 60);
+  if (hoursAway < 24) {
+    return `Chào Quý khách ${userFullName} quay lại ạ! Em vẫn ở đây, Quý khách cần hỗ trợ tiếp không ạ?`;
+  }
+  if (hoursAway < 24 * 7) {
+    return `Chào mừng Quý khách ${userFullName} quay lại! Đã một thời gian không gặp, Quý khách cần CSKH hỗ trợ gì hôm nay ạ?`;
+  }
+  return `Kính chào Quý khách ${userFullName}! Rất vui được đồng hành cùng Quý khách trở lại sau một thời gian. CSKH VinClub luôn sẵn sàng hỗ trợ Quý khách 24/7 ạ.`;
+}
 // "Video quá lớn" chỉ là cảnh báo mềm (không nén được video client-side, xem
 // src/lib/imageCompression.js) - báo trước để người dùng biết base64 sẽ nặng,
 // không chặn gửi.
@@ -138,8 +159,14 @@ export default function Support() {
 
       // Check if welcome greeting message exists; if not, create it
       if (!isDegraded && (!list || list.length === 0) && isGreetingCheckOwner) {
-        const greetingContent = `Kính chào Quý khách ${userFullName}! CSKH VinClub hân hạnh được đồng hành và hỗ trợ Quý khách 24/7. Quý khách cần hỗ trợ dịch vụ nào hôm nay ạ?`;
-        
+        // "list" rỗng ở đây chỉ chứng minh conversation_id HIỆN TẠI (có thể
+        // vừa rotate) chưa có tin nào - KHÔNG chứng minh khách chưa từng chat
+        // trước đây. Tra thêm 1 tin gần nhất theo user_id (ổn định qua mọi
+        // lần rotate) để biết có phải khách quen quay lại hay không, chọn
+        // đúng câu chào tương ứng (buildGreetingContent ở trên).
+        const priorMessages = await fetchMessagesPageByUser(u?.id, { limit: 1 }).catch(() => []);
+        const greetingContent = buildGreetingContent(userFullName, priorMessages?.[0]?.created_date);
+
         try {
           const newMsg = await base44.entities.Message.create({
             sender: "support",
