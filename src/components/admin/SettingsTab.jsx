@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabaseDb";
 import {
   isPushSupported,
+  getPushUnsupportedReason,
   getCurrentPushSubscription,
   subscribeAdminPush,
   unsubscribeAdminPush,
@@ -27,6 +28,7 @@ export default function SettingsTab() {
   // false khi trình duyệt không hỗ trợ Push API HOẶC thiếu VITE_VAPID_PUBLIC_KEY
   // (chưa cấu hình Edge Function admin-push-send).
   const [pushSupported] = useState(() => isPushSupported());
+  const [pushUnsupportedReason] = useState(() => getPushUnsupportedReason());
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
 
@@ -134,9 +136,20 @@ export default function SettingsTab() {
                 vừa được ký, hoặc tin nhắn CSKH mới - kể cả khi đã đóng hẳn trình duyệt, không cần mở
                 ứng dụng.
               </p>
-              {!pushSupported && (
+              {pushUnsupportedReason === "ios_needs_install" && (
                 <p className="text-[10.5px] text-amber-700 mt-1">
-                  Trình duyệt này chưa hỗ trợ hoặc hệ thống chưa cấu hình xong thông báo đẩy (thiếu VAPID key).
+                  Trên iPhone/iPad: bấm nút <strong>Chia sẻ</strong> trong Safari → <strong>"Thêm vào Màn hình chính"</strong>,
+                  rồi mở lại app từ biểu tượng vừa thêm (không phải từ Safari) trước khi bật thông báo.
+                </p>
+              )}
+              {pushUnsupportedReason === "missing_vapid_key" && (
+                <p className="text-[10.5px] text-amber-700 mt-1">
+                  Hệ thống chưa cấu hình xong thông báo đẩy (thiếu VITE_VAPID_PUBLIC_KEY lúc build) - liên hệ kỹ thuật.
+                </p>
+              )}
+              {pushUnsupportedReason === "unsupported_browser" && (
+                <p className="text-[10.5px] text-amber-700 mt-1">
+                  Trình duyệt này không hỗ trợ thông báo đẩy - hãy thử Chrome/Edge/Firefox hoặc Safari phiên bản mới.
                 </p>
               )}
             </div>

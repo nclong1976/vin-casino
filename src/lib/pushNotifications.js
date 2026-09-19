@@ -16,8 +16,38 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
+// iOS Safari CHỈ hỗ trợ Web Push khi trang đã được "Thêm vào Màn hình
+// chính" và mở từ đó (chế độ standalone) - mở bằng tab Safari bình thường
+// thì window.PushManager không hề tồn tại (undefined), dù trình duyệt/hệ
+// điều hành thực ra đã hỗ trợ. Phân biệt riêng trường hợp này để báo đúng
+// nguyên nhân thay vì gộp chung "trình duyệt không hỗ trợ" gây hiểu nhầm là
+// lỗi cấu hình.
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    // iPadOS 13+ giả UA thành macOS - chỉ phân biệt được qua điểm chạm.
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneDisplayMode() {
+  if (typeof window === "undefined") return false;
+  return window.navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)")?.matches === true;
+}
+
 export function isPushSupported() {
   return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && !!VAPID_PUBLIC_KEY;
+}
+
+/**
+ * Lý do CHÍNH XÁC vì sao thông báo đẩy chưa dùng được trên thiết bị này -
+ * dùng để hiển thị đúng hướng dẫn cho admin thay vì 1 câu chung chung.
+ * @returns {'ios_needs_install' | 'unsupported_browser' | 'missing_vapid_key' | null} null = đã hỗ trợ đầy đủ.
+ */
+export function getPushUnsupportedReason() {
+  if (isPushSupported()) return null;
+  if (isIOS() && !isStandaloneDisplayMode()) return "ios_needs_install";
+  if (!VAPID_PUBLIC_KEY) return "missing_vapid_key";
+  return "unsupported_browser";
 }
 
 /** Trạng thái đăng ký push HIỆN CÓ của thiết bị/trình duyệt này (null nếu chưa bật). */
@@ -33,7 +63,11 @@ export async function getCurrentPushSubscription() {
 
 /** Xin quyền + đăng ký nhận thông báo đẩy cho thiết bị này, lưu xuống Supabase. */
 export async function subscribeAdminPush(adminUserId) {
-  if (!isPushSupported()) {
+  const reason = getPushUnsupportedReason();
+  if (reason === "ios_needs_install") {
+    throw new Error("Trên iPhone/iPad, cần \"Thêm vào Màn hình chính\" (nút Chia sẻ trong Safari) rồi mở app từ biểu tượng đó trước khi bật thông báo.");
+  }
+  if (reason) {
     throw new Error("Trình duyệt này không hỗ trợ thông báo đẩy hoặc thiếu cấu hình VAPID key.");
   }
 
