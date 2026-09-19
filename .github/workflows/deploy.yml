@@ -1,0 +1,78 @@
+name: Deploy to GitHub Pages
+
+# Thay thế hoàn toàn deploy trên Render (đã gỡ render.yaml) - app giờ host
+# tĩnh 100% trên GitHub Pages. Phần backend duy nhất còn thật (tra cứu thị
+# trường bằng Gemini) đã chuyển sang Supabase Edge Function
+# (supabase/functions/market-search), không cần Node server nào chạy nền.
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Chỉ chạy 1 lượt deploy tại 1 thời điểm - lượt mới hơn không huỷ lượt đang
+# chạy dở (an toàn hơn để lượt trước hoàn tất, tránh publish nửa chừng).
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Biến VITE_* được Vite "nướng" thẳng vào file JS lúc build (không đọc
+      # được lúc runtime như server Node) - PHẢI khai báo tại đây qua GitHub
+      # Actions Secrets (Settings → Secrets and variables → Actions), không
+      # thể thiếu bước này nếu không app deploy xong sẽ không kết nối được
+      # Supabase.
+      - name: Build project
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+
+      # GitHub Pages không hỗ trợ rewrite phía server cho SPA (React Router
+      # BrowserRouter) - vào thẳng 1 route con (vd /admin) hoặc tải lại trang
+      # đó sẽ ra lỗi 404 của GitHub Pages thay vì render app. Copy
+      # index.html thành 404.html - GitHub Pages tự phục vụ đúng file này
+      # cho MỌI đường dẫn không khớp file tĩnh nào, app tự khởi động rồi
+      # React Router đọc URL thật và render đúng trang (mẫu chuẩn
+      # "spa-github-pages").
+      - name: SPA fallback for client-side routing
+        run: cp dist/index.html dist/404.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

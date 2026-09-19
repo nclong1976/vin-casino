@@ -39,7 +39,10 @@ export default function MarketSearchBar({ defaultQuery = "", placeholder = "Tra 
     setResult(null);
 
     try {
-      const response = await fetch("/api/market-search", {
+      // Đã chuyển từ route Express /api/market-search (server.ts, chạy trên
+      // Render) sang Supabase Edge Function - app giờ host tĩnh trên GitHub
+      // Pages, không còn Node server nào chạy nền nữa.
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/market-search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
