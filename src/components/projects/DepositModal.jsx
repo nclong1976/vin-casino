@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import { useAuth } from "@/lib/AuthContext";
+import { getActiveConversationId } from "@/lib/cskhConversation";
 import ContractDocument from "@/components/projects/ContractDocument";
 import SignaturePicker from "@/components/signature/SignaturePicker";
 import {
@@ -245,9 +246,16 @@ export default function DepositModal({ project, onClose }) {
       });
 
       if (user?.id) {
+        // conversation_id PHẢI là hội thoại ĐANG HOẠT ĐỘNG của khách
+        // (getActiveConversationId - cskhConversation.js, KHÔNG đụng file đó),
+        // KHÔNG PHẢI luôn user.id - nếu khách đã rời trang CSKH >= 10 phút và
+        // hội thoại đã rotate sang 1 id mới, ghi cứng user.id ở đây sẽ khiến
+        // tin xác nhận này rơi vào đúng hội thoại CŨ mà khách không còn xem,
+        // trong khi màn hình CSKH của khách chỉ tải theo conversation_id ĐANG
+        // ACTIVE (Support.jsx) - tin nhắn coi như "biến mất" với khách.
         await base44.entities.Message.create({
           sender: "admin",
-          conversation_id: user.id,
+          conversation_id: getActiveConversationId(user.id) || user.id,
           user_id: user.id,
           content: `Dạ em xin xác nhận giao dịch đầu tư của Quý khách đã hoàn tất ạ.\n\nDự án: ${project.title}\nSố tiền: ${fmt(amount)} VNĐ\nPhương thức: ${selectedMethod.label}\nLãi dự kiến: ${fmt(profit)} VNĐ\nTổng nhận: ${fmt(total)} VNĐ\n\nHợp đồng đã được ký và lưu. Cảm ơn Quý khách đã tin tưởng đầu tư cùng VinClub!`,
           attachments: [],

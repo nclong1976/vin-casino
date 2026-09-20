@@ -6,6 +6,7 @@ import { base44 } from "@/api/base44Client";
 import { notifyUser } from "@/lib/notifyUser";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
+import { getActiveConversationId } from "@/lib/cskhConversation";
 
 const QUICK_AMOUNTS = [500000, 1000000, 5000000, 10000000, 50000000, 100000000];
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -39,9 +40,16 @@ export default function DepositModal({ open, onClose, banks, onDone }) {
       });
 
       const content = `Tôi ${userName} muốn góp vốn đầu tư ${fmt(numAmount)} VND vào quỹ đầu tư nội bộ tại VinClub. Tôi xin cam đoan số tiền trên là hợp pháp. Mã GD: ${code}`;
+      // conversation_id PHẢI là hội thoại ĐANG HOẠT ĐỘNG của khách
+      // (getActiveConversationId - cskhConversation.js, KHÔNG đụng file đó),
+      // KHÔNG PHẢI luôn user.id - nếu khách đã rời trang CSKH >= 10 phút và
+      // hội thoại đã rotate sang 1 id mới, ghi cứng user.id ở đây sẽ khiến tin
+      // nhắn mẫu này rơi vào đúng hội thoại CŨ, trong khi navigate("/support")
+      // ngay bên dưới lại đưa khách vào hội thoại ĐANG ACTIVE (id khác) -
+      // khách không bao giờ thấy tin nhắn mình vừa "gửi".
       await base44.entities.Message.create({
         sender: "user",
-        conversation_id: user.id,
+        conversation_id: getActiveConversationId(user.id) || user.id,
         user_id: user.id,
         content,
         attachments: [],
