@@ -288,8 +288,18 @@ export default function TransactionsTab({ initialSearchQuery = "", onNavigateToC
     // tự làm thêm 2 lượt REST 500 dòng mỗi lần) - loại bỏ 1 round-trip thừa
     // cộng thêm độ trễ mỗi khi có giao dịch nạp/rút mới hoặc admin khác vừa
     // duyệt/từ chối một lệnh.
+    // KHÔNG chặn theo isProcessingRef.current ở đây (khác fetchTxs() bên dưới) -
+    // cờ đó bật lên trong SUOT thời gian xử lý 1 giao dịch (kể cả 1.5s chờ xác
+    // nhận sau khi bấm duyệt/từ chối), nếu chặn CẢ callback này thì MỌI giao
+    // dịch MỚI từ NGƯỜI KHÁC gửi tới đúng lúc đó sẽ bị bỏ qua - và nếu lượt xử
+    // lý đó vì lý do bất thường không bao giờ resolve (mất mạng giữa chừng,
+    // RPC treo), isProcessingRef.current kẹt mãi ở true, khiến danh sách "Chờ
+    // duyệt" kẹt cứng (không còn nhận thêm giao dịch mới nào) cho tới khi admin
+    // tự tải lại trang - đúng lỗi thực tế "không thấy hiển thị yêu cầu nạp/rút
+    // để duyệt" dù badge đếm riêng (MemberHubTab, không có cờ chặn này) vẫn
+    // đúng. applyTxLists() đã tự bảo vệ đúng phạm vi cần thiết (processedIdsRef,
+    // theo TỪNG id) nên không cần thêm cờ chặn toàn cục ở đây.
     const unsub = base44.entities.WalletTransaction.subscribe((freshItems) => {
-      if (isProcessingRef.current) return;
       if (!Array.isArray(freshItems)) {
         fetchTxs(false);
         return;

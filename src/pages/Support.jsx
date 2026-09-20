@@ -103,10 +103,20 @@ export default function Support() {
     const handleVisibility = () => {
       if (document.visibilityState === "hidden") recordLeftSupport(user.id);
     };
+    // "pagehide" ghi lại thêm 1 lần nữa PHÒNG KHI "visibilitychange" không
+    // kịp bắn trước khi trình duyệt di động đóng hẳn tab/PWA (vuốt tắt app,
+    // hệ điều hành thu hồi tiến trình) - nếu bỏ lỡ cả 2 sự kiện này, lần mở
+    // lại kế tiếp sẽ không có "leftAt" nào để đối chiếu >= 10 phút, khiến
+    // getActiveConversationId() không bao giờ rotate được, hội thoại/lịch sử
+    // cũ cứ hiện mãi dù đã rời đi rất lâu - đây chỉ THÊM 1 điểm ghi nhận nữa,
+    // không đổi ngưỡng/logic rotate nào của cskhConversation.js.
+    const handlePageHide = () => recordLeftSupport(user.id);
     document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", handlePageHide);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", handlePageHide);
       recordLeftSupport(user.id);
     };
   }, [user?.id]);
