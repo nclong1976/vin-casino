@@ -10,7 +10,7 @@
  *   3. Trạng thái hoạt động, cấp bậc VIP, thông tin tài khoản ngân hàng được giữ nguyên.
  *   4. Supabase Postgres là nguồn sự thật duy nhất, đồng bộ thời gian thực qua Supabase Realtime.
  */
-import { base44 } from "@/api/base44Client";
+import { base44, getLocalStore, setLocalStore } from "@/api/base44Client";
 import { refreshLocalUserFromSupabase } from "@/lib/balanceSync";
 import { getSupabaseUser, listSupabaseUsers, upsertSupabaseUser } from "@/lib/supabaseDb";
 import { computeWalletNet } from "@/lib/transactionHistory";
@@ -45,17 +45,31 @@ export function sanitizeDeviceCache(targetUserId = null) {
           ((prevId && (item.user_id === prevId || item.created_by_id === prevId || item.conversation_id === prevId)) ||
             (prevEmail && (item.user_id === prevEmail || item.created_by_id === prevEmail)));
 
-        ["base44_entity_Message", "base44_entity_Transaction", "base44_entity_WalletTransaction", "base44_entity_Signature"].forEach(
-          (key) => {
-            try {
-              const raw = localStorage.getItem(key);
-              if (!raw) return;
-              const list = JSON.parse(raw);
-              if (!Array.isArray(list)) return;
-              localStorage.setItem(key, JSON.stringify(list.filter((item) => !belongsToPrevUser(item))));
-            } catch (e) {}
+        // "Message"/"Transaction"/"WalletTransaction" dùng backing store TRONG
+        // BỘ NHỚ (không phải localStorage thật nữa - xem MEMORY_ONLY_ENTITIES
+        // trong base44Client.js), nên phải đọc/ghi qua getLocalStore/setLocalStore
+        // (2 hàm này tự biết đúng backing store cho từng entity) thay vì đọc
+        // thẳng key localStorage thô - "Signature" vẫn dùng localStorage thật
+        // nên giữ nguyên cách cũ.
+        ["Message", "Transaction", "WalletTransaction"].forEach((entityName) => {
+          try {
+            const list = getLocalStore(entityName);
+            if (!Array.isArray(list)) return;
+            setLocalStore(entityName, list.filter((item) => !belongsToPrevUser(item)));
+          } catch (e) {}
+        });
+        try {
+          const raw = localStorage.getItem("base44_entity_Signature");
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              localStorage.setItem(
+                "base44_entity_Signature",
+                JSON.stringify(list.filter((item) => !belongsToPrevUser(item)))
+              );
+            }
           }
-        );
+        } catch (e) {}
       }
     }
   } catch (e) {
@@ -240,27 +254,29 @@ export async function syncBackgroundData(userId, userEmail = "") {
       base44.entities.Notification.list("-created_date", 100).catch(() => []),
     ]);
 
-    // Ghi vào Local Cache trên thiết bị mới để truy xuất tức thì
+    // Ghi vào Local Cache trên thiết bị mới để truy xuất tức thì - "WalletTransaction"/
+    // "Transaction"/"Message" dùng backing store TRONG BỘ NHỚ (xem MEMORY_ONLY_ENTITIES
+    // trong base44Client.js), phải đi qua getLocalStore/setLocalStore thay vì
+    // localStorage thô để không tự tạo ra 1 store "mồ côi" song song không ai đọc tới.
     if (wtxs.status === "fulfilled" && Array.isArray(wtxs.value)) {
-      localStorage.setItem("base44_entity_WalletTransaction", JSON.stringify(wtxs.value));
+      setLocalStore("WalletTransaction", wtxs.value);
     }
     if (txs.status === "fulfilled" && Array.isArray(txs.value)) {
-      localStorage.setItem("base44_entity_Transaction", JSON.stringify(txs.value));
+      setLocalStore("Transaction", txs.value);
     }
     if (msgs.status === "fulfilled" && Array.isArray(msgs.value)) {
       // Hợp nhất thay vì ghi đè: msgs.value chỉ là một lần lọc lại CHÍNH
       // cache cục bộ hiện có (không tải gì mới từ máy chủ), nên nếu chạy
       // song song với kênh Supabase Realtime (đang phát tin nhắn mới vào
-      // đúng cùng key localStorage này ở Support.jsx khi hydrate thiết bị
-      // mới), ghi đè thẳng có thể xoá mất tin nhắn vừa đưa vào.
+      // đúng cùng store này ở Support.jsx khi hydrate thiết bị mới), ghi đè
+      // thẳng có thể xoá mất tin nhắn vừa đưa vào.
       try {
-        const raw = localStorage.getItem("base44_entity_Message");
-        const local = raw ? JSON.parse(raw) : [];
-        const merged = new Map(local.map((m) => [m.id, m]));
+        const local = getLocalStore("Message");
+        const merged = new Map((local || []).map((m) => [m.id, m]));
         msgs.value.forEach((m) => merged.set(m.id, { ...(merged.get(m.id) || {}), ...m }));
-        localStorage.setItem("base44_entity_Message", JSON.stringify(Array.from(merged.values())));
+        setLocalStore("Message", Array.from(merged.values()));
       } catch (e) {
-        localStorage.setItem("base44_entity_Message", JSON.stringify(msgs.value));
+        setLocalStore("Message", msgs.value);
       }
       localStorage.setItem("vinclub_msg_update", Date.now().toString());
     }

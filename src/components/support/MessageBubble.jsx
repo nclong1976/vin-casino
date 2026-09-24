@@ -97,7 +97,12 @@ export default function MessageBubble({ message, onRetry }) {
                             src={url}
                             alt="Hình ảnh đính kèm"
                             onClick={() => setPreviewImage(url)}
-                            className="w-full max-h-56 object-cover rounded-xl cursor-pointer hover:scale-[1.02] transition-transform duration-200"
+                            // aspect-[4/3] giữ chỗ khung ảnh CỐ ĐỊNH ngay từ đầu
+                            // (trước khi trình duyệt biết kích thước thật của
+                            // ảnh) - không có dòng này, bong bóng ảnh co gần về
+                            // 0px trong lúc tải rồi "bung ra" đột ngột khi tải
+                            // xong, nhìn như tin nhắn vừa biến mất rồi hiện lại.
+                            className="w-full aspect-[4/3] max-h-56 object-cover rounded-xl cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                             loading="lazy"
                           />
                           <button

@@ -224,13 +224,18 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
               const t = fileType(url);
               if (t === "image") {
                 return (
-                  <div key={i} className="relative group/img overflow-hidden rounded-xl border border-black/10">
+                  <div key={i} className="relative group/img overflow-hidden rounded-xl border border-black/10 bg-gray-100">
                     <img
                       src={url}
                       alt=""
                       loading="lazy"
                       onClick={() => onPreview(url)}
-                      className="w-full max-h-48 object-cover cursor-pointer hover:scale-[1.02] transition-transform"
+                      // aspect-[4/3] giữ chỗ khung ảnh CỐ ĐỊNH ngay từ đầu (trước
+                      // khi trình duyệt biết kích thước thật của ảnh) - không có
+                      // dòng này, bong bóng ảnh co gần về 0px trong lúc tải rồi
+                      // "bung ra" đột ngột khi tải xong, nhìn như tin nhắn vừa
+                      // biến mất rồi hiện lại.
+                      className="w-full aspect-[4/3] max-h-48 object-cover cursor-pointer hover:scale-[1.02] transition-transform"
                     />
                     <button
                       onClick={() => onPreview(url)}
@@ -473,14 +478,6 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       applyMessages(freshItems);
     });
 
-    // Bootstrap from cache immediately to avoid blank loading state
-    const raw = localStorage.getItem("base44_entity_Message");
-    if (raw) {
-      try {
-        applyMessages(JSON.parse(raw));
-      } catch {}
-    }
-
     // Tải danh sách tin nhắn thật từ Supabase - chỉ áp dụng khi có dữ liệu
     // thật trả về (length > 0), KHÔNG BAO GIỜ ghi đè hội thoại đang hiện
     // bằng danh sách rỗng - nếu lượt tải này lỗi/rớt mạng, cứ giữ nguyên
@@ -508,13 +505,15 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     // cùng 1 lớp lỗi; áp dụng lại đúng mẫu đó cho tin nhắn.
     const retryInterval = setInterval(fetchMessages, 20000);
 
+    // Tín hiệu đồng bộ chéo tab (Support.jsx ghi "vinclub_msg_update" mỗi khi
+    // gửi tin) - "Message" giờ dùng backing store TRONG BỘ NHỚ (xem
+    // MEMORY_ONLY_ENTITIES trong base44Client.js) nên KHÔNG còn đọc lại
+    // localStorage["base44_entity_Message"] ở đây nữa (dữ liệu đó có thể
+    // cũ/thiếu nếu tab khác vừa gặp lỗi ghi) - gọi thẳng fetchMessages() (tải
+    // thật từ Postgres) để chắc chắn đúng, tận dụng tín hiệu này chỉ để bắt
+    // kịp NHANH HƠN thay vì đợi tới chu kỳ poll 20s.
     const handleStorage = (e) => {
-      if (e.key === "vinclub_msg_update") {
-        const raw = localStorage.getItem("base44_entity_Message");
-        if (raw) {
-          try { applyMessages(JSON.parse(raw)); } catch {}
-        }
-      }
+      if (e.key === "vinclub_msg_update") fetchMessages();
     };
     window.addEventListener("storage", handleStorage);
 

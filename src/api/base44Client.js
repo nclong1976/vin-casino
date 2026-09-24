@@ -492,7 +492,28 @@ const seedData = {
   News: NEWS_DATA
 };
 
-function getLocalStore(name) {
+// 3 entity này (Message, WalletTransaction, Transaction) dùng backing store
+// TRONG BỘ NHỚ thay vì localStorage thật - cùng 3 entity trong
+// INSTANT_PATCH_ENTITIES bên dưới, _sourceItems() của chúng LUÔN tải thật từ
+// Postgres mỗi lần gọi (không có ý nghĩa "cache" thật sự để tận dụng), nên
+// đổi backing store không mất khả năng gì. Lý do đổi: 1 tin nhắn CSKH có ảnh
+// đính kèm lỡ nhúng base64 (nhánh dự phòng khi upload Storage thất bại, xem
+// imageCompression.js) có thể vượt hẳn hạn mức localStorage của trình duyệt
+// (thường 5-10MB/domain) - setLocalStore() dưới đây NUỐT LỖI QuotaExceededError
+// ÂM THẦM khi ghi thất bại, khiến localStorage kẹt lại dữ liệu CŨ/THIẾU trong
+// khi bộ nhớ (Realtime patch) đã có dữ liệu ĐÚNG - bất kỳ nơi nào lỡ đọc lại
+// localStorage thô (thay vì tin thẳng dữ liệu Realtime) sẽ thấy tin nhắn "biến
+// mất rồi hiện lại" khi lượt tải REST kế tiếp ghi đè lại đúng. Bộ nhớ JS không
+// có hạn mức kiểu này (chỉ giới hạn bởi RAM khả dụng, thực tế không phải vấn đề
+// cho vài trăm tin nhắn/giao dịch) nên loại bỏ hẳn lớp lỗi này.
+const MEMORY_ONLY_ENTITIES = new Set(['Message', 'WalletTransaction', 'Transaction']);
+const memoryOnlyStore = {};
+
+export function getLocalStore(name) {
+  if (MEMORY_ONLY_ENTITIES.has(name)) {
+    if (!memoryOnlyStore[name]) memoryOnlyStore[name] = [];
+    return memoryOnlyStore[name];
+  }
   try {
     const val = localStorage.getItem(`base44_entity_${name}`);
     if (!val) {
@@ -586,7 +607,11 @@ function getLocalStore(name) {
   }
 }
 
-function setLocalStore(name, items) {
+export function setLocalStore(name, items) {
+  if (MEMORY_ONLY_ENTITIES.has(name)) {
+    memoryOnlyStore[name] = items;
+    return;
+  }
   try {
     localStorage.setItem(`base44_entity_${name}`, JSON.stringify(items));
   } catch (e) {}
