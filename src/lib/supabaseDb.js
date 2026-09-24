@@ -667,6 +667,64 @@ export function subscribeAppMaintenanceConfig(callback) {
 }
 
 /**
+ * "Bắt đầu cuộc trò chuyện mới" do Admin chủ động kích hoạt cho 1 khách
+ * (MessagesTab.jsx) - đúng mẫu app_maintenance_config (1 dòng theo key,
+ * Realtime, RLS admin-ghi/khách-đọc-của-chính-mình, xem migration
+ * cskh_session_resets.sql). Support.jsx (phía khách) đọc/subscribe bảng này
+ * rồi tự áp dụng qua applyAdminRequestedReset() (cskhConversation.js).
+ */
+export async function getCskhSessionReset(userId) {
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('cskh_session_resets')
+      .select('requested_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) {
+      console.warn('[SupabaseDb] getCskhSessionReset error:', error.message);
+      return null;
+    }
+    return data?.requested_at || null;
+  } catch (e) {
+    console.warn('[SupabaseDb] getCskhSessionReset exception:', e);
+    return null;
+  }
+}
+
+export async function requestCskhSessionReset(userId, adminName) {
+  if (!userId) return false;
+  try {
+    const { error } = await supabase
+      .from('cskh_session_resets')
+      .upsert({ user_id: userId, requested_at: new Date().toISOString(), requested_by: adminName || null });
+    if (error) {
+      console.warn('[SupabaseDb] requestCskhSessionReset error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[SupabaseDb] requestCskhSessionReset exception:', e);
+    return false;
+  }
+}
+
+export function subscribeCskhSessionReset(userId, callback) {
+  if (!userId) return () => {};
+  return subscribeChannelWithAutoReconnect(() =>
+    supabase
+      .channel(nextChannelName(`public:cskh_session_resets:user_id=eq.${userId}`))
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cskh_session_resets', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (typeof callback === 'function') callback(payload?.new?.requested_at || null);
+        }
+      )
+  );
+}
+
+/**
  * Thông báo đẩy (Web Push) cho quản trị viên - lưu/xoá PushSubscription của
  * THIẾT BỊ NÀY (mỗi trình duyệt/thiết bị 1 dòng, khoá theo endpoint duy
  * nhất) vào bảng admin_push_subscriptions. RLS chỉ cho phép admin đọc/ghi

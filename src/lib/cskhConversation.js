@@ -86,3 +86,26 @@ export function recordLeftSupport(userId) {
   if (!userId) return;
   safeSet(LEFT_AT_KEY_PREFIX + userId, String(Date.now()));
 }
+
+const LAST_APPLIED_RESET_KEY_PREFIX = "cskh_last_applied_reset:";
+
+/**
+ * Admin vừa yêu cầu "Bắt đầu cuộc trò chuyện mới" cho khách này
+ * (requestedAtIso - timestamp từ bảng cskh_session_resets, xem
+ * supabaseDb.js/getCskhSessionReset & subscribeCskhSessionReset). Nếu CHƯA
+ * áp dụng đúng yêu cầu này, sinh conversation_id mới NGAY (bỏ qua hẳn
+ * CSKH_AWAY_THRESHOLD_MS) và đánh dấu đã áp dụng. Trả về conversation_id
+ * mới nếu vừa rotate, null nếu yêu cầu này đã áp dụng rồi (tránh rotate lặp
+ * lại mỗi lần Support.jsx gọi lại hàm này - vd re-render, poll dự phòng).
+ */
+export function applyAdminRequestedReset(userId, requestedAtIso) {
+  if (!userId || !requestedAtIso) return null;
+  const lastAppliedKey = LAST_APPLIED_RESET_KEY_PREFIX + userId;
+  if (safeGet(lastAppliedKey) === requestedAtIso) return null;
+
+  const fresh = newConversationId();
+  safeSet(ACTIVE_KEY_PREFIX + userId, fresh);
+  safeRemove(LEFT_AT_KEY_PREFIX + userId);
+  safeSet(lastAppliedKey, requestedAtIso);
+  return fresh;
+}

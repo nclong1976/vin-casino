@@ -6,13 +6,13 @@ import SupportHeader from "@/components/support/SupportHeader";
 import MessageBubble from "@/components/support/MessageBubble";
 import ChatInput from "@/components/support/ChatInput";
 import { DEFAULT_SUPPORT_STATUS } from "@/constants/supportStatus";
-import { fetchMessagesPage, fetchMessagesPageByUser } from "@/lib/supabaseDb";
+import { fetchMessagesPage, fetchMessagesPageByUser, getCskhSessionReset, subscribeCskhSessionReset } from "@/lib/supabaseDb";
 import { markDelivered, markRead } from "@/lib/messageLifecycle";
 import { subscribeToConnectionStatus } from "@/api/base44Client";
 import { compressImageFile } from "@/lib/imageCompression";
 import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { useIdleSessionTimeout } from "@/hooks/useIdleSessionTimeout";
-import { getActiveConversationId, recordLeftSupport } from "@/lib/cskhConversation";
+import { getActiveConversationId, recordLeftSupport, applyAdminRequestedReset } from "@/lib/cskhConversation";
 
 // Sắp tin nhắn theo created_date, TIE-BREAK bằng id khi trùng giờ (xem ghi
 // chú tại nơi dùng) - dùng chung cho mọi lượt sort trong file này để thứ tự
@@ -98,7 +98,42 @@ export default function Support() {
   // src/lib/cskhConversation.js.
   useEffect(() => {
     if (!user?.id) return;
-    setActiveConversationId(getActiveConversationId(user.id));
+    let cancelled = false;
+
+    // Trước khi chốt conversation_id đang hoạt động, kiểm tra Admin có vừa
+    // yêu cầu "Bắt đầu cuộc trò chuyện mới" cho khách này không (bảng
+    // cskh_session_resets - xem supabaseDb.js) - nếu có và CHƯA áp dụng,
+    // rotate NGAY (bỏ qua hẳn CSKH_AWAY_THRESHOLD_MS) trước khi tính
+    // activeConversationId, để đúng ngay từ lượt mount đầu tiên.
+    const initConversation = async () => {
+      const requestedAt = await getCskhSessionReset(user.id).catch(() => null);
+      if (cancelled) return;
+      if (requestedAt) applyAdminRequestedReset(user.id, requestedAt);
+      setActiveConversationId(getActiveConversationId(user.id));
+    };
+    initConversation();
+
+    // Admin bấm "Bắt đầu cuộc trò chuyện mới" TRONG LÚC khách đang mở sẵn
+    // CSKH - áp dụng NGAY LẬP TỨC (không cần khách tải lại trang), khớp
+    // đúng tinh thần "mượt mà thời gian thực" của cả khung CSKH.
+    const unsubReset = subscribeCskhSessionReset(user.id, (requestedAt) => {
+      if (!requestedAt) return;
+      const fresh = applyAdminRequestedReset(user.id, requestedAt);
+      if (!fresh) return; // yêu cầu này đã áp dụng rồi (vd sự kiện bắn lại)
+      setActiveConversationId(fresh);
+      // Xoá NGAY tin nhắn hội thoại cũ khỏi màn hình - applyMessageList()
+      // merge theo id/created_date, KHÔNG kiểm tra conversation_id, nên nếu
+      // không xoá ở đây, tin cũ sẽ bị giữ lại lẫn vào hội thoại mới qua cơ
+      // chế grace-period.
+      setMessages([]);
+      // Cho phép tạo lại tin chào cho phiên mới - nếu không reset,
+      // claimGreetingOwnership() mãi trả false sau lần đầu, phiên mới sẽ
+      // trống trơn không có tin chào.
+      greetingCreatedRef.current = false;
+      // Cho phép "cuộn lên xem thêm" hoạt động lại cho phiên mới.
+      hasMoreOlderRef.current = true;
+      toast("Quản trị viên vừa bắt đầu 1 cuộc trò chuyện mới với bạn");
+    });
 
     const handleVisibility = () => {
       if (document.visibilityState === "hidden") recordLeftSupport(user.id);
@@ -106,7 +141,7 @@ export default function Support() {
     // "pagehide" ghi lại thêm 1 lần nữa PHÒNG KHI "visibilitychange" không
     // kịp bắn trước khi trình duyệt di động đóng hẳn tab/PWA (vuốt tắt app,
     // hệ điều hành thu hồi tiến trình) - nếu bỏ lỡ cả 2 sự kiện này, lần mở
-    // lại kế tiếp sẽ không có "leftAt" nào để đối chiếu >= 10 phút, khiến
+    // lại kế tiếp sẽ không có "leftAt" nào để đối chiếu >= ngưỡng, khiến
     // getActiveConversationId() không bao giờ rotate được, hội thoại/lịch sử
     // cũ cứ hiện mãi dù đã rời đi rất lâu - đây chỉ THÊM 1 điểm ghi nhận nữa,
     // không đổi ngưỡng/logic rotate nào của cskhConversation.js.
@@ -115,6 +150,8 @@ export default function Support() {
     window.addEventListener("pagehide", handlePageHide);
 
     return () => {
+      cancelled = true;
+      if (typeof unsubReset === "function") unsubReset();
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("pagehide", handlePageHide);
       recordLeftSupport(user.id);
