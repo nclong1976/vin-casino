@@ -27,7 +27,7 @@ describe("getActiveConversationId — chưa từng rời trang", () => {
   });
 });
 
-describe("getActiveConversationId — quay lại TRƯỚC 10 phút", () => {
+describe("getActiveConversationId — quay lại TRƯỚC ngưỡng hết phiên", () => {
   it("vẫn giữ nguyên conversation_id cũ", () => {
     const original = getActiveConversationId(USER_ID);
     recordLeftSupport(USER_ID);
@@ -37,7 +37,7 @@ describe("getActiveConversationId — quay lại TRƯỚC 10 phút", () => {
   });
 });
 
-describe("getActiveConversationId — quay lại SAU >= 10 phút", () => {
+describe("getActiveConversationId — quay lại SAU khi vượt ngưỡng hết phiên", () => {
   it("sinh conversation_id MỚI, khác hẳn id cũ", () => {
     const original = getActiveConversationId(USER_ID);
     recordLeftSupport(USER_ID);

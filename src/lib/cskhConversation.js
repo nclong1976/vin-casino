@@ -2,11 +2,15 @@
  * cskhConversation.js
  * ─────────────────────────────────────────────────────────────────
  * Trước đây conversation_id của khách LUÔN bằng user.id (1 hội thoại suốt
- * đời). Theo thiết kế mới: nếu khách rời trang CSKH (Support.jsx unmount
- * hoặc tab bị ẩn) >= 10 phút rồi quay lại, tự bắt đầu 1 conversation_id MỚI
- * - không xóa gì, hội thoại cũ vẫn nguyên vẹn để Admin tra cứu (xem migration
+ * đời). Theo thiết kế mới: nếu khách rời trang CSKH (Support.jsx unmount,
+ * tab bị ẩn, hoặc đóng hẳn tab/app - xem "pagehide" ở Support.jsx) >=
+ * CSKH_AWAY_THRESHOLD_MS rồi quay lại, tự bắt đầu 1 conversation_id MỚI -
+ * không xóa gì, hội thoại cũ vẫn nguyên vẹn để Admin tra cứu (xem migration
  * cskh_rotating_conversation_id.sql - RLS/trigger đã hỗ trợ conversation_id
- * khác user_id).
+ * khác user_id). Support.jsx chỉ tải tin nhắn theo ĐÚNG conversation_id
+ * đang active nên phiên mới không hiện lại lịch sử phiên cũ phía khách -
+ * trong lúc phiên còn active, tin nhắn vẫn cập nhật realtime bình thường
+ * (không đổi gì ở tầng đó, xem base44Client.js/INSTANT_PATCH_ENTITIES).
  *
  * Lưu trạng thái ở localStorage (theo từng trình duyệt) thay vì cột trên
  * users - đây thuần là hành vi UI ("bắt đầu lại cho gọn"), không phải dữ
@@ -17,7 +21,7 @@
 
 const ACTIVE_KEY_PREFIX = "cskh_active_conversation:";
 const LEFT_AT_KEY_PREFIX = "cskh_left_support_at:";
-export const CSKH_AWAY_THRESHOLD_MS = 10 * 60 * 1000;
+export const CSKH_AWAY_THRESHOLD_MS = 20 * 60 * 1000;
 
 function safeGet(key) {
   try {

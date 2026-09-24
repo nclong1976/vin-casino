@@ -553,7 +553,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   // ── Memoized conversations grouping ─────────────────────────────
   // Nhóm theo user_id THẬT (ổn định vĩnh viễn cho 1 khách) thay vì
   // conversation_id - conversation_id có thể ROTATE qua thời gian (khách
-  // rời trang CSKH ≥10 phút thì lần quay lại sau nhận 1 conversation_id mới,
+  // rời trang CSKH quá lâu (xem CSKH_AWAY_THRESHOLD_MS) thì lần quay lại sau nhận 1 conversation_id mới,
   // xem src/lib/cskhConversation.js - KHÔNG đụng vào file đó). Nhóm theo
   // conversation_id cũ khiến 1 khách đã rotate bị tách thành "khách mới"
   // riêng trong sidebar admin, và khi admin trả lời trong hội thoại đã
@@ -1215,8 +1215,8 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           )}
           {currentMessages.map((m, idx) => {
             // Vạch ngăn cách "khách quay lại sau X" - đối chiếu đúng ngưỡng
-            // cskhConversation.js dùng để tự rotate conversation_id (khách
-            // rời trang CSKH >= 10 phút). Admin trước đây chỉ thấy 1 dòng
+            // cskhConversation.js dùng để tự rotate conversation_id
+            // (CSKH_AWAY_THRESHOLD_MS). Admin trước đây chỉ thấy 1 dòng
             // tin nhắn liền mạch dù thực ra khách đã rời đi rất lâu giữa 2
             // tin, không có cách nào phân biệt "khách chat liên tục" với
             // "khách quay lại sau nhiều ngày" chỉ bằng cách nhìn timestamp
