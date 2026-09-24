@@ -133,8 +133,8 @@ export default function SettingsTab() {
               <h3 className="text-sm font-bold text-black">Thông báo đẩy cho quản trị viên</h3>
               <p className="text-[11px] text-gray-500 max-w-md">
                 Nhận thông báo NGAY trên thiết bị này khi có yêu cầu Nạp/Rút tiền mới, hợp đồng đầu tư
-                vừa được ký, hoặc tin nhắn CSKH mới - kể cả khi đã đóng hẳn trình duyệt, không cần mở
-                ứng dụng.
+                vừa được ký, tin nhắn CSKH mới, hoặc có hội viên mới đăng ký - kể cả khi đã đóng hẳn
+                trình duyệt, không cần mở ứng dụng.
               </p>
               {pushUnsupportedReason === "ios_needs_install" && (
                 <p className="text-[10.5px] text-amber-700 mt-1">
