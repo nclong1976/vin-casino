@@ -3,7 +3,7 @@ import { saveAdminPushSubscription, deleteAdminPushSubscription } from "@/lib/su
 // Khoá VAPID công khai (an toàn để nhúng thẳng vào bundle client - đúng bản
 // chất "public key", không phải secret) - phải khớp đúng VAPID_PUBLIC_KEY
 // cấu hình trong Edge Function Secrets của admin-push-send (xem migration
-// 20260919090000_admin_push_notifications.sql).
+// 20260919102236_admin_push_notifications.sql).
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 // Chuyển chuỗi base64url (định dạng VAPID key chuẩn) sang Uint8Array -
