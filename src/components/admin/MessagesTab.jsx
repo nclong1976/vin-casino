@@ -25,9 +25,10 @@ import {
   Loader2,
   Clock,
   Pencil,
+  RefreshCcw,
 } from "lucide-react";
 import { base44, subscribeToConnectionStatus } from "@/api/base44Client";
-import { listSupabaseUsersPage, subscribeSupabaseUsersTable, fetchMessagesPageByUser } from "@/lib/supabaseDb";
+import { listSupabaseUsersPage, subscribeSupabaseUsersTable, fetchMessagesPageByUser, requestCskhSessionReset } from "@/lib/supabaseDb";
 import { pollWithBackoff } from "@/lib/pollWithBackoff";
 import { deriveMessageStatus, markDelivered, markRead } from "@/lib/messageLifecycle";
 import { compressImageFile } from "@/lib/imageCompression";
@@ -316,6 +317,8 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   const [previewImage, setPreviewImage] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // {type: 'msg'|'conv', target}
+  const [resetSessionConfirm, setResetSessionConfirm] = useState(null); // {userId, userName} - "Bắt đầu cuộc trò chuyện mới"
+  const [resettingSession, setResettingSession] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
@@ -871,6 +874,30 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
     setDeleteConfirm({ type: "conv", target: currentConv });
   }, [isSuperAdmin, currentConv]);
 
+  // "Bắt đầu cuộc trò chuyện mới" cho khách - KHÔNG giới hạn isSuperAdmin
+  // (khác nút Xóa ở trên): hành động này không phá huỷ dữ liệu, lịch sử cũ
+  // vẫn nguyên vẹn để admin tra cứu (chỉ ẩn phía khách) - xem
+  // requestCskhSessionReset() (supabaseDb.js) + applyAdminRequestedReset()
+  // (cskhConversation.js, phía Support.jsx tự đọc/áp dụng).
+  const confirmResetSession = useCallback(() => {
+    if (!currentConv) return;
+    setResetSessionConfirm({ userId: currentConv.id, userName: currentConv.userName });
+  }, [currentConv]);
+
+  const executeResetSession = useCallback(async () => {
+    if (!resetSessionConfirm) return;
+    const { userId, userName } = resetSessionConfirm;
+    setResetSessionConfirm(null);
+    setResettingSession(true);
+    try {
+      const ok = await requestCskhSessionReset(userId, user?.full_name || user?.email || "Admin");
+      if (ok) toast.success(`Đã bắt đầu cuộc trò chuyện mới với ${userName}`);
+      else toast.error("Không thể bắt đầu cuộc trò chuyện mới");
+    } finally {
+      setResettingSession(false);
+    }
+  }, [resetSessionConfirm, user]);
+
   const executeDelete = useCallback(async () => {
     if (!deleteConfirm) return;
     const { type, target } = deleteConfirm;
@@ -1142,6 +1169,14 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
               >
                 {connStatus && connStatus !== "SUBSCRIBED" ? "● Đang kết nối lại..." : "● Realtime"}
               </span>
+              <button
+                onClick={confirmResetSession}
+                disabled={resettingSession}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-[#948154]/10 hover:bg-[#948154]/20 text-[#948154] transition-colors cursor-pointer disabled:opacity-50"
+                title="Bắt đầu cuộc trò chuyện mới cho khách"
+              >
+                {resettingSession ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
+              </button>
               {isSuperAdmin && (
                 <button
                   onClick={confirmDeleteConversation}
@@ -1416,6 +1451,36 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
                   className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[12px] font-bold shadow-sm cursor-pointer transition-colors"
                 >
                   Xóa vĩnh viễn
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reset Session Confirm Modal */}
+        {resetSessionConfirm && (
+          <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+            <div className="bg-white rounded-3xl p-5 max-w-xs w-full shadow-2xl space-y-4 border border-[#948154]/20">
+              <h3 className="text-[13px] font-bold text-black">
+                Bắt đầu cuộc trò chuyện mới với "{resetSessionConfirm.userName}"?
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                Khách sẽ không còn thấy lại cuộc trò chuyện hiện tại nữa (lịch sử
+                vẫn nguyên vẹn ở đây để bạn tra cứu). Nếu khách đang mở sẵn CSKH,
+                màn hình của họ sẽ đổi sang cuộc trò chuyện mới ngay lập tức.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setResetSessionConfirm(null)}
+                  className="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-[12px] font-bold cursor-pointer transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={executeResetSession}
+                  className="flex-1 py-2 rounded-xl bg-[#948154] hover:bg-[#7d6c43] text-white text-[12px] font-bold shadow-sm cursor-pointer transition-colors"
+                >
+                  Bắt đầu mới
                 </button>
               </div>
             </div>
