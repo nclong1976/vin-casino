@@ -160,7 +160,7 @@ export default function Admin() {
       (m) => m.sender === "user" && !knownMessageIdsRef.current.has(m.id)
     );
     msgList.forEach((m) => knownMessageIdsRef.current.add(m.id));
-    if (hasNewUserMessage) triggerSound("notification");
+    if (hasNewUserMessage) triggerSound("message");
   };
 
   useEffect(() => {

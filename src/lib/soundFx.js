@@ -64,6 +64,34 @@ export const playSound = (type = "click", volume = 80) => {
         osc.start(now + idx * 0.08);
         osc.stop(now + idx * 0.08 + 0.25);
       });
+    } else if (type === "message") {
+      // Chuông "tin nhắn đến" cho Admin (CSKH có khách nhắn mới, xem
+      // Admin.jsx/handleMessageUpdate) - 2 tiếng "ting" âm sắc chuông nhỏ,
+      // tắt dần tự nhiên (exponential decay), khác hẳn tiếng "notification"
+      // dùng chung cho các luồng khác (đăng nhập, push banner) để không đổi
+      // hành vi những nơi đó. Tự tổng hợp hoàn toàn bằng Web Audio API -
+      // không dùng file âm thanh có bản quyền của bên thứ ba.
+      const playBell = (freq, startTime, duration) => {
+        const osc = ctx.createOscillator();
+        const harmonic = ctx.createOscillator();
+        const bellGain = ctx.createGain();
+        osc.type = "sine";
+        harmonic.type = "sine";
+        osc.frequency.setValueAtTime(freq, startTime);
+        harmonic.frequency.setValueAtTime(freq * 2.4, startTime);
+        bellGain.gain.setValueAtTime(0, startTime);
+        bellGain.gain.linearRampToValueAtTime(1, startTime + 0.01);
+        bellGain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+        osc.connect(bellGain);
+        harmonic.connect(bellGain);
+        bellGain.connect(masterGain);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+        harmonic.start(startTime);
+        harmonic.stop(startTime + duration);
+      };
+      playBell(987.77, now, 0.35); // B5
+      playBell(1318.51, now + 0.14, 0.45); // E6
     } else if (type === "toggle") {
       const osc = ctx.createOscillator();
       osc.type = "sine";
