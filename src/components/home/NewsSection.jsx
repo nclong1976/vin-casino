@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Clock, Eye } from "lucide-react";
 import NewsDetailModal from "@/components/news/NewsDetailModal";
 import { base44 } from "@/api/base44Client";
-import { sortNewsList } from "@/constants/newsData";
+import { sortNewsList, formatNewsTime } from "@/constants/newsData";
 
 export default function NewsSection() {
   const [newsData, setNewsData] = useState([]);
@@ -71,7 +71,7 @@ export default function NewsSection() {
               <div className="flex items-center justify-between mt-1 pt-2 border-t border-gray-100 text-[8.5px] text-gray-400">
                 <div className="flex items-center gap-1">
                   <Clock className="w-2.5 h-2.5 text-[#948154]" />
-                  <span>{n.time}</span>
+                  <span>{formatNewsTime(n.created_date, n.date)}</span>
                 </div>
                 <span className="flex items-center gap-0.5">
                   <Eye className="w-2.5 h-2.5 text-gray-300" />

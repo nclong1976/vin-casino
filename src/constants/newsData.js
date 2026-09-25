@@ -212,3 +212,27 @@ export function sortNewsList(list) {
     return new Date(b?.created_date || 0) - new Date(a?.created_date || 0);
   });
 }
+
+/**
+ * Nhãn thời gian hiển thị ("X phút/giờ/ngày trước") ở mọi nơi hiển thị Tin
+ * tức (NewsSection.jsx, News.jsx, NewsDetailModal.jsx) - tính TRỰC TIẾP từ
+ * created_date mỗi lần render, thay vì đọc cột "time" lưu sẵn trong DB.
+ * NewsTab.jsx (admin) ghi cột "time" = "Vừa đăng" cố định lúc TẠO bài và
+ * không bao giờ cập nhật lại sau đó, nên nếu hiển thị thẳng cột này mọi bài
+ * đều đứng yên ở "Vừa đăng" mãi mãi bất kể đăng bao lâu rồi - đúng lỗi được
+ * báo. Quá 7 ngày thì hiện hẳn ngày đăng thật (cột "date", admin có thể sửa
+ * riêng) thay vì "X ngày trước" ngày càng dài dòng.
+ */
+export function formatNewsTime(createdDate, fallbackDate) {
+  if (!createdDate) return fallbackDate || "";
+  const diffMs = Date.now() - new Date(createdDate).getTime();
+  if (!Number.isFinite(diffMs)) return fallbackDate || "";
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "Vừa đăng";
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} ngày trước`;
+  return fallbackDate || new Date(createdDate).toLocaleDateString("vi-VN");
+}

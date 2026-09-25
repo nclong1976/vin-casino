@@ -5,7 +5,7 @@ import { Clock, TrendingUp, BookOpen, Search, ArrowRight } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import MarketSearchBar from "@/components/shared/MarketSearchBar";
-import { NEWS_CATEGORIES, sortNewsList } from "@/constants/newsData";
+import { NEWS_CATEGORIES, sortNewsList, formatNewsTime } from "@/constants/newsData";
 import NewsDetailModal from "@/components/news/NewsDetailModal";
 import { base44 } from "@/api/base44Client";
 
@@ -106,7 +106,7 @@ export default function News() {
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400">
                 <div className="flex items-center gap-1">
                   <Clock className="w-2.5 h-2.5 text-[#948154]" />
-                  <span>{featured.time}</span>
+                  <span>{formatNewsTime(featured.created_date, featured.date)}</span>
                   <span>•</span>
                   <span>{featured.author}</span>
                 </div>
@@ -162,7 +162,7 @@ export default function News() {
                   <div className="flex items-center justify-between text-[8.5px] text-gray-400">
                     <span className="flex items-center gap-1">
                       <Clock className="w-2.5 h-2.5 text-gray-300" />
-                      {n.time}
+                      {formatNewsTime(n.created_date, n.date)}
                     </span>
                     <span className="flex items-center gap-0.5 text-[#948154] font-semibold">
                       <BookOpen className="w-2.5 h-2.5" /> Đọc bài

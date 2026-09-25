@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, Eye, Share2, Tag, ChevronLeft, Bookmark, ThumbsUp, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { formatNewsTime } from "@/constants/newsData";
 
 export default function NewsDetailModal({ article, onClose, onSelectArticle }) {
   const [liked, setLiked] = useState(false);
@@ -112,7 +113,7 @@ export default function NewsDetailModal({ article, onClose, onSelectArticle }) {
               <div className="flex items-center gap-2 text-gray-400">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  {article.time}
+                  {formatNewsTime(article.created_date, article.date)}
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-1">
