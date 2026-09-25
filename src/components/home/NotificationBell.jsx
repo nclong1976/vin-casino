@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { getReadNotificationIds, markNotificationsRead } from "@/lib/supabaseDb";
 import { useAuth } from "@/lib/AuthContext";
 import { getProjectTermUnit, getProjectTermDurationDisplayValue, formatScheduleTime, isDailyAccrualCategory, getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
 import NotificationDetailModal from "@/components/home/NotificationDetailModal";
@@ -41,25 +42,10 @@ function timeAgo(dateStr) {
 // admin) đều là 1 dòng DUY NHẤT được CHIA SẺ giữa tất cả người xem - không có
 // user_id riêng. Nếu dùng field is_read trên chính dòng đó, một người bấm
 // đọc sẽ tắt luôn dấu "mới" cho MỌI người khác (Postgres UPDATE 1 dòng, phát
-// qua Realtime tới mọi client). Nên trạng thái "đã đọc" của TỪNG người phải
-// theo dõi CỤC BỘ (localStorage riêng theo user.id), không ghi lên dòng DB.
-const readKey = (userId) => `vinclub_read_broadcast_notifs_${userId}`;
-
-function getReadSet(userId) {
-  try {
-    const raw = localStorage.getItem(readKey(userId));
-    return new Set(raw ? JSON.parse(raw) : []);
-  } catch (e) {
-    return new Set();
-  }
-}
-
-function saveReadSet(userId, set) {
-  try {
-    localStorage.setItem(readKey(userId), JSON.stringify([...set]));
-  } catch (e) {}
-}
-
+// qua Realtime tới mọi client). Nên trạng thái "đã đọc" của TỪNG người được
+// lưu ở bảng riêng notification_reads (user_id, notification_id) - đồng bộ
+// qua Postgres nên đăng nhập ở thiết bị/trình duyệt nào cũng thấy đúng, khác
+// với localStorage trước đây chỉ đúng trên đúng 1 thiết bị đã bấm đọc.
 export default function NotificationBell() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -71,9 +57,11 @@ export default function NotificationBell() {
 
   const fetchNotifs = () => {
     if (!user) return;
-    base44.entities.Notification
-      .list("-created_date", 50)
-      .then((list) => {
+    Promise.all([
+      base44.entities.Notification.list("-created_date", 50),
+      getReadNotificationIds(user.id),
+    ])
+      .then(([list, readSet]) => {
         // Chuông thông báo hiển thị: tin CHUNG toàn hệ thống (không gắn
         // user_id), broadcast tới admin ("admin" là giá trị đặc biệt, không
         // phải id thật), VÀ tin riêng của chính tài khoản này (n.user_id ===
@@ -84,7 +72,6 @@ export default function NotificationBell() {
         // cộng/trừ ví thủ công, dự án đáo hạn tự động) giờ tạo thẳng vào
         // bảng notifications theo user_id để hiện ở đây - khung chat CSKH
         // chỉ còn dùng để trò chuyện trực tiếp giữa admin và khách.
-        const readSet = getReadSet(user.id);
         const userNotifs = (list || [])
           .filter(n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin"))
           .map(n => ({ ...n, is_read: readSet.has(n.id) }));
@@ -132,20 +119,16 @@ export default function NotificationBell() {
   const unread = notifs.filter((n) => !n.is_read).length;
 
   const markAllRead = () => {
-    const unreadList = notifs.filter((n) => !n.is_read);
-    if (unreadList.length === 0) return;
-    const readSet = getReadSet(user.id);
-    unreadList.forEach((n) => readSet.add(n.id));
-    saveReadSet(user.id, readSet);
-    fetchNotifs();
+    const unreadIds = notifs.filter((n) => !n.is_read).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+    setNotifs((prev) => prev.map((n) => (unreadIds.includes(n.id) ? { ...n, is_read: true } : n)));
+    markNotificationsRead(user.id, unreadIds);
   };
 
   const markRead = (n) => {
     if (n.is_read) return;
-    const readSet = getReadSet(user.id);
-    readSet.add(n.id);
-    saveReadSet(user.id, readSet);
-    fetchNotifs();
+    setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+    markNotificationsRead(user.id, [n.id]);
   };
 
   const handleNotifClick = (n) => {

@@ -725,6 +725,49 @@ export function subscribeCskhSessionReset(userId, callback) {
 }
 
 /**
+ * Trạng thái "đã đọc" của TỪNG người dùng cho chuông thông báo
+ * (NotificationBell.jsx) - đồng bộ qua Postgres (bảng notification_reads)
+ * thay vì localStorage riêng từng thiết bị, nên đăng nhập ở thiết bị/trình
+ * duyệt nào cũng thấy đúng trạng thái đã đọc thật (xem migration
+ * notification_reads.sql).
+ */
+export async function getReadNotificationIds(userId) {
+  if (!userId) return new Set();
+  try {
+    const { data, error } = await supabase
+      .from('notification_reads')
+      .select('notification_id')
+      .eq('user_id', userId);
+    if (error) {
+      console.warn('[SupabaseDb] getReadNotificationIds error:', error.message);
+      return new Set();
+    }
+    return new Set((data || []).map((r) => r.notification_id));
+  } catch (e) {
+    console.warn('[SupabaseDb] getReadNotificationIds exception:', e);
+    return new Set();
+  }
+}
+
+export async function markNotificationsRead(userId, notificationIds) {
+  if (!userId || !notificationIds?.length) return false;
+  try {
+    const rows = notificationIds.map((id) => ({ user_id: userId, notification_id: id }));
+    const { error } = await supabase
+      .from('notification_reads')
+      .upsert(rows, { onConflict: 'user_id,notification_id', ignoreDuplicates: true });
+    if (error) {
+      console.warn('[SupabaseDb] markNotificationsRead error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[SupabaseDb] markNotificationsRead exception:', e);
+    return false;
+  }
+}
+
+/**
  * Thông báo đẩy (Web Push) cho quản trị viên - lưu/xoá PushSubscription của
  * THIẾT BỊ NÀY (mỗi trình duyệt/thiết bị 1 dòng, khoá theo endpoint duy
  * nhất) vào bảng admin_push_subscriptions. RLS chỉ cho phép admin đọc/ghi
