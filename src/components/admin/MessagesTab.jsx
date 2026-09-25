@@ -586,6 +586,7 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
       if (m.sender === "user" && !m.read_at) g.unread++;
       if (!g.lastDate || m.created_date >= g.lastDate) {
         g.lastDate = m.created_date;
+        g.lastMessage = m;
         if (m.conversation_id) g.latestConversationId = m.conversation_id;
       }
     });
@@ -1559,7 +1560,14 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
           <p className="text-center text-[11px] text-gray-400 py-6">Không có hội thoại nào ở trạng thái này</p>
         )}
         {filteredConvList.map((c) => {
-          const lastMsg = c.messages[c.messages.length - 1];
+          // c.lastMessage đã được xác định đúng bằng so sánh created_date
+          // trực tiếp trong useMemo ở trên (khớp CHÍNH XÁC với c.lastDate
+          // hiển thị cạnh tên khách) - KHÔNG lấy phần tử cuối mảng c.messages
+          // vì mảng nguồn "messages" tải theo list("-created_date", 300) tức
+          // GIẢM DẦN (tin mới nhất ở ĐẦU mảng), phần tử cuối mảng thực ra là
+          // tin CŨ NHẤT trong cửa sổ đã tải - lấy nhầm khiến preview lệch
+          // hẳn với mốc thời gian đứng cạnh nó.
+          const lastMsg = c.lastMessage;
           const preview = lastMsg?.content || (lastMsg?.attachments?.length > 0 ? "📎 Tệp đính kèm" : "—");
           return (
             <button
