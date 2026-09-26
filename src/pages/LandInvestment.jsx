@@ -24,6 +24,7 @@ import {
 import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import DepositModal from "@/components/projects/DepositModal";
+import ValuationModal from "@/components/projects/ValuationModal";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
@@ -139,6 +140,10 @@ const LEGAL_EXPERTS = [
 export default function LandInvestment() {
   const [properties, setProperties] = useState(DEFAULT_PROPERTIES);
   const [selectedProject, setSelectedProject] = useState(null);
+  // Dự án đang mở màn "Định giá thử" theo TỪNG thẻ (ValuationModal.jsx) -
+  // tách riêng khỏi activeTab (PROJECTS/REASONS/TOOLS) vì đây là 1 popup che
+  // trên trang hiện tại, không phải 1 tab điều hướng riêng.
+  const [valuationProject, setValuationProject] = useState(null);
   const [activeTab, setActiveTab] = useState("PROJECTS"); // "PROJECTS" | "REASONS" | "TOOLS"
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
@@ -415,10 +420,7 @@ export default function LandInvestment() {
                     {/* Actions */}
                     <div className="flex gap-2 pt-1">
                       <button
-                        onClick={() => {
-                          setValProjectIndex(i);
-                          setActiveTab("VALUATION");
-                        }}
+                        onClick={() => setValuationProject({ ...p, title: p.name || p.title })}
                         className="flex-1 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-[10px] font-bold flex items-center justify-center gap-1 transition-all border border-gray-200"
                       >
                         <Calculator className="w-3 h-3 text-[#948154]" /> Định giá thử
@@ -871,6 +873,19 @@ export default function LandInvestment() {
       {/* Investment Deposit Modal */}
       {selectedProject && (
         <DepositModal project={selectedProject} onClose={() => setSelectedProject(null)} />
+      )}
+
+      {/* Định giá thử theo TỪNG dự án (bấm từ thẻ dự án ở tab "PROJECTS") */}
+      {valuationProject && (
+        <ValuationModal
+          key={valuationProject.id}
+          project={valuationProject}
+          onClose={() => setValuationProject(null)}
+          onInvest={(p) => {
+            setValuationProject(null);
+            setSelectedProject(p);
+          }}
+        />
       )}
 
       <BottomNav />
