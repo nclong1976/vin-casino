@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, Calculator, TrendingUp, LineChart, Search, ShieldCheck, Calendar, ArrowRight, Lock } from "lucide-react";
+import { X, MapPin, Calculator, TrendingUp, LineChart, Search, ShieldCheck, Calendar, ArrowRight, Lock, Map as MapIcon } from "lucide-react";
+import PanZoomImage from "@/components/shared/PanZoomImage";
 import {
   getCycleDays,
   formatDailyRatePercent,
@@ -83,6 +84,22 @@ export default function ValuationModal({ project, onClose, onInvest }) {
 
             {/* Nội dung cuộn */}
             <div className="p-4 space-y-3 overflow-y-auto">
+              {/* Bản đồ / phối cảnh dự án - kéo để di chuyển, chụm/lăn chuột
+                  để phóng to xem chi tiết. Dùng thẳng ảnh dự án đã có (chưa
+                  có cột ảnh quy hoạch riêng trong investment_projects) - admin
+                  có thể thay bằng ảnh sơ đồ phân lô/phối cảnh tổng thể thật
+                  bằng cách sửa ảnh dự án ở ProjectsTab.jsx. */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-gray-700 flex items-center gap-1">
+                  <MapIcon className="w-3 h-3 text-[#948154]" /> Bản đồ & phối cảnh dự án
+                </p>
+                <PanZoomImage
+                  src={project.image}
+                  alt={`Bản đồ dự án ${project.name || project.title}`}
+                  className="w-full h-[190px] rounded-xl border border-gray-200"
+                />
+              </div>
+
               {/* Thanh trượt diện tích */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center text-[10px] font-bold">
