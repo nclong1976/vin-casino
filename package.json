@@ -11,7 +11,9 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "test": "vitest run",
-    "build:font-metrics": "node scripts/build-font-metrics.mjs"
+    "build:font-metrics": "node scripts/build-font-metrics.mjs",
+    "sync:shared": "node scripts/sync-shared.mjs",
+    "check:shared": "node scripts/sync-shared.mjs --check"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",
