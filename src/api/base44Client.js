@@ -21,8 +21,16 @@ import {
 
 // Các entity được ghi write-through xuống Postgres (Supabase) như một lớp
 // lưu trữ bền vững bổ sung - xem chi tiết trong supabaseDb.js mục 4.
+// Nhóm văn bản điện tử (CustomDocument, DocumentTemplate + các bảng Giai
+// đoạn 2) trước đây đã có bảng thật + ENTITY_TABLE_MAP nhưng bị sót khỏi 2
+// Set này - văn bản Admin gửi chỉ nằm trong localStorage của máy Admin,
+// khách ở thiết bị khác không bao giờ nhận được. Đưa vào cả 2 Set để đọc/ghi
+// thẳng Postgres (RLS của từng bảng tự giới hạn ai thấy gì).
+const DOCUMENT_ENTITIES = ['CustomDocument', 'DocumentTemplate', 'DocumentLetterhead', 'DocumentCampaign', 'UserGroup'];
+
 const SUPABASE_BACKED_ENTITIES = new Set([
   'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'SavingsGoal', 'SupportConversation',
+  ...DOCUMENT_ENTITIES,
 ]);
 
 // Các entity đọc thẳng từ Supabase thay vì chỉ đọc localStorage riêng của
@@ -46,6 +54,7 @@ const SUPABASE_BACKED_ENTITIES = new Set([
 // từ trước) không bị ảnh hưởng bởi thay đổi này.
 const SUPABASE_READABLE_ENTITIES = new Set([
   'User', 'Message', 'Notification', 'Project', 'BankAccount', 'Signature', 'Transaction', 'AuditLog', 'News', 'WalletTransaction', 'SavingsGoal', 'SupportConversation',
+  ...DOCUMENT_ENTITIES,
 ]);
 
 /**
@@ -138,7 +147,10 @@ const entityNames = [
   'SavingsGoal',
   'SupportConversation',
   'CustomDocument',
-  'DocumentTemplate'
+  'DocumentTemplate',
+  'DocumentLetterhead',
+  'DocumentCampaign',
+  'UserGroup'
 ];
 
 // Seed initial data if empty
