@@ -69,7 +69,11 @@ const QuillBodyEditor = forwardRef(function QuillBodyEditor({ docKey, initialDel
     const range = q.getSelection(true);
     const index = atIndex ?? range?.index ?? q.getLength() - 1;
     q.insertEmbed(index, "variable", key, "user");
-    q.setSelection(index + 1, 0, "user");
+    // Chèn kèm 1 dấu cách và đặt con trỏ sau nó: nếu con trỏ nằm sát chip,
+    // Quill 1.3 đặt chữ gõ tiếp vào "guard" của embed và làm lệch vị trí
+    // (lỗi đã biết - các module mention cũng xử lý đúng cách này).
+    q.insertText(index + 1, " ", "user");
+    q.setSelection(index + 2, 0, "user");
   }, []);
 
   useImperativeHandle(ref, () => ({ insertVariable: (key) => insertVariable(key) }), [insertVariable]);

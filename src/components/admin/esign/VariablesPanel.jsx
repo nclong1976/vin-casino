@@ -37,6 +37,8 @@ function Chip({ v, onInsert }) {
   return (
     <button
       type="button"
+      // Không lấy focus: giữ nguyên con trỏ trong ô đang soạn (tiêu đề/nội dung).
+      onMouseDown={(e) => e.preventDefault()}
       onClick={() => onInsert(v.key)}
       title={`Chèn {{${v.key}}}`}
       className="w-full text-left px-2 py-1 rounded-md hover:bg-[#948154]/10 group"
@@ -77,7 +79,7 @@ export default function VariablesPanel({ variables, onChange, onInsert }) {
           {variables.map((v, i) => (
             <div key={i} className="rounded-lg border border-gray-200 p-2 space-y-1.5">
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => onInsert(normalizeVariableKey(v.key))} className="flex-1 text-left" title="Chèn vào nội dung">
+                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onInsert(normalizeVariableKey(v.key))} className="flex-1 text-left" title="Chèn vào nội dung">
                   <span className="text-[11px] font-semibold text-gray-800">{v.label || v.key}</span>
                   <span className="block text-[9.5px] font-mono text-gray-400">{`{{${normalizeVariableKey(v.key)}}}`}</span>
                 </button>

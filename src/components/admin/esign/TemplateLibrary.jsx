@@ -219,8 +219,13 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
       });
       return;
     }
-    if (mode !== "compose") setMode("compose");
-    requestAnimationFrame(() => editorRef.current?.insertVariable(key));
+    if (mode === "compose") {
+      editorRef.current?.insertVariable(key);
+    } else {
+      // Đang ở bản in: chuyển về Soạn rồi chèn khi editor hiện lại.
+      setMode("compose");
+      requestAnimationFrame(() => editorRef.current?.insertVariable(key));
+    }
   };
 
   const updateSlot = (next) => set({ layout: { ...form.layout, slots: form.layout.slots.map((s) => (s.id === next.id ? next : s)) } });
