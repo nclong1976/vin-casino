@@ -411,3 +411,8 @@ enabled = true
 # declarative_schema_path = "./schemas"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# Ký văn bản điện tử - hàm tự kiểm tra quyền (JWT admin hoặc X-Internal-Secret
+# từ pg_cron), nên tắt verify_jwt để request nội bộ không có JWT vẫn vào được.
+[functions.dispatch-campaign]
+verify_jwt = false
