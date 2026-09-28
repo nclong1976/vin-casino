@@ -1,10 +1,21 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Send, Check, X, Search, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, Send, Check, X, Search, ChevronDown, ChevronUp, LayoutTemplate } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 import CustomDocumentView from "@/components/documents/CustomDocumentView";
+import TemplateManager from "@/components/admin/TemplateManager";
+
+// Thay thế {{MÃ_BIẾN}} trong nội dung mẫu bằng giá trị đã nhập - biến chưa
+// điền vẫn giữ nguyên dạng {{MÃ_BIẾN}} trong bản xem trước để Admin dễ nhận
+// ra còn thiếu, nhưng bị chặn ở validation trước khi cho gửi (xem handleSend).
+function renderTemplateBody(body, values) {
+  return (body || "").replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (match, key) => {
+    const v = values?.[key];
+    return v !== undefined && v !== null && String(v).trim() !== "" ? String(v) : match;
+  });
+}
 
 const STATUS_CONFIG = {
   pending: { label: "Chờ khách ký", color: "bg-blue-100 text-blue-600" },
@@ -25,6 +36,9 @@ const DOCUMENT_TYPE_SUGGESTIONS = ["Hợp đồng", "Giấy uỷ quyền", "Biê
 export default function DocumentsTab() {
   const { user: adminUser } = useAuth();
 
+  // ── Chuyển giữa "Soạn & gửi" và "Quản lý mẫu" ──
+  const [view, setView] = useState("compose"); // 'compose' | 'templates'
+
   // ── Soạn tài liệu mới ──
   const [users, setUsers] = useState([]);
   const [userQuery, setUserQuery] = useState("");
@@ -36,9 +50,36 @@ export default function DocumentsTab() {
   const [sending, setSending] = useState(false);
   const [composeOpen, setComposeOpen] = useState(true);
 
+  // ── Soạn từ mẫu (Giai đoạn 1 - xem doc thiết kế E-Contract) ──
+  const [source, setSource] = useState("scratch"); // 'scratch' | 'template'
+  const [publishedTemplates, setPublishedTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [variableValues, setVariableValues] = useState({});
+
+  const selectedTemplate = useMemo(
+    () => publishedTemplates.find((t) => t.id === selectedTemplateId) || null,
+    [publishedTemplates, selectedTemplateId]
+  );
+
   useEffect(() => {
     base44.entities.User.list("-created_date", 500).then(setUsers).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (source !== "template") return;
+    base44.entities.DocumentTemplate.filter({ status: "published" }, "-created_date", 100)
+      .then(setPublishedTemplates)
+      .catch(() => {});
+  }, [source]);
+
+  const handleSelectTemplate = (tplId) => {
+    setSelectedTemplateId(tplId);
+    const tpl = publishedTemplates.find((t) => t.id === tplId);
+    if (!tpl) return;
+    setVariableValues({});
+    if (!documentType.trim()) setDocumentType(tpl.category || "");
+    if (!title.trim()) setTitle(tpl.name || "");
+  };
 
   const userMatches = useMemo(() => {
     const q = userQuery.trim().toLowerCase();
@@ -57,6 +98,9 @@ export default function DocumentsTab() {
     setDocumentType("");
     setTitle("");
     setContent("");
+    setSource("scratch");
+    setSelectedTemplateId("");
+    setVariableValues({});
   };
 
   const handleSend = async () => {
@@ -68,19 +112,37 @@ export default function DocumentsTab() {
       toast.error("Vui lòng nhập tiêu đề tài liệu");
       return;
     }
-    if (!content.trim()) {
+
+    let finalContent = content.trim();
+    if (source === "template") {
+      if (!selectedTemplate) {
+        toast.error("Vui lòng chọn mẫu tài liệu");
+        return;
+      }
+      const missing = (selectedTemplate.variables || []).filter(
+        (v) => v.required && !String(variableValues[v.key] || "").trim()
+      );
+      if (missing.length > 0) {
+        toast.error(`Vui lòng điền: ${missing.map((v) => v.label).join(", ")}`);
+        return;
+      }
+      finalContent = renderTemplateBody(selectedTemplate.body, variableValues).trim();
+    }
+    if (!finalContent) {
       toast.error("Vui lòng nhập nội dung tài liệu");
       return;
     }
+
     setSending(true);
     try {
       const newDoc = await base44.entities.CustomDocument.create({
         user_id: selectedUser.id,
         title: title.trim(),
         document_type: documentType.trim() || "Văn bản",
-        content: content.trim(),
+        content: finalContent,
         status: "pending",
         created_by: adminUser?.full_name || adminUser?.email || "Admin",
+        ...(source === "template" ? { template_id: selectedTemplate.id, variables_values: variableValues } : {}),
       });
       await base44.entities.Notification.create({
         title: "Bạn có tài liệu mới cần ký",
@@ -161,6 +223,37 @@ export default function DocumentsTab() {
 
   return (
     <div className="space-y-3">
+      {/* ── Chuyển "Soạn & gửi" / "Quản lý mẫu" ── */}
+      <div className="flex gap-2">
+        {[
+          { key: "compose", label: "Soạn & gửi", icon: FileText },
+          { key: "templates", label: "Quản lý mẫu", icon: LayoutTemplate },
+        ].map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={`relative flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11.5px] font-semibold transition-colors cursor-pointer ${
+              view === key ? "text-white" : "bg-white text-gray-500 shadow-sm"
+            }`}
+          >
+            {view === key && (
+              <motion.span
+                layoutId="documents-view-active-bg"
+                className="absolute inset-0 bg-[#948154] rounded-lg"
+                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-1.5">
+              <Icon className="w-3.5 h-3.5" /> {label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {view === "templates" && <TemplateManager />}
+
+      {view === "compose" && (
+      <>
       {/* ── Form soạn tài liệu ── */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         <button
@@ -216,6 +309,56 @@ export default function DocumentsTab() {
               )}
             </div>
 
+            {/* Nguồn nội dung: soạn tự do hoặc dựng từ mẫu đã xuất bản */}
+            <div>
+              <label className="text-[10.5px] font-bold text-gray-700">Nguồn nội dung</label>
+              <div className="mt-1 flex gap-2">
+                {[
+                  { key: "scratch", label: "Soạn tự do" },
+                  { key: "template", label: "Từ mẫu" },
+                ].map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSource(key)}
+                    className={`relative flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                      source === key ? "text-white" : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {source === key && (
+                      <motion.span
+                        layoutId="documents-source-active-bg"
+                        className="absolute inset-0 bg-[#948154] rounded-lg"
+                        transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                      />
+                    )}
+                    <span className="relative z-10">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {source === "template" && (
+              <div>
+                <label className="text-[10.5px] font-bold text-gray-700">Chọn mẫu</label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => handleSelectTemplate(e.target.value)}
+                  className="mt-1 w-full h-10 px-3 rounded-lg border border-gray-300 focus:border-[#948154] outline-none text-[12px] bg-white"
+                >
+                  <option value="">-- Chọn mẫu đã xuất bản --</option>
+                  {publishedTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                {publishedTemplates.length === 0 && (
+                  <p className="mt-1 text-[10.5px] text-gray-400">
+                    Chưa có mẫu nào được xuất bản. Sang tab "Quản lý mẫu" để tạo mẫu trước.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Loại giấy tờ */}
             <div>
               <label className="text-[10.5px] font-bold text-gray-700">Loại giấy tờ</label>
@@ -245,16 +388,46 @@ export default function DocumentsTab() {
             </div>
 
             {/* Nội dung */}
-            <div>
-              <label className="text-[10.5px] font-bold text-gray-700">Nội dung</label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Soạn nội dung tài liệu tại đây..."
-                rows={8}
-                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-[#948154] outline-none text-[12px] leading-relaxed resize-y"
-              />
-            </div>
+            {source === "scratch" ? (
+              <div>
+                <label className="text-[10.5px] font-bold text-gray-700">Nội dung</label>
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="Soạn nội dung tài liệu tại đây..."
+                  rows={8}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-[#948154] outline-none text-[12px] leading-relaxed resize-y"
+                />
+              </div>
+            ) : (
+              selectedTemplate && (
+                <div className="space-y-3">
+                  {(selectedTemplate.variables || []).length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-[10.5px] font-bold text-gray-700">Điền thông tin</label>
+                      {(selectedTemplate.variables || []).map((v) => (
+                        <div key={v.key}>
+                          <label className="text-[10px] text-gray-600">
+                            {v.label} {v.required && <span className="text-red-500">*</span>}
+                          </label>
+                          <input
+                            value={variableValues[v.key] || ""}
+                            onChange={(e) => setVariableValues((vv) => ({ ...vv, [v.key]: e.target.value }))}
+                            className="mt-0.5 w-full h-9 px-3 rounded-lg border border-gray-300 focus:border-[#948154] outline-none text-[12px]"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-[10.5px] font-bold text-gray-700">Xem trước nội dung</label>
+                    <div className="mt-1 whitespace-pre-wrap text-[11.5px] leading-relaxed text-gray-600 bg-gray-50 rounded-lg p-3 max-h-52 overflow-y-auto">
+                      {renderTemplateBody(selectedTemplate.body, variableValues)}
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
 
             <button
               onClick={handleSend}
@@ -356,6 +529,8 @@ export default function DocumentsTab() {
             </div>
           );
         })
+      )}
+      </>
       )}
     </div>
   );

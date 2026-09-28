@@ -137,7 +137,8 @@ const entityNames = [
   'WalletTransaction',
   'SavingsGoal',
   'SupportConversation',
-  'CustomDocument'
+  'CustomDocument',
+  'DocumentTemplate'
 ];
 
 // Seed initial data if empty

@@ -1193,6 +1193,7 @@ const ENTITY_TABLE_MAP = {
   SavingsGoal: 'savings_goals',
   SupportConversation: 'support_conversations',
   CustomDocument: 'custom_documents',
+  DocumentTemplate: 'document_templates',
 };
 
 // Whitelist cột thật của từng bảng - field nào không nằm trong danh sách
@@ -1209,7 +1210,8 @@ const ENTITY_COLUMNS = {
   News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date', 'sort_order'],
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
   SupportConversation: ['id', 'status', 'priority', 'assigned_admin_id', 'assigned_admin_name', 'topic', 'updated_at', 'created_date'],
-  CustomDocument: ['id', 'user_id', 'title', 'document_type', 'content', 'status', 'signature_type', 'signature_content', 'signed_at', 'created_by', 'created_date'],
+  CustomDocument: ['id', 'user_id', 'title', 'document_type', 'content', 'status', 'signature_type', 'signature_content', 'signed_at', 'created_by', 'created_date', 'template_id', 'variables_values'],
+  DocumentTemplate: ['id', 'name', 'category', 'body', 'variables', 'status', 'version', 'created_by', 'created_date', 'updated_date'],
 };
 
 // Cột kiểu timestamptz thật (không phải text) - Postgres từ chối chuỗi rỗng
