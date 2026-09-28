@@ -12,6 +12,7 @@ const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
   withdraw: { label: "Rút tiền", color: "text-orange-500", bg: "bg-orange-50" },
   contract: { label: "Hợp đồng", color: "text-[#948154]", bg: "bg-[#948154]/10" },
+  document: { label: "Tài liệu", color: "text-[#948154]", bg: "bg-[#948154]/10" },
   wallet: { label: "Ví", color: "text-blue-500", bg: "bg-blue-50" },
   admin: { label: "Thông báo", color: "text-orange-500", bg: "bg-orange-50" },
   project: { label: "Dự án", color: "text-blue-500", bg: "bg-blue-50" },
@@ -137,6 +138,11 @@ export default function NotificationBell() {
       const route = CATEGORY_ROUTES[n.extra.project_category] || "/projects";
       setOpen(false);
       navigate(`${route}?highlight=${n.extra.project_id}`);
+      return;
+    }
+    if (n.type === "document" && n.extra?.document_id) {
+      setOpen(false);
+      navigate(`/document/${n.extra.document_id}`);
       return;
     }
     // Thông báo thường (title/content) trước đây bấm vào không có tác dụng

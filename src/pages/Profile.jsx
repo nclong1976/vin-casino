@@ -18,6 +18,7 @@ import PersonalInfoModal from "@/components/profile/PersonalInfoModal";
 import NotificationModal from "@/components/profile/NotificationModal";
 import AppRulesModal from "@/components/profile/AppRulesModal";
 import TransactionList from "@/components/profile/TransactionList";
+import DocumentList from "@/components/profile/DocumentList";
 import WalletTransactionList from "@/components/profile/WalletTransactionList";
 import SignatureList from "@/components/profile/SignatureList";
 import AccountSwitcherModal from "@/components/profile/AccountSwitcherModal";
@@ -32,6 +33,7 @@ export default function Profile() {
 
   const [txs, setTxs] = useState([]);
   const [walletTxs, setWalletTxs] = useState([]);
+  const [docs, setDocs] = useState([]);
   const [sigs, setSigs] = useState([]);
   const [banks, setBanks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,13 +54,14 @@ export default function Profile() {
       setLoading(false);
       return;
     }
-    const [t, wt, s, b] = await Promise.all([
+    const [t, wt, docList, s, b] = await Promise.all([
       base44.entities.Transaction.filter({ user_id: me.id }, "-created_date", 50).catch(() => []),
       base44.entities.WalletTransaction.filter(
         { $or: [{ user_id: me.id }, { created_by_id: me.id }] },
         "-created_date",
         50
       ).catch(() => []),
+      base44.entities.CustomDocument.filter({ user_id: me.id }, "-created_date", 50).catch(() => []),
       base44.entities.Signature.filter({ user_id: me.id }, "-created_date", 20).catch(() => []),
       base44.entities.BankAccount.filter({
         $or: [
@@ -106,6 +109,7 @@ export default function Profile() {
 
     setTxs(t);
     setWalletTxs(wt);
+    setDocs(docList);
     setSigs(s);
     setBanks(finalBanks || []);
     setLoading(false);
@@ -305,6 +309,16 @@ export default function Profile() {
           ) : (
             <TransactionList txs={txs} loading={loading} />
           )}
+        </div>
+
+        {/* Tài liệu & Giấy tờ - hợp đồng/giấy tờ TÙY Ý Admin gửi riêng (bảng
+            custom_documents, xem DocumentsTab.jsx phía admin) - tách khỏi
+            "Đầu tư (Hợp đồng)" ở trên vì không gắn giao dịch đầu tư nào. */}
+        <div>
+          <h2 className="text-[13px] font-bold text-black mb-2 flex items-center gap-1.5">
+            <FileText className="w-4 h-4 text-[#948154]" /> Tài liệu & Giấy tờ
+          </h2>
+          <DocumentList docs={docs} loading={loading} />
         </div>
 
         {/* Digital Signature Management */}

@@ -39,6 +39,7 @@ const Signature = lazy(() => import('./pages/Signature'));
 const Support = lazy(() => import('./pages/Support'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Contract = lazy(() => import('./pages/Contract'));
+const CustomDocument = lazy(() => import('./pages/Document'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Consultation = lazy(() => import('./pages/Consultation'));
 const Benefits = lazy(() => import('./pages/Benefits'));
@@ -215,6 +216,7 @@ const AuthenticatedApp = () => {
         <Route path="/support" element={<Support />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/contract/:id" element={<Contract />} />
+        <Route path="/document/:id" element={<CustomDocument />} />
         <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
         <Route path="/consultation" element={<Consultation />} />
         <Route path="/benefits" element={<Benefits />} />
