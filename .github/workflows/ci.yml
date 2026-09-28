@@ -36,6 +36,24 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
+      # Bộ dàn trang văn bản (src/shared/docLayout) được chép sang
+      # supabase/functions/_shared/docLayout cho Edge Function - bản chép
+      # phải khớp nguồn (chạy npm run sync:shared nếu bước này báo lỗi).
+      - name: Check shared docLayout copy
+        run: npm run check:shared
+
+      - name: Use Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Bảo đảm bản chép chạy được trên runtime của Supabase Edge Functions.
+      - name: Type-check Edge Functions
+        run: deno check supabase/functions/_shared/docLayout/index.ts supabase/functions/dispatch-campaign/index.ts
+
+      - name: Test Edge Functions
+        run: deno test supabase/functions/
+
       - name: Run tests
         run: npm run test
 

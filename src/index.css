@@ -3,6 +3,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
 
+/* Font thân văn bản điện tử - CÙNG file TTF mà Edge Function nhúng vào PDF
+   và cùng bảng độ rộng glyph của bộ dàn trang (src/shared/docLayout), để
+   bản xem trên web khớp bản PDF. Chỉ tải khi trang có văn bản dùng tới. */
+@font-face { font-family: 'Noto Serif Doc'; src: url('/fonts/noto-serif/NotoSerif-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Noto Serif Doc'; src: url('/fonts/noto-serif/NotoSerif-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Noto Serif Doc'; src: url('/fonts/noto-serif/NotoSerif-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Noto Serif Doc'; src: url('/fonts/noto-serif/NotoSerif-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+
 
 
 @tailwind base;

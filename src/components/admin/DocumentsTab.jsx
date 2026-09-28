@@ -68,7 +68,9 @@ export default function DocumentsTab() {
   useEffect(() => {
     if (source !== "template") return;
     base44.entities.DocumentTemplate.filter({ status: "published" }, "-created_date", 100)
-      .then(setPublishedTemplates)
+      // Mẫu soạn bằng trình soạn Giai đoạn 2 (có body_delta) phát hành qua tab
+      // "Văn bản" → "Phát hành"; luồng soạn tay ở đây chỉ dùng mẫu plain-text cũ.
+      .then((tpls) => setPublishedTemplates(tpls.filter((t) => !(t.body_delta?.ops?.length > 0))))
       .catch(() => {});
   }, [source]);
 

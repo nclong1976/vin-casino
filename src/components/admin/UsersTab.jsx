@@ -28,6 +28,7 @@ import { isSuperAdminUser } from "@/lib/isAdminUser";
 import AdminWalletModal from "@/components/admin/AdminWalletModal";
 import UserDetailModal from "@/components/admin/UserDetailModal";
 import BalanceAmount from "@/components/admin/BalanceAmount";
+import AddToGroupButton from "@/components/admin/esign/AddToGroupButton";
 import { toast } from "sonner";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -463,6 +464,9 @@ export default function UsersTab({ onNavigateToChat = null, onNavigateToTransact
                         <ArrowRightLeft className="w-3.5 h-3.5" />
                       </button>
                     )}
+
+                    {/* Thêm vào nhóm người dùng (phát hành văn bản theo nhóm) */}
+                    <AddToGroupButton userId={u.id} addedBy={currentAdmin?.id} />
 
                     {/* View Detail & RBAC */}
                     <button

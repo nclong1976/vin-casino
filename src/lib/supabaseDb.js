@@ -1194,6 +1194,9 @@ const ENTITY_TABLE_MAP = {
   SupportConversation: 'support_conversations',
   CustomDocument: 'custom_documents',
   DocumentTemplate: 'document_templates',
+  DocumentLetterhead: 'document_letterheads',
+  DocumentCampaign: 'document_campaigns',
+  UserGroup: 'user_groups',
 };
 
 // Whitelist cột thật của từng bảng - field nào không nằm trong danh sách
@@ -1210,8 +1213,16 @@ const ENTITY_COLUMNS = {
   News: ['id', 'title', 'excerpt', 'category', 'author', 'image', 'featured', 'tags', 'sections', 'date', 'time', 'views', 'created_date', 'sort_order'],
   SavingsGoal: ['id', 'user_id', 'title', 'icon', 'color', 'target_amount', 'current_amount', 'target_date', 'status', 'created_date', 'completed_at'],
   SupportConversation: ['id', 'status', 'priority', 'assigned_admin_id', 'assigned_admin_name', 'topic', 'updated_at', 'created_date'],
-  CustomDocument: ['id', 'user_id', 'title', 'document_type', 'content', 'status', 'signature_type', 'signature_content', 'signed_at', 'created_by', 'created_date', 'template_id', 'variables_values'],
-  DocumentTemplate: ['id', 'name', 'category', 'body', 'variables', 'status', 'version', 'created_by', 'created_date', 'updated_date'],
+  CustomDocument: ['id', 'user_id', 'title', 'document_type', 'content', 'status', 'signature_type', 'signature_content', 'signed_at', 'created_by', 'created_date', 'template_id', 'variables_values',
+    'campaign_id', 'letterhead_snapshot', 'layout_snapshot', 'rendered_model', 'slot_boxes', 'content_sha256', 'doc_no', 'requires_signature', 'due_at',
+    'delivered_at', 'first_viewed_at', 'signer_name', 'signature_method', 'signature_path', 'signature_meta', 'signed_ip', 'signed_user_agent', 'consent_text',
+    'locked_at', 'pdf_status', 'pdf_path', 'pdf_sha256', 'pdf_generated_at', 'retention_days', 'pdf_expires_at', 'legal_hold'],
+  DocumentTemplate: ['id', 'name', 'category', 'body', 'variables', 'status', 'version', 'created_by', 'created_date', 'updated_date',
+    'letterhead_id', 'title_template', 'body_delta', 'layout', 'requires_signature', 'retention_days'],
+  DocumentLetterhead: ['id', 'name', 'is_default', 'header', 'footer', 'issuer', 'theme', 'status', 'version', 'created_by', 'created_date', 'updated_date'],
+  DocumentCampaign: ['id', 'template_id', 'template_version', 'title', 'campaign_values', 'audience', 'recipient_count', 'due_at', 'retention_days', 'status',
+    'dispatch_cursor', 'scheduled_at', 'created_by', 'created_date', 'dispatched_at'],
+  UserGroup: ['id', 'name', 'description', 'color', 'kind', 'filters', 'member_count', 'created_by', 'created_date', 'updated_date'],
 };
 
 // Cột kiểu timestamptz thật (không phải text) - Postgres từ chối chuỗi rỗng
@@ -1219,7 +1230,7 @@ const ENTITY_COLUMNS = {
 // trong khi UI (nút "Hủy hẹn giờ" trong ProjectsTab.jsx, và projectScheduler.js
 // tự xoá hẹn giờ sau khi đã áp dụng) đều gửi lên đúng chuỗi rỗng để biểu thị
 // "không hẹn giờ" - phải đổi thành null trước khi ghi.
-const TIMESTAMPTZ_FIELDS = new Set(['scheduled_open_at', 'scheduled_close_at']);
+const TIMESTAMPTZ_FIELDS = new Set(['scheduled_open_at', 'scheduled_close_at', 'due_at', 'scheduled_at']);
 
 /** Tách một object thành {cột thật theo whitelist..., extra: {phần còn lại}} */
 function shapeRowForTable(entityName, row) {
