@@ -7,3 +7,5 @@ export * from "./metrics.ts";
 export * from "./layout.ts";
 export * from "./qr.ts";
 export * from "./documentInput.ts";
+export * from "./docNo.ts";
+export * from "./publish.ts";

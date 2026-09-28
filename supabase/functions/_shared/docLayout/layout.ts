@@ -812,18 +812,24 @@ function layoutFooters(pages: PageLayout[], m: Measurer, input: LayoutInput, mar
   }
 }
 
+/** Bố cục đầy đủ: phần thiếu lấy theo DEFAULT_LAYOUT (spec 4.3.1). */
+export function normalizeLayout(layout: TemplateLayout | null | undefined): Required<TemplateLayout> {
+  return {
+    ...DEFAULT_LAYOUT,
+    ...(layout || {}),
+    page: { ...DEFAULT_LAYOUT.page, ...(layout?.page || {}) },
+    signature_zone: { ...DEFAULT_LAYOUT.signature_zone, ...(layout?.signature_zone || {}) },
+    slots: layout?.slots?.length ? layout.slots : DEFAULT_LAYOUT.slots,
+  };
+}
+
 /** Dàn trang toàn bộ văn bản. Hàm thuần: cùng đầu vào luôn cho cùng kết quả. */
 export function layoutDocument(input: LayoutInput): LayoutResult {
   const fonts = input.fonts || NOTO_SERIF;
   const m = new Measurer(fonts);
   const theme = { ...DEFAULT_THEME, ...(input.letterhead?.theme || {}) };
   const margins = { ...DEFAULT_THEME.margins_mm, ...(input.letterhead?.theme?.margins_mm || {}) };
-  const layout: Required<TemplateLayout> = {
-    ...DEFAULT_LAYOUT,
-    ...(input.layout || {}),
-    signature_zone: { ...DEFAULT_LAYOUT.signature_zone, ...(input.layout?.signature_zone || {}) },
-    slots: input.layout?.slots?.length ? input.layout.slots : DEFAULT_LAYOUT.slots,
-  };
+  const layout = normalizeLayout(input.layout);
   const baseSize = Number(theme.font_size_pt) || DEFAULT_THEME.font_size_pt;
   const factor = Number(theme.line_height) || DEFAULT_THEME.line_height;
   const x0 = margins.left;

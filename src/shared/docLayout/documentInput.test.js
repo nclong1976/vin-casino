@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildLayoutInput, isPublishedDocument } from "./documentInput";
 import { layoutDocument } from "./layout";
 import { qrRects } from "./qr";
+import { formatDocNo } from "./docNo";
 
 const doc = {
   id: "doc_1",
@@ -53,5 +54,18 @@ describe("qrRects", () => {
     rects.forEach((r) => {
       expect(r.x + r.w).toBeLessThanOrEqual(moduleCount);
     });
+  });
+});
+
+
+describe("formatDocNo", () => {
+  const at = new Date("2026-12-31T18:00:00Z"); // 01:00 ngày 01/01/2027 giờ VN
+  it("fills the pattern in Vietnam time with a zero-padded sequence", () => {
+    expect(formatDocNo("VC/{{yyyy}}/{{seq}}", 123, at)).toBe("VC/2027/000123");
+    expect(formatDocNo("TB-{{yy}}{{mm}}{{dd}}-{{SEQ}}", 7, at)).toBe("TB-270101-000007");
+  });
+  it("falls back to the default pattern and always keeps the sequence", () => {
+    expect(formatDocNo(null, 5, at)).toBe("VC/2027/000005");
+    expect(formatDocNo("CV/{{yyyy}}", 5, at)).toBe("CV/2027/000005");
   });
 });

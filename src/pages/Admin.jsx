@@ -11,6 +11,7 @@ import {
   LogOut,
   Newspaper,
   MessageSquare,
+  FileSignature,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { countSupabaseUsers } from "@/lib/supabaseDb";
@@ -26,6 +27,7 @@ import NotificationsTab from "@/components/admin/NotificationsTab";
 import InvestmentCasinoTab from "@/components/admin/InvestmentCasinoTab";
 import NewsTab from "@/components/admin/NewsTab";
 import SettingsTab from "@/components/admin/SettingsTab";
+import ESignTab from "@/components/admin/ESignTab";
 
 // "Hợp đồng" đã gộp vào subtab thứ 3 của "Quản lý Hội viên & Giao dịch"
 // (MemberHubTab) - cùng bản chất "hàng chờ duyệt" như subtab Phê duyệt
@@ -56,6 +58,7 @@ const TABS = [
   { id: "projects", label: "Dự án", icon: FolderOpen },
   { id: "news", label: "Tin tức", icon: Newspaper },
   { id: "notifications", label: "Thông báo", icon: Bell },
+  { id: "esign", label: "Văn bản", icon: FileSignature },
 ];
 
 export default function Admin() {
@@ -337,6 +340,9 @@ export default function Admin() {
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "notifications"}>
           <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
+        </AnimatedTabPanel>
+        <AnimatedTabPanel active={tab === "esign"}>
+          <AdminErrorBoundary><ESignTab /></AdminErrorBoundary>
         </AnimatedTabPanel>
       </div>
     </div>
