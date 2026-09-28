@@ -16,6 +16,8 @@
 | D3 | Thời gian lưu trữ PDF | **Tuỳ chỉnh** | Mặc định cấu hình trong Cài đặt, ghi đè theo Mẫu và theo Đợt phát hành; có "Vĩnh viễn" và "Giữ pháp lý" (mục 4.10) |
 | D4 | Nhóm user lưu sẵn | **Có, ngay bản đầu** | Thêm `user_groups` + `user_group_members`, nhóm tĩnh và nhóm động (mục 4.8, 6.5) |
 | D5 | Hạ tầng tạo PDF | **Không dùng Render** (app chỉ có GitHub Pages + Supabase) | PDF tạo trong **Supabase Edge Function** bằng `pdf-lib`, dùng **layout engine dùng chung** giữa trình duyệt và server để đảm bảo WYSIWYG (mục 3.4, 8.4) |
+| D6 | Thời gian lưu trữ mặc định ban đầu | **1 năm (365 ngày)** | Giá trị khởi tạo của `document_settings.config.default_retention_days`; Admin đổi được trong Cài đặt |
+| D7 | Gói Supabase | **Pro** | Chốt ngân sách Edge Function và Storage theo gói Pro (mục 8.6) |
 
 ### 0.2 Cái gì ĐÃ CÓ, cái gì CÒN THIẾU
 
@@ -411,14 +413,14 @@ campaign.retention_days  →  template.retention_days  →  document_settings.co
 ```
 
 - Giá trị được **chụp** vào `custom_documents.retention_days` lúc phát hành; khi ký, `pdf_expires_at = signed_at + retention_days`. Đổi cài đặt sau này **không** ảnh hưởng văn bản đã phát hành. Admin muốn đổi hạn của văn bản cụ thể thì dùng hành động "Gia hạn / Đặt vĩnh viễn" (ghi event).
-- **Cài đặt mặc định** lưu ở bảng mới `document_settings` — 1 dòng `id='default'`, cột `config jsonb` (`{ "default_retention_days": 3650, "purge_notice_days": 7 }`), cùng mẫu kiến trúc với `app_maintenance_config` nhưng **chỉ Admin đọc/ghi**.
+- **Cài đặt mặc định** lưu ở bảng mới `document_settings` — 1 dòng `id='default'`, cột `config jsonb` (`{ "default_retention_days": 365, "purge_notice_days": 7 }` — giá trị khởi tạo 1 năm theo D6), cùng mẫu kiến trúc với `app_maintenance_config` nhưng **chỉ Admin đọc/ghi**.
 - **Lựa chọn trên UI**: 30 ngày · 90 ngày · 1 năm · 5 năm · 10 năm · Vĩnh viễn · Tuỳ chỉnh (nhập số ngày, tối thiểu 1).
 - **Giữ pháp lý (`legal_hold`)**: Admin bật cho từng văn bản đang tranh chấp → không bị xoá dù đã hết hạn.
 - **Xoá khi hết hạn**: pg_cron chạy hằng ngày 02:00 (giờ VN) gọi Edge Function `purge-expired-documents`. Hàm chọn văn bản `pdf_status='ready' AND pdf_expires_at < now() AND NOT legal_hold` theo lô 200, xoá file PDF + PNG chữ ký qua Storage API, đặt `pdf_status='purged'`, `pdf_path=NULL`, ghi event `pdf_purged`. **Giữ lại** dòng `custom_documents` (metadata, `content_sha256`, `pdf_sha256`) và toàn bộ audit trail để vẫn chứng minh được "đã từng ký".
 - Nhắc trước khi xoá: 7 ngày trước hạn, Admin nhận thông báo tổng hợp số văn bản sắp bị xoá (tái dùng hạ tầng admin push).
 - UI user: văn bản đã purge hiện "Bản PDF đã hết thời gian lưu trữ" thay cho nút tải.
 
-> Ghi chú pháp lý: một số loại chứng từ có thời hạn lưu trữ tối thiểu theo luật (ví dụ chứng từ kế toán). Admin chịu trách nhiệm chọn giá trị phù hợp theo loại văn bản; UI hiện cảnh báo khi chọn < 1 năm.
+> Ghi chú pháp lý: một số loại chứng từ có thời hạn lưu trữ tối thiểu theo luật (ví dụ chứng từ kế toán). Admin chịu trách nhiệm chọn giá trị phù hợp theo loại văn bản; UI hiện cảnh báo khi chọn ngắn hơn mặc định 1 năm.
 
 ### 4.11 Migration SQL (bản nháp để review — CHƯA đặt vào `supabase/migrations/`)
 
@@ -569,7 +571,7 @@ CREATE POLICY document_events_select_own_or_admin ON public.document_events
 -- 7) Cấu hình văn bản (1 dòng, admin-only) - cùng mẫu app_maintenance_config
 CREATE TABLE public.document_settings (
   id text PRIMARY KEY DEFAULT 'default',
-  config jsonb NOT NULL DEFAULT '{"default_retention_days": null, "purge_notice_days": 7}'::jsonb,
+  config jsonb NOT NULL DEFAULT '{"default_retention_days": 365, "purge_notice_days": 7}'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO public.document_settings (id) VALUES ('default');
@@ -977,7 +979,7 @@ Content-Type: application/json
   "signer_name": "Nguyễn Văn A",
   "signed_at": "2026-09-28T07:32:05.114Z",
   "pdf_status": "queued",
-  "pdf_expires_at": "2031-09-28T07:32:05.114Z"
+  "pdf_expires_at": "2027-09-28T07:32:05.114Z"
 }
 ```
 
@@ -988,7 +990,7 @@ Mã lỗi: `401 UNAUTHENTICATED`, `403 NOT_OWNER`, `404 NOT_FOUND`, `409 ALREADY
 - **Thư viện**: `pdf-lib` + `@pdf-lib/fontkit` (chạy được trên Deno qua `npm:`), `qrcode` để sinh QR dạng ma trận rồi vẽ bằng hình chữ nhật (không cần canvas).
 - **Quy trình `render-document-pdf`**: đặt `pdf_jobs.status=processing` → tải snapshot → `layoutDocument()` → vẽ từng run/ảnh/slot lên trang A4 → thêm **trang "Chứng nhận ký điện tử"** (mã VB, `doc_no`, `content_sha256`, bảng sự kiện phát hành/xem/ký với thời gian GMT+7, IP, thiết bị, QR tới `/verify/:doc_no`) → metadata PDF (Title, Author=VinClub, Subject=doc_no, Keywords=content_sha256) → tính `pdf_sha256` → upload → cập nhật DB.
 - **Footer** mỗi trang in "Trang x/y" và 8 ký tự đầu của `content_sha256`. Không in `pdf_sha256` vào chính file (hash của chính mình), giá trị này tra trên trang verify.
-- **Giới hạn Supabase Edge Functions cần tôn trọng**: thời gian CPU mỗi request có hạn (cỡ vài giây), bộ nhớ ~256 MB. Biện pháp:
+- **Giới hạn Supabase Edge Functions cần tôn trọng** (số liệu gói Pro ở mục 8.6): thời gian CPU mỗi request rất ngắn và bộ nhớ có hạn. Biện pháp:
   - Cache font và ảnh letterhead trong biến module (tái sử dụng giữa các request của cùng instance).
   - Nhúng font **có subset** (`subset: true`) để file nhỏ; nếu đo thấy vượt ngân sách CPU thì chuyển sang nhúng nguyên font (tốn dung lượng hơn, ít CPU hơn) — quyết định bằng benchmark ở ticket T13.
   - Giới hạn văn bản tối đa 10 trang A4 (chặn ở bước xuất bản mẫu dựa trên preview với dữ liệu mẫu dài nhất, và ở bước phát hành).
@@ -1007,6 +1009,21 @@ Mã lỗi: `401 UNAUTHENTICATED`, `403 NOT_OWNER`, `404 NOT_FOUND`, `409 ALREADY
 | Sau khi hết hạn lưu trữ | file PDF bị xoá, nhưng metadata + hash + audit trail vẫn giữ |
 
 Hướng mở rộng về sau (không nằm trong v1): ký số PDF (PAdES) bằng chứng thư tổ chức và RFC 3161 timestamp.
+
+
+### 8.6 Ngân sách hạ tầng trên Supabase Pro (D7)
+
+Số liệu tham khảo theo tài liệu Supabase tại thời điểm viết. **Đối chiếu lại trang Pricing/Limits của Supabase trước khi triển khai**, vì các giới hạn có thể thay đổi.
+
+| Giới hạn (Pro) | Giá trị tham khảo | Áp dụng vào thiết kế |
+|---|---|---|
+| Thời gian chạy tối đa mỗi lần gọi Edge Function (wall clock) | ~400 s | `dispatch-campaign` xử lý theo lô rồi tự gọi tiếp; mỗi lần gọi đặt trần 300 s để còn dư an toàn |
+| Thời gian CPU mỗi request | ~2 s (không tính thời gian chờ I/O) | `render-document-pdf` chỉ tạo **1 PDF mỗi lần gọi**; cache font trong module; giới hạn 10 trang; benchmark bắt buộc ở T13 (mục tiêu ≤ 1 s CPU cho văn bản 3 trang) |
+| Bộ nhớ Edge Function | ~256 MB | Không nạp cả lô tài liệu vào bộ nhớ; font TTF ~ 0,5–1 MB mỗi kiểu, tối đa 4 kiểu |
+| Storage đi kèm gói | ~100 GB, vượt tính phí theo GB | Ước lượng 1 PDF ≈ 100–200 KB (font subset) + PNG chữ ký ≈ 20 KB. Với lưu trữ mặc định 1 năm (D6), 100 GB đủ cho khoảng **500.000 văn bản đã ký còn hạn cùng lúc** |
+| pg_cron / pg_net | có sẵn | Dùng cho retry PDF (2 phút), phát hành hẹn giờ (1 phút), xoá file hết hạn (hằng ngày 02:00) |
+
+Giám sát: widget dung lượng bucket `signed-documents` trong Cài đặt (6.6) và thông báo Admin khi vượt 80% dung lượng đi kèm gói.
 
 ---
 
@@ -1075,7 +1092,7 @@ Mỗi mục ≈ 1 PR. Ước lượng theo ngày-người (d).
 6. Mọi văn bản vừa phát hành đã có con dấu + chữ ký đại diện ở khung bên phải.
 7. Sửa mẫu sau khi phát hành → văn bản đã gửi **không** đổi.
 8. Admin cố UPDATE `rendered_model` của văn bản đã ký qua API → lỗi `42501`.
-9. Đặt lưu trữ đợt = 30 ngày (mẫu = 5 năm, mặc định = 10 năm) → `pdf_expires_at = signed_at + 30 ngày`.
+9. Đặt lưu trữ đợt = 30 ngày (mẫu = 5 năm, mặc định = 1 năm) → `pdf_expires_at = signed_at + 30 ngày`.
 
 ### User
 10. Nhận thông báo → chạm → mở đúng văn bản; `first_viewed_at` ghi 1 lần.
@@ -1101,5 +1118,7 @@ Mỗi mục ≈ 1 PR. Ước lượng theo ngày-người (d).
 
 ## 12. Câu hỏi còn mở
 
-1. **Giá trị lưu trữ mặc định ban đầu** là bao nhiêu (đề xuất: 10 năm)?
-2. **Gói Supabase** đang dùng (Free/Pro)? Ảnh hưởng dung lượng Storage cho PDF và giới hạn thời gian chạy Edge Function — cần biết để chốt kích thước lô ở 8.2 và ngân sách CPU ở 8.4.
+Tất cả câu hỏi sản phẩm đã được chốt (D1–D7 ở mục 0.1). Hai giá trị trong spec **phải được xác nhận bằng số đo thật** ở ticket T13 trước khi khoá cấu hình:
+
+1. Kích thước lô của `dispatch-campaign` (mặc định 2.000 người/lần gọi).
+2. Nhúng font có subset hay không (theo benchmark CPU ở 8.6).
