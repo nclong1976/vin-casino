@@ -19,13 +19,14 @@ const FONT_FAMILY = "'Noto Serif Doc', 'Noto Serif', serif";
  *   người dùng (width/height px; thiếu thì tự đo khi ảnh tải xong).
  * - interactiveSlots: slotId được phép chạm để ký (hiện khung nét đứt).
  * - onSlotClick(slotId).
+ * - renderPageOverlay(page): phần tử phủ lên từng trang (định vị tuyệt đối).
  */
-export default function LetterheadRenderer({ layout, signatureImages = {}, interactiveSlots = [], onSlotClick, className = "" }) {
+export default function LetterheadRenderer({ layout, signatureImages = {}, interactiveSlots = [], onSlotClick, renderPageOverlay, className = "" }) {
   if (!layout?.pages?.length) return null;
   return (
     <div className={`space-y-3 ${className}`}>
       {layout.pages.map((page) => (
-        <div key={page.index} className="rounded-lg bg-white shadow-sm ring-1 ring-gray-200 overflow-hidden">
+        <div key={page.index} className="relative rounded-lg bg-white shadow-sm ring-1 ring-gray-200 overflow-hidden">
           <svg
             viewBox={`0 0 ${page.width} ${page.height}`}
             className="block w-full h-auto"
@@ -44,6 +45,9 @@ export default function LetterheadRenderer({ layout, signatureImages = {}, inter
               />
             ))}
           </svg>
+          {/* Lớp phủ tuỳ chọn (vd kéo/đổi kích thước khung ký trong trình soạn
+              mẫu) - toạ độ theo % của trang nên tự co giãn theo khung. */}
+          {renderPageOverlay?.(page)}
         </div>
       ))}
     </div>
