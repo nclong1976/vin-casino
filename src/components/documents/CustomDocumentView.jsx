@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { buildLayoutInput, isPublishedDocument, layoutDocument } from "@/shared/docLayout";
+import LetterheadRenderer from "@/components/documents/LetterheadRenderer";
 
 /**
  * Hiển thị 1 tài liệu/hợp đồng TÙY Ý do Admin tự soạn (bảng custom_documents)
@@ -8,8 +10,14 @@ import React from "react";
  * ký tên cho đúng tinh thần văn bản, còn phần nội dung hiển thị nguyên văn
  * (whitespace-pre-wrap) những gì Admin đã gõ.
  */
-export default function CustomDocumentView({ doc, user, signature, adminName }) {
+export default function CustomDocumentView({ doc, user, signature, adminName, onSlotClick }) {
   if (!doc) return null;
+  // Văn bản Giai đoạn 2 (phát hành từ mẫu trên Khung văn bản, đã có snapshot
+  // dàn trang) vẽ bằng bộ dàn trang dùng chung - khớp bản PDF. Văn bản Giai
+  // đoạn 1 (chỉ có content plain-text) giữ nguyên khung hiển thị cũ bên dưới.
+  if (isPublishedDocument(doc)) {
+    return <PublishedDocumentView doc={doc} signature={signature} onSlotClick={onSlotClick} />;
+  }
 
   // signature (đang chọn, CHƯA lưu) ưu tiên hơn chữ ký đã lưu trong doc - để
   // xem trước ngay khi khách đang chọn kiểu ký, trước khi bấm "Ký tài liệu".
@@ -106,5 +114,27 @@ export default function CustomDocumentView({ doc, user, signature, adminName }) 
         </div>
       </div>
     </div>
+  );
+}
+
+function PublishedDocumentView({ doc, signature, onSlotClick }) {
+  const layout = useMemo(() => {
+    const verifyBaseUrl = typeof window !== "undefined" ? `${window.location.origin}${import.meta.env.BASE_URL}verify/` : undefined;
+    return layoutDocument(buildLayoutInput(doc, { verifyBaseUrl }));
+  }, [doc]);
+
+  // Chữ ký đang chọn (chưa lưu) ưu tiên hơn chữ ký đã lưu - xem trước ngay
+  // trong khung trước khi bấm ký. Chỉ ảnh (PNG/data URL) mới đặt vào khung.
+  const active = signature || (doc.signature_content ? { type: doc.signature_type, content: doc.signature_content } : null);
+  const signatureImages = active?.content && active.type !== "typed" ? { recipient: { src: active.content } } : {};
+  const canSign = doc.status === "pending" && !doc.locked_at && !!onSlotClick;
+
+  return (
+    <LetterheadRenderer
+      layout={layout}
+      signatureImages={signatureImages}
+      interactiveSlots={canSign && !signatureImages.recipient ? ["recipient"] : []}
+      onSlotClick={onSlotClick}
+    />
   );
 }
