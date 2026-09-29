@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { COMPANY_SIGNATURE_SEAL_URL } from "@/lib/brandAssets";
+import { COMPANY_SEAL_URL } from "@/lib/brandAssets";
 import { buildLayoutInput, isPublishedDocument, layoutDocument } from "@/shared/docLayout";
 import LetterheadRenderer from "@/components/documents/LetterheadRenderer";
 
@@ -76,11 +76,11 @@ export default function CustomDocumentView({ doc, user, signature, adminName, on
             <p className="text-[10px] font-bold text-black uppercase tracking-wide">BÊN A</p>
             <p className="text-[8px] text-gray-400 h-4 flex items-center justify-center">(Ký, đóng dấu, ghi rõ họ tên)</p>
           </div>
-          <div className="h-20 flex items-center justify-center my-1">
+          <div className="h-16 flex items-center justify-center my-1">
             <img
-              src={COMPANY_SIGNATURE_SEAL_URL}
-              alt="Chữ ký và con dấu Bên A"
-              className="h-20 max-w-full w-auto object-contain"
+              src={COMPANY_SEAL_URL}
+              alt="Con dấu Vinpearl"
+              className="h-14 w-auto object-contain"
             />
           </div>
           <div>
