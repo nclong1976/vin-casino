@@ -14,9 +14,9 @@
     secret đầu để chạy đợt hẹn giờ / chạy tiếp đợt bị ngắt / tạo lại PDF; các
     Edge Function đọc `esign_internal_secret` + `esign_app_public_url` qua RPC
     `esign_runtime_config` (chỉ service role) - xem `_shared/esign/http.ts`.
-  - Không bắt buộc: secret Edge Function `ESIGN_INTERNAL_SECRET` /
-    `APP_PUBLIC_URL` - nếu đặt thì được ưu tiên hơn giá trị trong Vault
-    (`ESIGN_INTERNAL_SECRET` khi đó phải trùng `esign_internal_secret`).
+  - Không bắt buộc: secret Edge Function `APP_PUBLIC_URL` (ưu tiên hơn Vault)
+    và `ESIGN_INTERNAL_SECRET` (chỉ được chấp nhận thêm khi nhận lời gọi; lời
+    gọi đi ra luôn dùng giá trị Vault, nên lệch nhau cũng không gây 403).
 - `sign-document/` (spec mục 8.3): người nhận ký bằng JWT của mình. Kiểm tra
   PNG, hash nội dung, idempotency; ghi chữ ký qua RPC `esign_record_signature`
   rồi gọi `render-document-pdf` ở nền. Ảnh chữ ký lưu ở bucket private
@@ -25,9 +25,10 @@
   `X-Internal-Secret`. Dàn trang bằng `_shared/docLayout` (giống hệt bản web),
   vẽ PDF bằng pdf-lib + trang chứng nhận ký, lưu `<user_id>/<doc_id>.pdf`.
   Job lỗi được pg_cron `esign-kick-pdf-jobs` gọi lại (tối đa 5 lần); Admin có
-  nút "Tạo lại PDF". Font lấy từ `ESIGN_FONT_BASE_URL` (tuỳ chọn), mặc định
+  nút "Tạo lại PDF". Font thử lần lượt `ESIGN_FONT_BASE_URL` (tuỳ chọn),
   `<APP_PUBLIC_URL>/fonts/noto-serif/` - chính file web đang dùng (đã subset
-  bằng `scripts/subset-fonts.py`, bản gốc ở `assets/fonts-src/`).
+  bằng `scripts/subset-fonts.py`, bản gốc ở `assets/fonts-src/`) - rồi bản
+  `public/fonts/noto-serif/` trên nhánh main của repo GitHub.
 - `get-document-pdf/`: signed URL 5 phút cho chủ văn bản hoặc Admin, ghi nhật
   ký `downloaded`.
 - Cả 3 function đặt `verify_jwt = false` trong `config.toml` và tự kiểm tra

@@ -2,20 +2,30 @@
  * Edge Function tạo PDF văn bản đã ký (spec mục 8.4).
  *
  * POST { document_id } với X-Internal-Secret (gọi từ sign-document hoặc
- * pg_cron esign_kick_pdf_jobs). Font lấy từ ESIGN_FONT_BASE_URL (mặc định
- * <APP_PUBLIC_URL>/fonts/noto-serif/ - đúng file web đang dùng; APP_PUBLIC_URL
- * lấy từ secret hoặc Vault, xem runtimeConfig), cache trong bộ nhớ của instance.
+ * pg_cron esign_kick_pdf_jobs). Font thử lần lượt ESIGN_FONT_BASE_URL,
+ * <APP_PUBLIC_URL>/fonts/noto-serif/ (đúng file web đang dùng) rồi bản trong
+ * repo trên GitHub (xem fontBaseUrls), cache trong bộ nhớ của instance.
  */
 
 import { renderDocumentPdf, type DocumentForPdf, type RenderRepo } from "./core.ts";
 import type { PdfFontBytes } from "../_shared/docLayout/pdf.ts";
 import { CORS, isInternalRequest, json, runtimeConfig, serviceClient } from "../_shared/esign/http.ts";
 
-async function fontBaseUrl(): Promise<string> {
+/**
+ * Nguồn font thử lần lượt: ESIGN_FONT_BASE_URL, <APP_PUBLIC_URL>/fonts/noto-serif/,
+ * rồi bản trong repo trên GitHub - để PDF vẫn tạo được khi tên miền app chưa
+ * trỏ DNS / chưa truy cập được từ Supabase.
+ */
+const GITHUB_FONT_BASE = "https://raw.githubusercontent.com/nclong1976/vin-casino/main/public/fonts/noto-serif/";
+
+async function fontBaseUrls(): Promise<string[]> {
+  const bases: string[] = [];
   const explicit = Deno.env.get("ESIGN_FONT_BASE_URL");
-  if (explicit) return explicit.replace(/\/?$/, "/");
-  const { appPublicUrl } = await runtimeConfig();
-  return appPublicUrl ? `${appPublicUrl}/fonts/noto-serif/` : "";
+  if (explicit) bases.push(explicit.replace(/\/?$/, "/"));
+  const { appPublicUrl } = await runtimeConfig().catch(() => ({ appPublicUrl: "" }));
+  if (appPublicUrl) bases.push(`${appPublicUrl}/fonts/noto-serif/`);
+  bases.push(GITHUB_FONT_BASE);
+  return [...new Set(bases)];
 }
 const FONT_FILES: Record<keyof PdfFontBytes, string> = {
   regular: "NotoSerif-Regular.ttf",
@@ -34,12 +44,18 @@ async function fetchBytes(url: string, timeoutMs = 10_000): Promise<Uint8Array> 
 
 function loadFonts(): Promise<PdfFontBytes> {
   fontCache ??= (async () => {
-    const base = await fontBaseUrl();
-    if (!base) throw new Error("Chưa cấu hình APP_PUBLIC_URL hoặc ESIGN_FONT_BASE_URL");
-    const entries = await Promise.all(
-      Object.entries(FONT_FILES).map(async ([k, f]) => [k, await fetchBytes(base + f)] as const),
-    );
-    return Object.fromEntries(entries) as unknown as PdfFontBytes;
+    const errors: string[] = [];
+    for (const base of await fontBaseUrls()) {
+      try {
+        const entries = await Promise.all(
+          Object.entries(FONT_FILES).map(async ([k, f]) => [k, await fetchBytes(base + f, 8_000)] as const),
+        );
+        return Object.fromEntries(entries) as unknown as PdfFontBytes;
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+    throw new Error(`Không tải được font: ${errors.join("; ")}`);
   })().catch((e) => {
     fontCache = null;
     throw e;
