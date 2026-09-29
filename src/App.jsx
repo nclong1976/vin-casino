@@ -49,6 +49,7 @@ const LuckyWheel = lazy(() => import('./pages/LuckyWheel'));
 const Resort = lazy(() => import('./pages/Resort'));
 const News = lazy(() => import('./pages/News'));
 const MembershipCard = lazy(() => import('./pages/MembershipCard'));
+const Verify = lazy(() => import('./pages/Verify'));
 
 // Fallback hiển thị trong lúc chờ tải chunk của trang đích - cùng giao
 // diện với splash loader lúc xác thực (ngắn, không nháy layout lạ).
@@ -83,6 +84,17 @@ const AuthenticatedApp = () => {
   // hưởng/không tốn round-trip tải cờ này). Cũng phải gọi vô điều kiện
   // trước mọi early-return, cùng lý do như trên.
   const appMaintenance = useAppMaintenance(!!user && !isAdminUser(user));
+  const location = useLocation();
+
+  // Trang kiểm tra văn bản (mở từ mã QR) công khai: không cần đăng nhập,
+  // không qua video giới thiệu / bảo trì / nhánh admin.
+  if (location.pathname === '/verify' || location.pathname.startsWith('/verify/')) {
+    return (
+      <Routes>
+        <Route path="/verify/*" element={<Verify />} />
+      </Routes>
+    );
+  }
 
   // Splash luxury loader
   if (isLoadingPublicSettings || isLoadingAuth) {
