@@ -56,20 +56,69 @@ export async function countAudience(audience) {
   return unwrap(await supabase.rpc("count_campaign_audience", { p_audience: audience }));
 }
 
-/** Gọi Edge Function dispatch-campaign (JWT admin hiện tại được gửi kèm). */
-export async function invokeDispatch(campaignId) {
-  const { data, error } = await supabase.functions.invoke("dispatch-campaign", { body: { campaign_id: campaignId } });
+/** Lỗi từ Edge Function kèm mã (vd ALREADY_SIGNED) và HTTP status. */
+export class EsignFunctionError extends Error {
+  constructor(message, code, status) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
+async function invokeFunction(name, body) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) {
     let detail = error.message;
+    let code;
     try {
-      const body = await error.context?.json?.();
-      if (body?.error) detail = body.error;
+      const payload = await error.context?.json?.();
+      code = payload?.error;
+      detail = payload?.message || payload?.error || detail;
     } catch {
       // giữ message gốc
     }
-    throw new Error(detail);
+    throw new EsignFunctionError(detail, code, error.context?.status);
   }
   return data;
+}
+
+/** Gọi Edge Function dispatch-campaign (JWT admin hiện tại được gửi kèm). */
+export async function invokeDispatch(campaignId) {
+  return invokeFunction("dispatch-campaign", { campaign_id: campaignId });
+}
+
+// ─── Người nhận ký ─────────────────────────────────────────────────────────
+
+/** Ký văn bản qua Edge Function sign-document. Lỗi có .code (ALREADY_SIGNED...). */
+export async function signDocument(body) {
+  return invokeFunction("sign-document", body);
+}
+
+/** Link tải PDF đã ký (signed URL 5 phút). */
+export async function getDocumentPdfUrl(documentId) {
+  return invokeFunction("get-document-pdf", { document_id: documentId });
+}
+
+export async function markDocumentViewed(documentId) {
+  return unwrap(await supabase.rpc("mark_document_viewed", { p_document_id: documentId }));
+}
+
+/** Kiểm tra công khai theo số văn bản (+ SHA-256 của file nếu có). */
+export async function verifyDocument(docNo, sha256 = null) {
+  return unwrap(await supabase.rpc("verify_document", { p_doc_no: docNo, p_sha256: sha256 }));
+}
+
+export async function requeueDocumentPdf(documentId) {
+  return unwrap(await supabase.rpc("esign_requeue_pdf", { p_document_id: documentId }));
+}
+
+/** Theo dõi 1 văn bản (pdf_status đổi sang 'ready'...). Trả hàm huỷ. */
+export function watchDocument(documentId, onChange) {
+  const channel = supabase
+    .channel(`esign-doc-${documentId}-${Math.random().toString(36).slice(2, 8)}`)
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "custom_documents", filter: `id=eq.${documentId}` }, (p) => onChange(p.new))
+    .subscribe();
+  return () => supabase.removeChannel(channel);
 }
 
 export async function revokeCampaign(campaignId, onlyUnsigned = true) {
