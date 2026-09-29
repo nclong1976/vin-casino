@@ -416,3 +416,12 @@ enabled = true
 # từ pg_cron), nên tắt verify_jwt để request nội bộ không có JWT vẫn vào được.
 [functions.dispatch-campaign]
 verify_jwt = false
+
+[functions.render-document-pdf]
+verify_jwt = false
+
+[functions.sign-document]
+verify_jwt = false
+
+[functions.get-document-pdf]
+verify_jwt = false
