@@ -7,12 +7,16 @@
 - `dispatch-campaign/`: phát hành một đợt văn bản theo lô (spec mục 8.2).
   Logic thuần ở `core.ts` (test: `deno test supabase/functions/`), truy cập
   Supabase ở `repo.ts`. Cần cấu hình:
-  - Secret Edge Function `ESIGN_INTERNAL_SECRET` (chuỗi ngẫu nhiên) và
-    `APP_PUBLIC_URL` (gốc URL app, cho mã QR /verify).
-  - Vault: `esign_functions_base_url` (`https://<project>.supabase.co/functions/v1`)
-    và `esign_internal_secret` (trùng `ESIGN_INTERNAL_SECRET`) để pg_cron chạy
-    đợt hẹn giờ / chạy tiếp đợt bị ngắt. Thiếu 2 secret này thì chỉ phát hành
-    ngay khi Admin bấm, và đợt quá lớn phải bấm "Chạy tiếp".
+  - Supabase Vault (tạo bằng SQL, không đưa giá trị vào git):
+    `esign_functions_base_url` (`https://<project>.supabase.co/functions/v1`),
+    `esign_internal_secret` (chuỗi ngẫu nhiên) và `esign_app_public_url`
+    (gốc URL app, cho mã QR /verify và tải font khi tạo PDF). pg_cron dùng 2
+    secret đầu để chạy đợt hẹn giờ / chạy tiếp đợt bị ngắt / tạo lại PDF; các
+    Edge Function đọc `esign_internal_secret` + `esign_app_public_url` qua RPC
+    `esign_runtime_config` (chỉ service role) - xem `_shared/esign/http.ts`.
+  - Không bắt buộc: secret Edge Function `ESIGN_INTERNAL_SECRET` /
+    `APP_PUBLIC_URL` - nếu đặt thì được ưu tiên hơn giá trị trong Vault
+    (`ESIGN_INTERNAL_SECRET` khi đó phải trùng `esign_internal_secret`).
 - `sign-document/` (spec mục 8.3): người nhận ký bằng JWT của mình. Kiểm tra
   PNG, hash nội dung, idempotency; ghi chữ ký qua RPC `esign_record_signature`
   rồi gọi `render-document-pdf` ở nền. Ảnh chữ ký lưu ở bucket private
@@ -29,6 +33,5 @@
 - Cả 3 function đặt `verify_jwt = false` trong `config.toml` và tự kiểm tra
   JWT / secret. Triển khai:
   `supabase functions deploy sign-document render-document-pdf get-document-pdf`.
-  Dùng chung secret `ESIGN_INTERNAL_SECRET`, `APP_PUBLIC_URL` và 2 secret Vault
-  ở trên.
+  Dùng chung cấu hình Vault ở trên.
 - `purge-expired-documents` được thêm ở sprint sau (spec mục 10).

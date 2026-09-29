@@ -7,8 +7,8 @@
  *
  * Secrets cần cấu hình cho Edge Function:
  * - SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (Supabase cấp sẵn)
- * - ESIGN_INTERNAL_SECRET: chuỗi ngẫu nhiên, trùng vault secret 'esign_internal_secret'
- * - APP_PUBLIC_URL (tuỳ chọn): gốc URL của app, dùng cho mã QR /verify trên văn bản
+ * - ESIGN_INTERNAL_SECRET, APP_PUBLIC_URL (tuỳ chọn): thiếu thì đọc từ Vault
+ *   ('esign_internal_secret', 'esign_app_public_url') - xem runtimeConfig.
  *
  * verify_jwt tắt trong supabase/config.toml vì request nội bộ không có JWT;
  * hàm tự kiểm tra quyền như trên.
@@ -17,12 +17,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { runDispatch } from "./core.ts";
 import { supabaseRepo } from "./repo.ts";
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const INTERNAL_SECRET = Deno.env.get("ESIGN_INTERNAL_SECRET") ?? "";
-const APP_PUBLIC_URL = (Deno.env.get("APP_PUBLIC_URL") ?? "").replace(/\/+$/, "");
+import { ANON_KEY, SUPABASE_URL, fireAndForget, isInternalRequest, runtimeConfig, serviceClient } from "../_shared/esign/http.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +41,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  const internal = !!INTERNAL_SECRET && req.headers.get("X-Internal-Secret") === INTERNAL_SECRET;
+  const internal = await isInternalRequest(req);
   if (!internal && !(await isAdminRequest(req))) return json({ error: "Forbidden" }, 403);
 
   let campaignId = "";
@@ -57,22 +52,13 @@ Deno.serve(async (req) => {
   }
   if (!campaignId) return json({ error: "campaign_id is required" }, 400);
 
-  const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-  const result = await runDispatch(supabaseRepo(db), campaignId, {
-    verifyBaseUrl: APP_PUBLIC_URL ? `${APP_PUBLIC_URL}/verify/` : undefined,
+  const { appPublicUrl } = await runtimeConfig().catch(() => ({ appPublicUrl: "" }));
+  const result = await runDispatch(supabaseRepo(serviceClient()), campaignId, {
+    verifyBaseUrl: appPublicUrl ? `${appPublicUrl}/verify/` : undefined,
   });
 
   // Còn người nhận: tự gọi tiếp ở nền (không cần chờ cron) nếu có secret nội bộ.
-  if (result.outcome === "continue" && INTERNAL_SECRET) {
-    const next = fetch(`${SUPABASE_URL}/functions/v1/dispatch-campaign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Internal-Secret": INTERNAL_SECRET },
-      body: JSON.stringify({ campaign_id: campaignId }),
-    }).catch(() => undefined);
-    // deno-lint-ignore no-explicit-any
-    const runtime = (globalThis as any).EdgeRuntime;
-    if (runtime?.waitUntil) runtime.waitUntil(next);
-  }
+  if (result.outcome === "continue") fireAndForget("dispatch-campaign", { campaign_id: campaignId });
 
   const status = result.outcome === "failed" ? 422 : 200;
   return json(result, status);

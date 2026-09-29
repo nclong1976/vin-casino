@@ -5,8 +5,8 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 export const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 export const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 export const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-export const INTERNAL_SECRET = Deno.env.get("ESIGN_INTERNAL_SECRET") ?? "";
-export const APP_PUBLIC_URL = (Deno.env.get("APP_PUBLIC_URL") ?? "").replace(/\/+$/, "");
+const ENV_INTERNAL_SECRET = Deno.env.get("ESIGN_INTERNAL_SECRET") ?? "";
+const ENV_APP_PUBLIC_URL = Deno.env.get("APP_PUBLIC_URL") ?? "";
 
 export const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -22,8 +22,44 @@ export function serviceClient(): SupabaseClient {
   return createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 }
 
-export function isInternalRequest(req: Request): boolean {
-  return !!INTERNAL_SECRET && req.headers.get("X-Internal-Secret") === INTERNAL_SECRET;
+export interface RuntimeConfig {
+  /** Secret cho lời gọi nội bộ (pg_cron / function gọi function). */
+  internalSecret: string;
+  /** Gốc URL của app, không có "/" cuối - cho mã QR /verify và tải font. */
+  appPublicUrl: string;
+}
+
+let configCache: Promise<RuntimeConfig> | null = null;
+
+/**
+ * Cấu hình chạy: ưu tiên secret Edge Function (ESIGN_INTERNAL_SECRET,
+ * APP_PUBLIC_URL); thiếu thì đọc từ Supabase Vault qua RPC
+ * esign_runtime_config (chỉ service role gọi được) - để không phải đặt
+ * secret trùng lặp ở 2 nơi. Cache theo instance; lỗi thì không cache.
+ */
+export function runtimeConfig(): Promise<RuntimeConfig> {
+  configCache ??= (async () => {
+    let internalSecret = ENV_INTERNAL_SECRET;
+    let appPublicUrl = ENV_APP_PUBLIC_URL;
+    if (!internalSecret || !appPublicUrl) {
+      const { data, error } = await serviceClient().rpc("esign_runtime_config");
+      if (error) throw new Error(`Không đọc được cấu hình từ Vault: ${error.message}`);
+      internalSecret ||= String(data?.internal_secret ?? "");
+      appPublicUrl ||= String(data?.app_public_url ?? "");
+    }
+    return { internalSecret, appPublicUrl: appPublicUrl.replace(/\/+$/, "") };
+  })().catch((e) => {
+    configCache = null;
+    throw e;
+  });
+  return configCache;
+}
+
+export async function isInternalRequest(req: Request): Promise<boolean> {
+  const header = req.headers.get("X-Internal-Secret");
+  if (!header) return false;
+  const { internalSecret } = await runtimeConfig().catch(() => ({ internalSecret: "" }));
+  return !!internalSecret && header === internalSecret;
 }
 
 /** Người dùng đang đăng nhập (từ JWT) + client mang JWT đó; null nếu không hợp lệ. */
@@ -44,12 +80,16 @@ export function clientIp(req: Request): string | null {
 
 /** Gọi 1 Edge Function khác ở nền (không chờ), giữ instance sống tới khi xong. */
 export function fireAndForget(fn: string, body: unknown): void {
-  if (!INTERNAL_SECRET) return;
-  const p = fetch(`${SUPABASE_URL}/functions/v1/${fn}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Internal-Secret": INTERNAL_SECRET },
-    body: JSON.stringify(body),
-  }).catch(() => undefined);
+  const p = runtimeConfig()
+    .then(({ internalSecret }) => {
+      if (!internalSecret) return;
+      return fetch(`${SUPABASE_URL}/functions/v1/${fn}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Internal-Secret": internalSecret },
+        body: JSON.stringify(body),
+      });
+    })
+    .catch(() => undefined);
   // deno-lint-ignore no-explicit-any
   const runtime = (globalThis as any).EdgeRuntime;
   if (runtime?.waitUntil) runtime.waitUntil(p);
