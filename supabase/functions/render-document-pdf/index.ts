@@ -3,15 +3,20 @@
  *
  * POST { document_id } với X-Internal-Secret (gọi từ sign-document hoặc
  * pg_cron esign_kick_pdf_jobs). Font lấy từ ESIGN_FONT_BASE_URL (mặc định
- * <APP_PUBLIC_URL>/fonts/noto-serif/ - đúng file web đang dùng), cache trong
- * bộ nhớ của instance.
+ * <APP_PUBLIC_URL>/fonts/noto-serif/ - đúng file web đang dùng; APP_PUBLIC_URL
+ * lấy từ secret hoặc Vault, xem runtimeConfig), cache trong bộ nhớ của instance.
  */
 
 import { renderDocumentPdf, type DocumentForPdf, type RenderRepo } from "./core.ts";
 import type { PdfFontBytes } from "../_shared/docLayout/pdf.ts";
-import { APP_PUBLIC_URL, CORS, isInternalRequest, json, serviceClient } from "../_shared/esign/http.ts";
+import { CORS, isInternalRequest, json, runtimeConfig, serviceClient } from "../_shared/esign/http.ts";
 
-const FONT_BASE_URL = (Deno.env.get("ESIGN_FONT_BASE_URL") ?? (APP_PUBLIC_URL ? `${APP_PUBLIC_URL}/fonts/noto-serif/` : "")).replace(/\/?$/, "/");
+async function fontBaseUrl(): Promise<string> {
+  const explicit = Deno.env.get("ESIGN_FONT_BASE_URL");
+  if (explicit) return explicit.replace(/\/?$/, "/");
+  const { appPublicUrl } = await runtimeConfig();
+  return appPublicUrl ? `${appPublicUrl}/fonts/noto-serif/` : "";
+}
 const FONT_FILES: Record<keyof PdfFontBytes, string> = {
   regular: "NotoSerif-Regular.ttf",
   bold: "NotoSerif-Bold.ttf",
@@ -28,10 +33,11 @@ async function fetchBytes(url: string, timeoutMs = 10_000): Promise<Uint8Array> 
 }
 
 function loadFonts(): Promise<PdfFontBytes> {
-  if (!FONT_BASE_URL || FONT_BASE_URL === "/") return Promise.reject(new Error("Chưa cấu hình APP_PUBLIC_URL hoặc ESIGN_FONT_BASE_URL"));
   fontCache ??= (async () => {
+    const base = await fontBaseUrl();
+    if (!base) throw new Error("Chưa cấu hình APP_PUBLIC_URL hoặc ESIGN_FONT_BASE_URL");
     const entries = await Promise.all(
-      Object.entries(FONT_FILES).map(async ([k, f]) => [k, await fetchBytes(FONT_BASE_URL + f)] as const),
+      Object.entries(FONT_FILES).map(async ([k, f]) => [k, await fetchBytes(base + f)] as const),
     );
     return Object.fromEntries(entries) as unknown as PdfFontBytes;
   })().catch((e) => {
@@ -90,7 +96,7 @@ function repo(): RenderRepo {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (!isInternalRequest(req)) return json({ error: "Forbidden" }, 403);
+  if (!(await isInternalRequest(req))) return json({ error: "Forbidden" }, 403);
 
   let documentId = "";
   try {
@@ -100,8 +106,9 @@ Deno.serve(async (req) => {
   }
   if (!documentId) return json({ error: "document_id is required" }, 400);
 
+  const { appPublicUrl } = await runtimeConfig().catch(() => ({ appPublicUrl: "" }));
   const result = await renderDocumentPdf(repo(), documentId, {
-    verifyBaseUrl: APP_PUBLIC_URL ? `${APP_PUBLIC_URL}/verify/` : undefined,
+    verifyBaseUrl: appPublicUrl ? `${appPublicUrl}/verify/` : undefined,
   });
   return json(result, result.outcome === "failed" ? 500 : 200);
 });
