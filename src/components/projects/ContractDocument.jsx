@@ -1,5 +1,4 @@
 import React from "react";
-import { COMPANY_SEAL_URL } from "@/lib/brandAssets";
 import { TERM_RATE_LABEL } from "@/lib/investmentTerms";
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -135,7 +134,7 @@ export default function ContractDocument({
 
           <div className="h-16 flex items-center justify-center my-1">
             <img
-              src={COMPANY_SEAL_URL}
+              src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/0b8fe1b71_image-Photoroom8.png"
               alt="Con dấu Vinpearl"
               className="h-14 w-auto object-contain"
             />
