@@ -21,7 +21,7 @@ const outDir = path.join(root, "supabase/functions/_shared/docLayout");
 
 // Gói npm được bộ dàn trang dùng -> specifier cho Deno (khớp version trong package.json).
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const NPM_PACKAGES = ["qrcode-generator"];
+const NPM_PACKAGES = ["qrcode-generator", "pdf-lib", "@pdf-lib/fontkit"];
 const npmSpecifier = (name) => {
   const version = (pkg.dependencies?.[name] || pkg.devDependencies?.[name] || "").replace(/^[\^~]/, "");
   if (!version) throw new Error(`${name} không có trong package.json`);

@@ -49,10 +49,10 @@ jobs:
 
       # Bảo đảm bản chép chạy được trên runtime của Supabase Edge Functions.
       - name: Type-check Edge Functions
-        run: deno check supabase/functions/_shared/docLayout/index.ts supabase/functions/dispatch-campaign/index.ts
+        run: deno check supabase/functions/_shared/docLayout/index.ts supabase/functions/*/index.ts
 
       - name: Test Edge Functions
-        run: deno test supabase/functions/
+        run: deno test --allow-read supabase/functions/
 
       - name: Run tests
         run: npm run test

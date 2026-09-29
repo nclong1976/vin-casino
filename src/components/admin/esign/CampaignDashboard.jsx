@@ -3,7 +3,7 @@ import { ArrowLeft, BarChart3, Bell, Download, ExternalLink, Play, RefreshCw, Sh
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/lib/supabase";
-import { campaignProgress, invokeDispatch, listCampaignDocuments, remindCampaign, revokeCampaign, setDocumentRetention } from "@/lib/esignApi";
+import { campaignProgress, getDocumentPdfUrl, invokeDispatch, listCampaignDocuments, remindCampaign, requeueDocumentPdf, revokeCampaign, setDocumentRetention } from "@/lib/esignApi";
 import { toCsv } from "@/lib/csv";
 import { formatVnDateTime } from "@/shared/docLayout";
 import RetentionSelect, { retentionLabel } from "./RetentionSelect";
@@ -222,6 +222,15 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
     }
   };
 
+  const openPdf = async (d) => {
+    try {
+      const { url } = await getDocumentPdfUrl(d.id);
+      window.location.assign(url); // link có Content-Disposition: attachment → tải về, không rời trang
+    } catch (e) {
+      toast.error(e.message || "Không tải được PDF");
+    }
+  };
+
   const approveSigned = () =>
     run(async () => {
       const { data, error } = await supabase.from("custom_documents").update({ status: "approved" }).eq("campaign_id", campaign.id).eq("status", "signed").select("id");
@@ -343,6 +352,21 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
                     {d.legal_hold && <Badge color="orange">Giữ pháp lý</Badge>}
                   </td>
                   <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                    {d.pdf_status === "ready" && (
+                      <button type="button" disabled={busy} onClick={() => openPdf(d)} className="text-[10.5px] text-[#7d6c45] hover:underline mr-2">
+                        PDF
+                      </button>
+                    )}
+                    {d.signed_at && ["failed", "none"].includes(d.pdf_status) && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => run(() => requeueDocumentPdf(d.id), () => "Đã xếp hàng tạo lại PDF")}
+                        className="text-[10.5px] text-red-600 hover:underline mr-2"
+                      >
+                        Tạo lại PDF
+                      </button>
+                    )}
                     <button type="button" onClick={() => setRetentionFor(d)} className="text-[10.5px] text-[#7d6c45] hover:underline mr-2">
                       Lưu trữ
                     </button>

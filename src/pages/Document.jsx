@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { isPublishedDocument } from "@/shared/docLayout";
+import PublishedDocumentPage from "@/components/documents/PublishedDocumentPage";
 import { useParams, Link } from "react-router-dom";
 import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
@@ -17,17 +19,23 @@ export default function Document() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const load = useCallback(
+    () =>
+      base44.entities.CustomDocument.get(id)
+        .then((d) => {
+          setDoc(d);
+          if (d.signature_content) {
+            setSignature({ type: d.signature_type, content: d.signature_content });
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false)),
+    [id],
+  );
+
   useEffect(() => {
-    base44.entities.CustomDocument.get(id)
-      .then((d) => {
-        setDoc(d);
-        if (d.signature_content) {
-          setSignature({ type: d.signature_type, content: d.signature_content });
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [id]);
+    load();
+  }, [load]);
 
   const signed = doc?.status !== "pending";
 
@@ -69,6 +77,18 @@ export default function Document() {
         <Link to="/profile" className="text-[11px] text-[#948154]">
           Quay lại
         </Link>
+      </main>
+    );
+
+  // Văn bản Giai đoạn 2 (phát hành từ Khung văn bản): ký qua Edge Function.
+  if (isPublishedDocument(doc))
+    return (
+      <main className="relative w-full min-h-screen bg-[#f5f5f5] overflow-x-hidden font-heading">
+        <PageHeader title={doc.doc_no ? `Văn bản ${doc.doc_no}` : "Văn bản"} headerClassName="bg-white border-b border-gray-100" />
+        <div className="max-w-4xl mx-auto px-4 py-4 pb-24">
+          <PublishedDocumentPage doc={doc} reload={load} />
+        </div>
+        <BottomNav />
       </main>
     );
 
