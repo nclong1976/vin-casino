@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ImageUp, Loader2, PenLine, Type, Bookmark } from "lucide-react";
-import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer as DrawerPrimitive } from "vaul";
+import { Drawer, DrawerDescription, DrawerFooter, DrawerHeader, DrawerOverlay, DrawerPortal, DrawerTitle } from "@/components/ui/drawer";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Slider } from "@/components/ui/slider";
 import { base44 } from "@/api/base44Client";
 import { removeBackgroundFromFile } from "@/lib/imageBackground";
 import DrawSignaturePad from "@/components/signature/DrawSignaturePad";
@@ -144,11 +144,15 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
 
   return (
     <Drawer open={open} onOpenChange={(v) => !busy && onOpenChange?.(v)} shouldScaleBackground={false}>
-      <DrawerContent className="max-h-[92vh] font-heading">
-        <div className="mx-auto w-full max-w-lg overflow-y-auto">
+      <DrawerPortal>
+        {/* z-[60]: nằm trên thanh điều hướng dưới (z-50) của app. */}
+        <DrawerOverlay className="z-[60] bg-black/60" />
+        <DrawerPrimitive.Content className="fixed inset-x-0 bottom-0 z-[60] flex max-h-[92vh] flex-col rounded-t-2xl bg-white font-heading shadow-2xl outline-none">
+        <div className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-gray-300" />
+        <div className="mx-auto w-full max-w-lg overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <DrawerHeader className="pb-2 text-left">
-            <DrawerTitle className="text-[15px]">Ký văn bản</DrawerTitle>
-            <DrawerDescription className="text-[11px]">Chữ ký sẽ được đặt vào khung ký của bạn và khoá cùng văn bản.</DrawerDescription>
+            <DrawerTitle className="text-[15px] text-gray-900">Ký văn bản</DrawerTitle>
+            <DrawerDescription className="text-[11px] text-gray-500">Chữ ký sẽ được đặt vào khung ký của bạn và khoá cùng văn bản.</DrawerDescription>
           </DrawerHeader>
 
           <div className="px-4 space-y-3">
@@ -214,7 +218,16 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
                     <Preview src={upload.dataUrl} loading={!upload.dataUrl && !uploadError} />
                     <div>
                       <p className="text-[10px] text-gray-500 mb-1">Độ xoá nền: {threshold}</p>
-                      <Slider min={120} max={250} step={5} value={[threshold]} onValueChange={([v]) => setThreshold(v)} />
+                      <input
+                        type="range"
+                        min={120}
+                        max={250}
+                        step={5}
+                        value={threshold}
+                        onChange={(e) => setThreshold(Number(e.target.value))}
+                        aria-label="Độ xoá nền"
+                        className="w-full accent-[#948154]"
+                      />
                     </div>
                   </>
                 )}
@@ -282,13 +295,13 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
 
             {tab !== "saved" && (
               <label className="flex items-center gap-2 text-[11px] text-gray-600">
-                <Checkbox checked={saveForLater} onCheckedChange={(v) => setSaveForLater(v === true)} />
+                <Checkbox checked={saveForLater} onCheckedChange={(v) => setSaveForLater(v === true)} className="border-gray-400 data-[state=checked]:bg-[#948154] data-[state=checked]:border-[#948154] data-[state=checked]:text-white" />
                 Lưu chữ ký này để dùng lần sau
               </label>
             )}
 
             <label className="flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-[11.5px] text-amber-900">
-              <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5 border-amber-700" />
+              <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5 border-amber-700 data-[state=checked]:bg-[#948154] data-[state=checked]:border-[#948154] data-[state=checked]:text-white" />
               <span>{CONSENT_TEXT}</span>
             </label>
 
@@ -310,7 +323,8 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
             </button>
           </DrawerFooter>
         </div>
-      </DrawerContent>
+        </DrawerPrimitive.Content>
+      </DrawerPortal>
     </Drawer>
   );
 }

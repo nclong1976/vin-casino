@@ -107,6 +107,8 @@ const DrawSignaturePad = forwardRef(function DrawSignaturePad({ color = "#16100b
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           aria-label="Khung vẽ chữ ký"
+          // Bảng ký là vaul Drawer: không để nét vẽ bị hiểu là vuốt đóng bảng.
+          data-vaul-no-drag=""
           className="block w-full h-44 rounded-xl border-2 border-dashed border-gray-300 bg-white touch-none cursor-crosshair"
         />
         {count === 0 && (
