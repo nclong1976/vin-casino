@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { markDocumentsDelivered } from "@/lib/esignApi";
 import { deviceInfo } from "@/lib/esignStatus";
+import DocumentPushOptIn from "./DocumentPushOptIn";
 
 const STATUS_CONFIG = {
   pending: { label: "Chờ ký", icon: Clock, className: "bg-blue-50 text-blue-700 border-blue-200/60" },
@@ -81,6 +82,7 @@ export default function DocumentList({ docs = [], loading = false }) {
 
   return (
     <div className="space-y-2 font-heading">
+      {docs.some((d) => d.rendered_model) && <DocumentPushOptIn hasPending={counts.todo > 0} />}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1" role="tablist">
         {TABS.map((t) => (
           <button

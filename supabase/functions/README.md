@@ -35,4 +35,11 @@
   JWT / secret. Triển khai:
   `supabase functions deploy sign-document render-document-pdf get-document-pdf`.
   Dùng chung cấu hình Vault ở trên.
+- `user-push-send/` (spec hợp đồng mục 0.2 Q2): chỉ nhận `X-Internal-Secret`.
+  Trigger `esign_push_document_notifications` (bảng `notifications`, loại
+  `document`) gom thông báo văn bản mới/nhắc/gia hạn/thu hồi/hết hạn rồi gọi
+  hàm này qua pg_net; hàm gửi Web Push tới thiết bị trong
+  `user_push_subscriptions` và xoá thiết bị đã huỷ. Dùng chung secret
+  `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` với `admin-push-send`. Logic thuần ở
+  `core.ts` (có test).
 - `purge-expired-documents` được thêm ở sprint sau (spec mục 10).

@@ -1,4 +1,5 @@
 import { saveAdminPushSubscription, deleteAdminPushSubscription } from "@/lib/supabaseDb";
+import { supabase } from "@/lib/supabase";
 
 // Khoá VAPID công khai (an toàn để nhúng thẳng vào bundle client - đúng bản
 // chất "public key", không phải secret) - phải khớp đúng VAPID_PUBLIC_KEY
@@ -61,8 +62,8 @@ export async function getCurrentPushSubscription() {
   }
 }
 
-/** Xin quyền + đăng ký nhận thông báo đẩy cho thiết bị này, lưu xuống Supabase. */
-export async function subscribeAdminPush(adminUserId) {
+/** Xin quyền + lấy (hoặc tạo) PushSubscription của thiết bị này. */
+async function ensureSubscription() {
   const reason = getPushUnsupportedReason();
   if (reason === "ios_needs_install") {
     throw new Error("Trên iPhone/iPad, cần \"Thêm vào Màn hình chính\" (nút Chia sẻ trong Safari) rồi mở app từ biểu tượng đó trước khi bật thông báo.");
@@ -84,7 +85,12 @@ export async function subscribeAdminPush(adminUserId) {
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
     });
   }
+  return subscription;
+}
 
+/** Xin quyền + đăng ký nhận thông báo đẩy cho thiết bị này, lưu xuống Supabase. */
+export async function subscribeAdminPush(adminUserId) {
+  const subscription = await ensureSubscription();
   const json = subscription.toJSON();
   await saveAdminPushSubscription({
     endpoint: json.endpoint,
@@ -104,4 +110,36 @@ export async function unsubscribeAdminPush() {
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe().catch(() => {});
   await deleteAdminPushSubscription(endpoint).catch(() => {});
+}
+
+// ─── Người dùng: thông báo văn bản cần ký (spec hợp đồng mục 3.1) ─────────
+
+/** Thiết bị này đã bật thông báo đẩy cho tài khoản hiện tại chưa. */
+export async function isUserPushEnabled() {
+  if (!isPushSupported() || typeof Notification === "undefined" || Notification.permission !== "granted") return false;
+  const subscription = await getCurrentPushSubscription();
+  if (!subscription) return false;
+  const { data } = await supabase.from("user_push_subscriptions").select("endpoint").eq("endpoint", subscription.endpoint).maybeSingle();
+  return !!data;
+}
+
+export async function subscribeUserPush() {
+  const subscription = await ensureSubscription();
+  const json = subscription.toJSON();
+  const { error } = await supabase.rpc("save_user_push_subscription", {
+    p_endpoint: json.endpoint,
+    p_p256dh: json.keys?.p256dh,
+    p_auth: json.keys?.auth,
+    p_user_agent: navigator.userAgent,
+  });
+  if (error) throw new Error(error.message);
+  return subscription;
+}
+
+/** Tắt thông báo văn bản trên thiết bị này (giữ đăng ký trình duyệt cho admin nếu có). */
+export async function unsubscribeUserPush() {
+  const subscription = await getCurrentPushSubscription();
+  if (!subscription) return;
+  const { error } = await supabase.from("user_push_subscriptions").delete().eq("endpoint", subscription.endpoint);
+  if (error) throw new Error(error.message);
 }

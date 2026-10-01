@@ -9,6 +9,7 @@ import { formatVnDateTime } from "@/shared/docLayout";
 import RetentionSelect, { retentionLabel } from "./RetentionSelect";
 import { DOC_STATUS, OPEN_STATUSES, STATUS_ORDER, displayStatus } from "@/lib/esignStatus";
 import { Badge, Button, DocStatusBadge, EmptyState, Section } from "./ui";
+import { describeFilters } from "./AudienceFilters";
 
 const CAMPAIGN_STATUS = {
   draft: { label: "Lỗi / nháp", color: "red" },
@@ -39,6 +40,7 @@ function audienceSummary(a, groupsById) {
   if (!a) return "—";
   if (a.type === "user" || a.type === "users") return `${(a.user_ids || []).length} người chọn tay`;
   if (a.type === "all") return "Tất cả hội viên";
+  if (a.type === "filter") return `Lọc: ${describeFilters(a.filters)}${a.exclude_user_ids?.length ? ` -${a.exclude_user_ids.length} người` : ""}`;
   const names = (a.group_ids || []).map((id) => groupsById[id]?.name || "nhóm đã xoá");
   return [names.join(", "), a.include_user_ids?.length ? `+${a.include_user_ids.length} người` : "", a.exclude_user_ids?.length ? `-${a.exclude_user_ids.length} người` : ""].filter(Boolean).join(" ");
 }

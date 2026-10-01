@@ -4,7 +4,8 @@
 // cache anything; every request just passes straight through to the network.
 self.addEventListener("fetch", () => {});
 
-// Thông báo đẩy (Web Push) cho quản trị viên - nhận được ngay cả khi đã
+// Thông báo đẩy (Web Push) cho quản trị viên và người dùng (văn bản cần ký,
+// xem supabase/functions/user-push-send) - nhận được ngay cả khi đã
 // đóng hẳn trình duyệt/tab (xem src/lib/pushNotifications.js và Edge
 // Function supabase/functions/admin-push-send). Payload luôn là JSON
 // {title, body, url} do server tự dựng (không đọc trực tiếp từ Postgres ở
@@ -16,13 +17,18 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { body: event.data ? event.data.text() : "" };
   }
-  const title = data.title || "VinClub Admin";
+  const title = data.title || "VinClub";
   const options = {
     body: data.body || "",
     icon: "/logo.png",
     badge: "/logo.png",
     data: { url: data.url || "/admin" },
   };
+  // Thông báo văn bản (user-push-send) có tag theo văn bản: nhắc mới thay thông báo cũ.
+  if (data.tag) {
+    options.tag = data.tag;
+    options.renotify = true;
+  }
   event.waitUntil(self.registration.showNotification(title, options));
 });
 

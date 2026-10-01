@@ -74,7 +74,7 @@ export default function Verify() {
         <div className="text-center space-y-1">
           <FileSearch className="w-8 h-8 mx-auto text-[#948154]" />
           <h1 className="text-[17px] font-bold text-gray-900">Kiểm tra văn bản điện tử</h1>
-          <p className="text-[11.5px] text-gray-500">Nhập số văn bản (in trên văn bản, cạnh mã QR) để kiểm tra tính xác thực.</p>
+          <p className="text-[11.5px] text-gray-500">Nhập số văn bản (in trên văn bản, cạnh mã QR) để kiểm tra văn bản có trên hệ thống VinClub hay không.</p>
         </div>
 
         <form onSubmit={submit} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
@@ -120,7 +120,7 @@ function VerifyResult({ result }) {
         <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0" />
         <div className="text-[12px] text-rose-800">
           <p className="font-semibold">Không tìm thấy văn bản</p>
-          <p className="mt-0.5">Số văn bản không tồn tại trong hệ thống. Văn bản có thể không phải do đơn vị phát hành.</p>
+          <p className="mt-0.5">Số văn bản không có trên hệ thống VinClub. Văn bản có thể không phải do VinClub phát hành.</p>
         </div>
       </div>
     );
@@ -137,7 +137,7 @@ function VerifyResult({ result }) {
     <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
       <div className="flex items-center gap-2 text-green-700">
         <ShieldCheck className="w-6 h-6" />
-        <p className="text-[13px] font-semibold">Văn bản có trong hệ thống</p>
+        <p className="text-[13px] font-semibold">Văn bản có trên hệ thống VinClub</p>
       </div>
       <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 text-[12px]">
         {rows.map(([k, v]) => (

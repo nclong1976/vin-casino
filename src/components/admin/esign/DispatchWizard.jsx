@@ -11,6 +11,7 @@ import QuillBodyEditor from "./QuillBodyEditor";
 import RetentionSelect, { retentionLabel } from "./RetentionSelect";
 import { usePublishedPreview } from "./preview";
 import { Badge, Button, EmptyState, Field, Section, TextInput, Toggle } from "./ui";
+import AudienceFilters, { EMPTY_FILTERS, cleanFilters, describeFilters } from "./AudienceFilters";
 
 const STEPS = ["Chọn mẫu", "Nội dung", "Người nhận", "Xem lại & gửi"];
 const CONFIRM_THRESHOLD = 50;
@@ -101,7 +102,10 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
   const [campaignValues, setCampaignValues] = useState({});
   const [dueDate, setDueDate] = useState("");
 
-  const [mode, setMode] = useState("one"); // one | groups | all
+  const [mode, setMode] = useState("one"); // one | filter | groups | all
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filterSample, setFilterSample] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [singleUser, setSingleUser] = useState(null);
   const [groupIds, setGroupIds] = useState([]);
   const [includeUsers, setIncludeUsers] = useState([]);
@@ -116,6 +120,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
   const [reminderDays, setReminderDays] = useState([3, 1, 0]);
   const [autoExpire, setAutoExpire] = useState(true);
   const [allowDownload, setAllowDownload] = useState(true);
+  const [pushOn, setPushOn] = useState(true);
   const [scheduleMode, setScheduleMode] = useState("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [confirmText, setConfirmText] = useState("");
@@ -128,8 +133,10 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
       base44.entities.DocumentLetterhead.list("-created_date", 100),
       base44.entities.UserGroup.list("-created_date", 500),
       base44.entities.User.list("-created_date", 1000),
+      base44.entities.Project.list("-created_date", 500).catch(() => []),
     ])
-      .then(([tpls, lhs, grps, us]) => {
+      .then(([tpls, lhs, grps, us, prjs]) => {
+        setProjects(prjs);
         setTemplates(tpls.filter((t) => t.body_delta?.ops?.length > 0));
         setLetterheads(lhs);
         setGroups(grps);
@@ -161,12 +168,13 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
   const audience = useMemo(() => {
     const per = Object.keys(perRecipient).length ? { per_recipient_values: perRecipient } : {};
     if (mode === "one") return singleUser ? { type: "user", user_ids: [singleUser.id], ...per } : null;
+    if (mode === "filter") return { type: "filter", filters: cleanFilters(filters), exclude_user_ids: excludeUsers.map((u) => u.id), ...per };
     if (mode === "groups")
       return groupIds.length || includeUsers.length
         ? { type: "groups", group_ids: groupIds, include_user_ids: includeUsers.map((u) => u.id), exclude_user_ids: excludeUsers.map((u) => u.id), ...per }
         : null;
     return { type: "all", exclude_locked: excludeLocked, ...per };
-  }, [mode, singleUser, groupIds, includeUsers, excludeUsers, excludeLocked, perRecipient]);
+  }, [mode, singleUser, filters, groupIds, includeUsers, excludeUsers, excludeLocked, perRecipient]);
 
   const audienceKey = JSON.stringify(audience ? { ...audience, per_recipient_values: undefined } : null);
   useEffect(() => {
@@ -190,10 +198,14 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
   // Người để xem thử ở bước cuối: người được chọn/thêm tay trước, rồi vài hội viên bất kỳ.
   const previewPeople = useMemo(() => {
     if (mode === "one") return singleUser ? [singleUser] : [];
+    if (mode === "filter") {
+      const byId = new Map(users.map((u) => [u.id, u]));
+      return filterSample.map((s) => byId.get(s.id)).filter((u) => u && !excludeUsers.some((x) => x.id === u.id)).slice(0, 3);
+    }
     const pool = [...includeUsers, ...users.filter((u) => u.role !== "admin" && !excludeUsers.some((x) => x.id === u.id))];
     const seen = new Set();
     return pool.filter((u) => !seen.has(u.id) && seen.add(u.id)).slice(0, 3);
-  }, [mode, singleUser, includeUsers, users, excludeUsers]);
+  }, [mode, singleUser, includeUsers, users, excludeUsers, filterSample]);
   const previewPerson = previewPeople[previewIndex] || previewPeople[0] || null;
 
   const { preview } = usePublishedPreview({
@@ -248,10 +260,31 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
       matched.push(u);
     }
     setPerRecipient(next);
+    if (mode === "filter") return { type: "filter", filters: cleanFilters(filters), exclude_user_ids: excludeUsers.map((u) => u.id), ...per };
     if (mode === "groups") {
       setIncludeUsers((prev) => [...prev, ...matched.filter((u) => !prev.some((p) => p.id === u.id))]);
     }
     setCsvReport({ matched: matched.length, notFound, columns: cols.filter(Boolean) });
+  };
+
+  const saveFilterAsGroup = async () => {
+    const name = window.prompt("Tên nhóm động mới:", "");
+    if (!name?.trim()) return;
+    try {
+      const clean = cleanFilters(filters);
+      await base44.entities.UserGroup.create({
+        name: name.trim(),
+        description: describeFilters(clean, Object.fromEntries(projects.map((p) => [p.id, p]))),
+        kind: "dynamic",
+        filters: clean,
+        member_count: count ?? 0,
+        created_by: adminUser?.email || null,
+      });
+      setGroups(await base44.entities.UserGroup.list("-created_date", 500));
+      toast.success(`Đã lưu nhóm động "${name.trim()}"`);
+    } catch (e) {
+      toast.error(/duplicate|unique/i.test(e.message || "") ? "Tên nhóm đã tồn tại" : `Lưu nhóm thất bại: ${e.message || e}`);
+    }
   };
 
   const submit = async () => {
@@ -277,6 +310,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
           reminders: { enabled: remindersOn && !!dueDate && reminderDays.length > 0, days_before: [...reminderDays].sort((a, b) => b - a), at: "09:00" },
           auto_expire: autoExpire,
           permissions: { recipient_can_download_pdf: allowDownload },
+          channels: { in_app: true, push: pushOn, email: false },
         },
         status: "scheduled",
         scheduled_at: scheduleMode === "later" ? new Date(scheduledAt).toISOString() : new Date().toISOString(),
@@ -381,6 +415,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
             {[
               ["one", "Một người"],
+              ["filter", "Lọc hàng loạt"],
               ["groups", "Nhóm"],
               ["all", "Tất cả"],
             ].map(([k, label]) => (
@@ -411,6 +446,35 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
                     />
                   </Field>
                 ))}
+            </div>
+          )}
+
+          {mode === "filter" && (
+            <div className="space-y-3">
+              <AudienceFilters
+                filters={filters}
+                onChange={setFilters}
+                tiers={[...new Set(users.map((u) => u.membership_tier).filter(Boolean))].sort()}
+                vips={[...new Set(users.map((u) => u.vip_level).filter(Boolean))].sort()}
+                projects={projects}
+                onPreview={(p) => setFilterSample(p?.sample || [])}
+              />
+              <Field label="Loại trừ người">
+                <UserSearch users={users} excludeIds={excludeUsers.map((u) => u.id)} onPick={(u) => setExcludeUsers((l) => [...l, u])} />
+              </Field>
+              {excludeUsers.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {excludeUsers.map((u) => (
+                    <Badge key={u.id} color="red">
+                      {userLabel(u)}
+                      <button type="button" className="ml-1" onClick={() => setExcludeUsers((l) => l.filter((x) => x.id !== u.id))} aria-label="Bỏ">×</button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <Button variant="secondary" onClick={saveFilterAsGroup}>
+                <Users className="w-3.5 h-3.5" /> Lưu thành nhóm động
+              </Button>
             </div>
           )}
 
@@ -506,7 +570,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
                 <dd>{title}</dd>
                 <dt className="text-gray-500">Người nhận</dt>
                 <dd>
-                  <b>{count}</b> người · {mode === "one" ? userLabel(singleUser) : mode === "groups" ? `${groupIds.length} nhóm${includeUsers.length ? ` + ${includeUsers.length} người lẻ` : ""}${excludeUsers.length ? `, loại ${excludeUsers.length}` : ""}` : "Tất cả hội viên"}
+                  <b>{count}</b> người · {mode === "one" ? userLabel(singleUser) : mode === "filter" ? describeFilters(filters, Object.fromEntries(projects.map((p) => [p.id, p]))) + (excludeUsers.length ? `, loại ${excludeUsers.length}` : "") : mode === "groups" ? `${groupIds.length} nhóm${includeUsers.length ? ` + ${includeUsers.length} người lẻ` : ""}${excludeUsers.length ? `, loại ${excludeUsers.length}` : ""}` : "Tất cả hội viên"}
                 </dd>
                 <dt className="text-gray-500">Hạn ký</dt>
                 <dd>{dueDate ? new Date(`${dueDate}T00:00:00`).toLocaleDateString("vi-VN") : "Không đặt"}</dd>
@@ -541,6 +605,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
               )}
               <Toggle checked={autoExpire} onChange={setAutoExpire} label="Tự chuyển 'Hết hạn' khi quá hạn ký" />
               <Toggle checked={allowDownload} onChange={setAllowDownload} label="Người nhận được tải PDF" />
+              <Toggle checked={pushOn} onChange={setPushOn} label="Gửi thông báo đẩy (Web Push) tới thiết bị đã bật" />
             </Section>
             <Section title="Lưu trữ PDF">
               <RetentionSelect

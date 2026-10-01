@@ -22,7 +22,11 @@ const ERROR_TEXT = {
   READ_REQUIRED: "Vui lòng đọc hết văn bản trước khi ký",
   FIELD_REQUIRED: "Còn mục bắt buộc chưa điền",
   INVALID_FIELD_VALUE: "Có mục điền chưa hợp lệ",
+  RATE_LIMITED: "Bạn thao tác quá nhanh, vui lòng thử lại sau 1 phút",
 };
+// Spec 6.3: báo trước dữ liệu được ghi nhận khi ký (Nghị định 13/2023/NĐ-CP).
+const PRIVACY_NOTICE =
+  "Khi xác nhận, hệ thống ghi lại thời điểm, địa chỉ IP, thông tin thiết bị và hình chữ ký/các mục bạn điền để lưu vào nhật ký văn bản này. Dữ liệu chỉ dùng để quản lý văn bản và chỉ bạn cùng quản trị viên xem được.";
 // Lỗi này nghĩa là trạng thái trên máy đã cũ - tải lại văn bản.
 const STALE_CODES = ["ALREADY_SIGNED", "REVOKED", "EXPIRED", "DOCUMENT_CHANGED", "NOT_FOUND"];
 
@@ -209,6 +213,7 @@ export default function PublishedDocumentPage({ doc: initialDoc, reload }) {
                 <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5 border-gray-400 data-[state=checked]:bg-[#948154] data-[state=checked]:border-[#948154] data-[state=checked]:text-white" />
                 <span>{CONSENT_TEXT}</span>
               </label>
+              <p className="text-[10px] leading-snug text-gray-500">{PRIVACY_NOTICE}</p>
               {illustrative && (
                 <p className="flex items-center gap-1.5 text-[10.5px] text-gray-500">
                   <Info className="w-3.5 h-3.5" /> Chữ ký mang tính minh hoạ
