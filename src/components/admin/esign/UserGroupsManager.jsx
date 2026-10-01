@@ -1,22 +1,26 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Filter, Plus, Search, Trash2, Upload, Users } from "lucide-react";
+import { ArrowLeft, Plus, Search, Trash2, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
-import { addGroupMembers, importGroupMembers, listGroupMembers, previewGroup, removeGroupMembers } from "@/lib/esignApi";
+import { addGroupMembers, countAudience, importGroupMembers, listGroupMembers, removeGroupMembers } from "@/lib/esignApi";
 import { parseIdentifierCsv } from "@/lib/csv";
-import { Badge, Button, EmptyState, Field, Section, TextInput, Toggle } from "./ui";
+import { Badge, Button, EmptyState, Field, Section, TextInput } from "./ui";
+import AudienceFilters, { EMPTY_FILTERS, cleanFilters } from "./AudienceFilters";
 
 const COLORS = ["#948154", "#1a3c8f", "#0f766e", "#b91c1c", "#7c3aed", "#ea580c"];
 
-function useUserOptions() {
+/** Hội viên + danh sách hạng/VIP/dự án cho bộ lọc người nhận. */
+export function useUserOptions() {
   const [users, setUsers] = useState([]);
+  const [projects, setProjects] = useState([]);
   useEffect(() => {
     base44.entities.User.list("-created_date", 1000).then(setUsers).catch(() => {});
+    base44.entities.Project.list("-created_date", 500).then(setProjects).catch(() => {});
   }, []);
   const tiers = useMemo(() => [...new Set(users.map((u) => u.membership_tier).filter(Boolean))].sort(), [users]);
   const vips = useMemo(() => [...new Set(users.map((u) => u.vip_level).filter(Boolean))].sort(), [users]);
-  return { users, tiers, vips };
+  return { users, tiers, vips, projects };
 }
 
 /** Danh sách + tạo/sửa nhóm người dùng (spec 6.5). */
@@ -88,31 +92,18 @@ export default function UserGroupsManager() {
 
 function GroupEditor({ group, onClose }) {
   const { user: adminUser } = useAuth();
-  const { users, tiers, vips } = useUserOptions();
+  const { users, tiers, vips, projects } = useUserOptions();
   const [form, setForm] = useState({
     name: group?.name || "",
     description: group?.description || "",
     color: group?.color || COLORS[0],
     kind: group?.kind || "static",
-    filters: { membership_tier: [], vip_level: [], exclude_locked: true, created_from: "", created_to: "", ...(group?.filters || {}) },
+    filters: { ...EMPTY_FILTERS, ...(group?.filters || {}) },
   });
   const [groupId, setGroupId] = useState(group?.id || null);
   const [saving, setSaving] = useState(false);
-  const [preview, setPreview] = useState(null);
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const setFilter = (patch) => setForm((f) => ({ ...f, filters: { ...f.filters, ...patch } }));
-
-  // Xem trước nhóm động (debounce).
-  useEffect(() => {
-    if (form.kind !== "dynamic") return undefined;
-    const t = setTimeout(() => {
-      previewGroup(form.filters)
-        .then(setPreview)
-        .catch((e) => toast.error(`Không xem trước được: ${e.message}`));
-    }, 350);
-    return () => clearTimeout(t);
-  }, [form.kind, form.filters]);
 
   const save = async () => {
     if (!form.name.trim()) {
@@ -126,9 +117,9 @@ function GroupEditor({ group, onClose }) {
         description: form.description,
         color: form.color,
         kind: form.kind,
-        filters: form.kind === "dynamic" ? form.filters : {},
+        filters: form.kind === "dynamic" ? cleanFilters(form.filters) : {},
         updated_date: new Date().toISOString(),
-        ...(form.kind === "dynamic" && preview ? { member_count: preview.count } : {}),
+        ...(form.kind === "dynamic" ? { member_count: await countAudience({ type: "filter", filters: cleanFilters(form.filters) }).catch(() => 0) } : {}),
       };
       if (groupId) {
         await base44.entities.UserGroup.update(groupId, payload);
@@ -154,11 +145,6 @@ function GroupEditor({ group, onClose }) {
     } catch (e) {
       toast.error(`Xoá thất bại: ${e.message || e}`);
     }
-  };
-
-  const toggleIn = (key, value) => {
-    const list = form.filters[key] || [];
-    setFilter({ [key]: list.includes(value) ? list.filter((x) => x !== value) : [...list, value] });
   };
 
   return (
@@ -210,47 +196,7 @@ function GroupEditor({ group, onClose }) {
 
       {form.kind === "dynamic" ? (
         <Section title="Bộ lọc" description="Nhóm động được tính lại tại thời điểm phát hành. Tài khoản Admin luôn bị loại.">
-          <Field label="Hạng thành viên (bỏ trống = tất cả)">
-            <div className="flex flex-wrap gap-1.5">
-              {tiers.map((t) => (
-                <button key={t} type="button" onClick={() => toggleIn("membership_tier", t)} className={`px-2 py-1 rounded-full text-[10.5px] border ${form.filters.membership_tier?.includes(t) ? "bg-[#948154] text-white border-[#948154]" : "border-gray-300 text-gray-600"}`}>
-                  {t}
-                </button>
-              ))}
-              {tiers.length === 0 && <span className="text-[10.5px] text-gray-400">Chưa có dữ liệu hạng</span>}
-            </div>
-          </Field>
-          <Field label="Cấp VIP (bỏ trống = tất cả)">
-            <div className="flex flex-wrap gap-1.5">
-              {vips.map((t) => (
-                <button key={t} type="button" onClick={() => toggleIn("vip_level", t)} className={`px-2 py-1 rounded-full text-[10.5px] border ${form.filters.vip_level?.includes(t) ? "bg-[#948154] text-white border-[#948154]" : "border-gray-300 text-gray-600"}`}>
-                  {t}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Tham gia từ ngày">
-              <TextInput type="date" value={form.filters.created_from || ""} onChange={(e) => setFilter({ created_from: e.target.value })} />
-            </Field>
-            <Field label="Đến ngày">
-              <TextInput type="date" value={form.filters.created_to || ""} onChange={(e) => setFilter({ created_to: e.target.value })} />
-            </Field>
-          </div>
-          <Toggle checked={form.filters.exclude_locked !== false} onChange={(v) => setFilter({ exclude_locked: v })} label="Bỏ tài khoản bị khoá" />
-          <div className="rounded-lg bg-gray-50 border border-gray-200 p-2">
-            <p className="text-[11.5px] font-semibold text-gray-800">
-              <Filter className="w-3.5 h-3.5 inline mr-1" />
-              Hiện có {preview ? preview.count : "…"} người khớp
-            </p>
-            <ul className="mt-1 text-[10.5px] text-gray-600 space-y-0.5 max-h-40 overflow-y-auto">
-              {(preview?.sample || []).map((u) => (
-                <li key={u.id}>
-                  {u.full_name || "—"} <span className="text-gray-400">· {u.email} · {u.membership_tier}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <AudienceFilters filters={form.filters} onChange={(filters) => set({ filters })} tiers={tiers} vips={vips} projects={projects} />
         </Section>
       ) : groupId ? (
         <StaticMembers groupId={groupId} users={users} addedBy={adminUser?.id} />

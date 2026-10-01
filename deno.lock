@@ -102,7 +102,8 @@
         "npm:typescript@^5.8.2",
         "npm:vaul@^1.1.2",
         "npm:vite@^6.1.0",
-        "npm:vitest@^4.1.11"
+        "npm:vitest@^4.1.11",
+        "npm:web-push@3.6.7"
       ]
     }
   }

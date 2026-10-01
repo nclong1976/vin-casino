@@ -425,3 +425,6 @@ verify_jwt = false
 
 [functions.get-document-pdf]
 verify_jwt = false
+
+[functions.user-push-send]
+verify_jwt = false

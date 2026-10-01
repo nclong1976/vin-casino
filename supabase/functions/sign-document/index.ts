@@ -14,6 +14,8 @@
 import { HTTP_STATUS, SignError, parseSignRequest, signDocument, type SignRepo, type SignResult, type SignErrorCode } from "./core.ts";
 import { CORS, authedUser, clientIp, fireAndForget, json, serviceClient } from "../_shared/esign/http.ts";
 
+const SIGN_RATE_LIMIT = 5;
+
 function repo(): SignRepo {
   const db = serviceClient();
   return {
@@ -70,6 +72,10 @@ Deno.serve(async (req) => {
 
   const user = await authedUser(req);
   if (!user) return json({ error: "UNAUTHENTICATED" }, 401);
+
+  // Spec 6.2: tối đa SIGN_RATE_LIMIT lượt ký / phút / người (lỗi đếm thì cho qua).
+  const { data: withinLimit } = await serviceClient().rpc("esign_rate_hit", { p_key: `sign:${user.id}`, p_limit: SIGN_RATE_LIMIT, p_window_seconds: 60 });
+  if (withinLimit === false) return json({ error: "RATE_LIMITED", message: "Bạn thao tác quá nhanh, vui lòng thử lại sau 1 phút" }, 429);
 
   try {
     const body = parseSignRequest(await req.json().catch(() => null));

@@ -679,15 +679,15 @@ Chữ ký chỉ minh hoạ (Q4) nên phần này nhằm **bảo vệ dữ liệu
 
 | Ticket | Nội dung | Phụ thuộc |
 |---|---|---|
-| C1 | Migration: `field_values`, `read_completed_at`, RPC `mark_document_read`, `esign_record_signature` có trường (**xong — đợt 1**); `document_reminders`, cột `device`, RPC N1, N6–N8, cron hết hạn (đợt sau) | — |
+| C1 | Migration: `field_values`, `read_completed_at`, RPC `mark_document_read`, `esign_record_signature` có trường (**xong — đợt 1**); cột `device`, RPC nhắc/gia hạn/thu hồi/đã nhận/thống kê, cron hết hạn + nhắc (**xong — đợt 2**, mốc nhắc tính từ `delivery_settings` + `reminder_count` thay cho bảng `document_reminders`) | — |
 | C2 | `shared/docLayout`: kiểu `FieldConfig`, embed `field_anchor`, tính vị trí trường (flow / every_page_footer), nhãn minh hoạ; test Vitest + Deno (**xong — đợt 1**; khung ký người nhận giữ dạng `slots`) | — |
 | C3 | Soạn mẫu: palette trường, điểm neo trong Quill, overlay kéo-thả/co giãn, Inspector trường, kiểm tra trước xuất bản (**xong — đợt 1**); đường gióng/snap nâng cao (đợt sau) | C2 |
-| C4 | Gửi: bước Lọc hàng loạt, CSV biến, bước Cài đặt gửi (`delivery_settings`) | C1 |
+| C4 | Gửi: CSV biến (**xong — giai đoạn 2**), bước Cài đặt gửi `delivery_settings` (**xong — đợt 2**), Lọc hàng loạt + lưu thành nhóm động, kênh Web Push (**xong — đợt 3**) | C1 |
 | C5 | `dispatch-campaign`: tính `field_boxes` từng người, lịch nhắc | C1, C2 |
-| C6 | Dashboard: Tổng quan KPI + bảng Hợp đồng & Văn bản + drawer nhật ký + hành động hàng loạt + realtime | C1 |
+| C6 | Dashboard: Tổng quan KPI + bảng Hợp đồng & Văn bản + drawer nhật ký + hành động hàng loạt + realtime (**xong — đợt 2**) | C1 |
 | C7 | User: cổng cuộn, điều hướng "mục tiếp theo", sheet ký 4 tab, checkbox/text/date, màn xác nhận (**xong — đợt 1**) | C2 |
-| C8 | `sign-document` v2 + `render-document-pdf` (vẽ trường, nhãn minh hoạ, bỏ trang chứng nhận) (**xong — đợt 1**); chỉnh nhãn `/verify` (đợt sau) | C1, C2 |
-| C9 | `send-document-reminders` + cron | C1 |
+| C8 | `sign-document` v2 + `render-document-pdf` (vẽ trường, nhãn minh hoạ, bỏ trang chứng nhận) (**xong — đợt 1**); chỉnh nhãn `/verify`, giới hạn 5 lần ký/phút, câu thông báo xử lý dữ liệu (**xong — đợt 3**) | C1, C2 |
+| C9 | Nhắc + hết hạn bằng pg_cron `esign-process-due` (**xong — đợt 2**); Web Push qua `user-push-send` khi có thông báo văn bản (**xong — đợt 3**) | C1 |
 
 ## 8. Tiêu chí nghiệm thu chính
 
