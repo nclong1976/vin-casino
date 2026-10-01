@@ -11,6 +11,7 @@ import type {
   Delta,
   DeltaAttributes,
   DeltaOp,
+  FieldAnchorEmbed,
   RecipientInfo,
   SystemContext,
   VariableDef,
@@ -27,6 +28,32 @@ const INLINE_KEYS = ["bold", "italic", "underline", "color"] as const;
 const MAX_INDENT = 1;
 
 /** Key biến chuẩn: snake_case chữ thường; so khớp không phân biệt hoa/thường. */
+/** Mã trường: chữ thường, số, gạch dưới - tối đa 40 ký tự. */
+export function normalizeFieldId(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 40);
+}
+
+/** Embed điểm neo trường (`{ field_anchor }`) hay không. */
+export function isFieldAnchor(insert: DeltaOp["insert"]): insert is FieldAnchorEmbed {
+  return typeof insert === "object" && insert !== null && typeof (insert as FieldAnchorEmbed).field_anchor === "string";
+}
+
+/** Mã các trường được neo trong thân văn bản (theo thứ tự xuất hiện). */
+export function collectFieldAnchors(body: Delta | null | undefined): string[] {
+  const seen = new Set<string>();
+  for (const op of body?.ops || []) {
+    if (op && isFieldAnchor(op.insert)) {
+      const id = normalizeFieldId(op.insert.field_anchor);
+      if (id) seen.add(id);
+    }
+  }
+  return [...seen];
+}
+
 export function normalizeVariableKey(raw: string): string {
   return String(raw || "")
     .trim()
@@ -107,6 +134,11 @@ export function normalizeDelta(input: Delta | DeltaOp[] | null | undefined): Del
   for (const op of source) {
     if (!op || op.insert === undefined || op.insert === null) continue;
     if (typeof op.insert === "object") {
+      const anchor = normalizeFieldId((op.insert as { field_anchor?: string }).field_anchor || "");
+      if (anchor) {
+        push({ insert: { field_anchor: anchor } });
+        continue;
+      }
       const key = normalizeVariableKey((op.insert as { variable?: string }).variable || "");
       if (key) push(withAttributes({ variable: key }, filterAllowedAttributes(op.attributes as Record<string, unknown>, false)));
       continue;
@@ -361,7 +393,7 @@ export function resolveDelta(body: Delta | null | undefined, input: ResolveInput
   const ops: DeltaOp[] = [];
 
   for (const op of normalizeDelta(body).ops) {
-    if (typeof op.insert === "string") {
+    if (typeof op.insert === "string" || isFieldAnchor(op.insert)) {
       ops.push(op);
       continue;
     }

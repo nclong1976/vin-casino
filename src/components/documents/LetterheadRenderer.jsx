@@ -19,9 +19,24 @@ const FONT_FAMILY = "'Noto Serif Doc', 'Noto Serif', serif";
  *   người dùng (width/height px; thiếu thì tự đo khi ảnh tải xong).
  * - interactiveSlots: slotId được phép chạm để ký (hiện khung nét đứt).
  * - onSlotClick(slotId).
+ * - fieldImages: { [fieldId]: { src, width?, height? } } - ảnh ký nháy / chữ ký phụ.
+ * - interactiveFields: fieldId người dùng được chạm để điền.
+ * - pendingFields: fieldId bắt buộc còn trống (viền nét đứt nhấp nháy).
+ * - onFieldClick(fieldId).
  * - renderPageOverlay(page): phần tử phủ lên từng trang (định vị tuyệt đối).
  */
-export default function LetterheadRenderer({ layout, signatureImages = {}, interactiveSlots = [], onSlotClick, renderPageOverlay, className = "" }) {
+export default function LetterheadRenderer({
+  layout,
+  signatureImages = {},
+  interactiveSlots = [],
+  onSlotClick,
+  fieldImages = {},
+  interactiveFields = [],
+  pendingFields = [],
+  onFieldClick,
+  renderPageOverlay,
+  className = "",
+}) {
   if (!layout?.pages?.length) return null;
   return (
     <div className={`space-y-3 ${className}`}>
@@ -35,15 +50,26 @@ export default function LetterheadRenderer({ layout, signatureImages = {}, inter
             xmlns="http://www.w3.org/2000/svg"
           >
             <rect x="0" y="0" width={page.width} height={page.height} fill="#ffffff" />
-            {page.items.map((item, i) => (
-              <LayoutItem
-                key={i}
-                item={item}
-                signatureImages={signatureImages}
-                interactive={item.kind === "slot" && interactiveSlots.includes(item.slotId)}
-                onSlotClick={onSlotClick}
-              />
-            ))}
+            {page.items.map((item, i) =>
+              item.kind === "field" ? (
+                <FieldItem
+                  key={i}
+                  item={item}
+                  image={fieldImages[item.fieldId]}
+                  interactive={interactiveFields.includes(item.fieldId)}
+                  pending={pendingFields.includes(item.fieldId)}
+                  onFieldClick={onFieldClick}
+                />
+              ) : (
+                <LayoutItem
+                  key={i}
+                  item={item}
+                  signatureImages={signatureImages}
+                  interactive={item.kind === "slot" && interactiveSlots.includes(item.slotId)}
+                  onSlotClick={onSlotClick}
+                />
+              ),
+            )}
           </svg>
           {/* Lớp phủ tuỳ chọn (vd kéo/đổi kích thước khung ký trong trình soạn
               mẫu) - toạ độ theo % của trang nên tự co giãn theo khung. */}
@@ -165,7 +191,7 @@ function SlotItem({ item, signature, interactive, onSlotClick }) {
     : {};
 
   return (
-    <g {...interactiveProps}>
+    <g id={`esign-slot-${item.slotId}`} {...interactiveProps}>
       <rect
         x={item.x}
         y={item.y}
@@ -195,6 +221,75 @@ function SlotItem({ item, signature, interactive, onSlotClick }) {
       {placed && placed.w > 0 && (
         <image href={signature.src} x={placed.x} y={placed.y} width={placed.w} height={placed.h} preserveAspectRatio="none" />
       )}
+    </g>
+  );
+}
+
+const FIELD_HINTS = {
+  signature: "✍ Chạm để ký",
+  initials: "✎ Ký nháy",
+  date: "Tự điền ngày ký",
+  checkbox: "",
+  text: "Chạm để nhập",
+};
+
+/** Trường người nhận điền: ảnh chữ ký/ký nháy, vùng chạm và gợi ý khi còn trống. */
+function FieldItem({ item, image, interactive, pending, onFieldClick }) {
+  const known = useMemo(() => (image?.width && image?.height ? { width: image.width, height: image.height } : null), [image?.width, image?.height]);
+  const size = useImageSize(image?.src, known);
+  const isImage = item.type === "signature" || item.type === "initials";
+  const placed = isImage && image?.src && size ? placeSignatureImage(item.imageArea, size.width, size.height) : null;
+  const clickable = interactive && item.type !== "date";
+  const activate = () => onFieldClick?.(item.fieldId);
+  const hint = pending && !placed ? FIELD_HINTS[item.type] : "";
+  const pad = item.type === "checkbox" ? 1.2 : 0.4;
+
+  return (
+    <g
+      id={item.occurrence === 0 ? `esign-field-${item.fieldId}` : undefined}
+      {...(clickable
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-label": item.type === "checkbox" ? "Chọn ô xác nhận" : "Điền trường này",
+            style: { cursor: "pointer", outline: "none" },
+            onClick: activate,
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                activate();
+              }
+            },
+          }
+        : {})}
+    >
+      <rect
+        x={item.x - pad}
+        y={item.y - pad}
+        width={item.w + 2 * pad}
+        height={item.h + 2 * pad}
+        rx="0.8"
+        fill={pending ? "rgba(148,129,84,0.08)" : clickable ? "rgba(148,129,84,0.03)" : "transparent"}
+        stroke={pending ? "#948154" : "none"}
+        strokeWidth="0.3"
+        strokeDasharray="1.4 1"
+        className={pending ? "animate-pulse" : undefined}
+      />
+      {hint && item.type !== "checkbox" && (
+        <text
+          x={item.x + item.w / 2}
+          y={item.y + item.h / 2}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontFamily="'Be Vietnam Pro', system-ui, sans-serif"
+          fontSize={Math.min(3, item.h * 0.45)}
+          fontWeight="600"
+          fill="#948154"
+        >
+          {hint}
+        </text>
+      )}
+      {placed && placed.w > 0 && <image href={image.src} x={placed.x} y={placed.y} width={placed.w} height={placed.h} preserveAspectRatio="none" />}
     </g>
   );
 }

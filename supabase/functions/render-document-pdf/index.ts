@@ -76,14 +76,14 @@ function repo(): RenderRepo {
       if (error) throw new Error(error.message);
       return data as DocumentForPdf | null;
     },
-    async loadEvents(id) {
-      const { data, error } = await db.from("document_events").select("event, created_at, ip, data").eq("document_id", id).order("created_at");
-      if (error) throw new Error(error.message);
-      return data ?? [];
-    },
     async loadSignature(doc) {
       if (!doc.signature_path) return null;
       const { data, error } = await db.storage.from("signed-documents").download(doc.signature_path);
+      if (error || !data) return null;
+      return new Uint8Array(await data.arrayBuffer());
+    },
+    async loadAsset(path) {
+      const { data, error } = await db.storage.from("signed-documents").download(path);
       if (error || !data) return null;
       return new Uint8Array(await data.arrayBuffer());
     },

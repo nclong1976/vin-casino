@@ -10,13 +10,22 @@ import LetterheadRenderer from "@/components/documents/LetterheadRenderer";
  * ký tên cho đúng tinh thần văn bản, còn phần nội dung hiển thị nguyên văn
  * (whitespace-pre-wrap) những gì Admin đã gõ.
  */
-export default function CustomDocumentView({ doc, user, signature, adminName, onSlotClick }) {
+export default function CustomDocumentView({ doc, user, signature, adminName, onSlotClick, fieldDraft, pendingFields, onFieldClick }) {
   if (!doc) return null;
   // Văn bản Giai đoạn 2 (phát hành từ mẫu trên Khung văn bản, đã có snapshot
   // dàn trang) vẽ bằng bộ dàn trang dùng chung - khớp bản PDF. Văn bản Giai
   // đoạn 1 (chỉ có content plain-text) giữ nguyên khung hiển thị cũ bên dưới.
   if (isPublishedDocument(doc)) {
-    return <PublishedDocumentView doc={doc} signature={signature} onSlotClick={onSlotClick} />;
+    return (
+      <PublishedDocumentView
+        doc={doc}
+        signature={signature}
+        onSlotClick={onSlotClick}
+        fieldDraft={fieldDraft}
+        pendingFields={pendingFields}
+        onFieldClick={onFieldClick}
+      />
+    );
   }
 
   // signature (đang chọn, CHƯA lưu) ưu tiên hơn chữ ký đã lưu trong doc - để
@@ -117,11 +126,17 @@ export default function CustomDocumentView({ doc, user, signature, adminName, on
   );
 }
 
-function PublishedDocumentView({ doc, signature, onSlotClick }) {
+/**
+ * fieldDraft: giá trị trường người nhận đang điền (chưa gửi) theo dạng
+ * field_values - chữ/ô tick vẽ qua bộ dàn trang, ảnh ký nháy qua fieldImages.
+ */
+function PublishedDocumentView({ doc, signature, onSlotClick, fieldDraft, pendingFields = [], onFieldClick }) {
+  const signed = !!doc.locked_at || doc.status !== "pending";
+  const values = useMemo(() => (signed ? doc.field_values : fieldDraft) || {}, [signed, doc.field_values, fieldDraft]);
   const layout = useMemo(() => {
     const verifyBaseUrl = typeof window !== "undefined" ? `${window.location.origin}${import.meta.env.BASE_URL}verify/` : undefined;
-    return layoutDocument(buildLayoutInput(doc, { verifyBaseUrl }));
-  }, [doc]);
+    return layoutDocument(buildLayoutInput({ ...doc, field_values: values }, { verifyBaseUrl }));
+  }, [doc, values]);
 
   // Chữ ký đang chọn (chưa lưu) ưu tiên hơn chữ ký đã lưu - xem trước ngay
   // trong khung trước khi bấm ký. Chỉ ảnh (PNG/data URL) mới đặt vào khung.
@@ -129,12 +144,26 @@ function PublishedDocumentView({ doc, signature, onSlotClick }) {
   const signatureImages = active?.content && active.type !== "typed" ? { recipient: { src: active.content } } : {};
   const canSign = doc.status === "pending" && !doc.locked_at && !!onSlotClick;
 
+  const fieldImages = useMemo(() => {
+    const out = {};
+    for (const [id, v] of Object.entries(values)) {
+      const src = v?.image_data_url || v?.dataUrl;
+      if (src) out[id] = { src, width: v.width, height: v.height };
+    }
+    return out;
+  }, [values]);
+  const interactiveFields = canSign && onFieldClick ? Object.keys(layout.fieldBoxes || {}) : [];
+
   return (
     <LetterheadRenderer
       layout={layout}
       signatureImages={signatureImages}
       interactiveSlots={canSign && !signatureImages.recipient ? ["recipient"] : []}
       onSlotClick={onSlotClick}
+      fieldImages={fieldImages}
+      interactiveFields={interactiveFields}
+      pendingFields={canSign ? pendingFields : []}
+      onFieldClick={onFieldClick}
     />
   );
 }

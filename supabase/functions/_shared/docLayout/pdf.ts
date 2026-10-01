@@ -27,6 +27,8 @@ export interface PdfAssets {
   images?: Record<string, Uint8Array | undefined>;
   /** Ảnh chữ ký người dùng theo slotId (PNG/JPEG). */
   signatures?: Record<string, Uint8Array | undefined>;
+  /** Ảnh của trường chữ ký / ký nháy theo fieldId. */
+  fieldImages?: Record<string, Uint8Array | undefined>;
   /**
    * Để pdf-lib tự subset font. Mặc định false: font trong public/fonts đã được
    * subset sẵn bằng scripts/subset-fonts.py (~42 KB mỗi kiểu); subset của
@@ -40,30 +42,6 @@ export interface PdfMeta {
   docNo?: string;
   contentSha256?: string;
   creationDate?: Date;
-}
-
-export interface CertificateEvent {
-  atText: string;
-  label: string;
-  detail?: string;
-}
-
-/** Trang "Chứng nhận ký điện tử" cuối PDF (spec 8.4). */
-export interface CertificateInfo {
-  docNo: string;
-  docId: string;
-  title: string;
-  issuerOrg?: string;
-  contentSha256: string;
-  signerName?: string | null;
-  signedAtText?: string | null;
-  signedIp?: string | null;
-  userAgent?: string | null;
-  methodText?: string | null;
-  consentText?: string | null;
-  events: CertificateEvent[];
-  verifyUrl?: string;
-  generatedAtText: string;
 }
 
 const mmToPt = (mm: number) => mm * PT_PER_MM;
@@ -183,6 +161,16 @@ async function drawLayoutPages(doc: PDFDocument, layout: LayoutResult, fonts: Fo
           if (r.w > 0) page.drawImage(img, { x: mmToPt(r.x), y: PAGE_H_PT - mmToPt(r.y + r.h), width: mmToPt(r.w), height: mmToPt(r.h) });
           break;
         }
+        case "field": {
+          if (item.type !== "signature" && item.type !== "initials") break;
+          const key = `field:${item.fieldId}`;
+          if (!imageCache.has(key)) imageCache.set(key, await embedImage(doc, assets.fieldImages?.[item.fieldId]));
+          const img = imageCache.get(key);
+          if (!img) break;
+          const r = placeSignatureImage(item.imageArea, img.width, img.height);
+          if (r.w > 0) page.drawImage(img, { x: mmToPt(r.x), y: PAGE_H_PT - mmToPt(r.y + r.h), width: mmToPt(r.w), height: mmToPt(r.h) });
+          break;
+        }
         case "qr":
           drawQr(page, item.value, item.x, item.y, item.size);
           break;
@@ -191,106 +179,13 @@ async function drawLayoutPages(doc: PDFDocument, layout: LayoutResult, fonts: Fo
   }
 }
 
-// ─── Trang chứng nhận ─────────────────────────────────────────────────────
-
-function wrap(text: string, font: FontStyleKey, sizePt: number, widthMm: number): string[] {
-  const metrics = NOTO_SERIF.styles[font];
-  const out: string[] = [];
-  for (const para of String(text || "").split("\n")) {
-    let line = "";
-    for (const word of para.split(/(\s+)/)) {
-      if (!word) continue;
-      const next = line + word;
-      if (line && measureTextMm(metrics, next.trimEnd(), sizePt) > widthMm) {
-        out.push(line.trimEnd());
-        line = word.trimStart();
-        // từ quá dài (vd mã hash): cắt theo ký tự
-        while (measureTextMm(metrics, line, sizePt) > widthMm) {
-          let cut = line.length;
-          while (cut > 1 && measureTextMm(metrics, line.slice(0, cut), sizePt) > widthMm) cut--;
-          out.push(line.slice(0, cut));
-          line = line.slice(cut);
-        }
-      } else {
-        line = next;
-      }
-    }
-    out.push(line.trimEnd());
-  }
-  return out;
-}
-
-function drawCertificate(doc: PDFDocument, fonts: Fonts, info: CertificateInfo) {
-  const page = doc.addPage([PAGE_W_PT, PAGE_H_PT]);
-  const left = 20;
-  const width = PAGE_WIDTH_MM - 40;
-  let y = 22;
-  const muted = hexColor("#6b7280");
-  const black = hexColor("#000000");
-  const gold = hexColor("#948154");
-
-  const text = (s: string, x: number, yMm: number, font: FontStyleKey, size: number, color = black) =>
-    page.drawText(s, { x: mmToPt(x), y: PAGE_H_PT - mmToPt(yMm), size, font: fonts[font], color });
-
-  const centered = (s: string, font: FontStyleKey, size: number, color = black) => {
-    const w = measureTextMm(NOTO_SERIF.styles[font], s, size);
-    text(s, left + (width - w) / 2, y, font, size, color);
-  };
-
-  centered("CHỨNG NHẬN KÝ ĐIỆN TỬ", "bold", 15, gold);
-  y += 6;
-  centered(info.issuerOrg ? `Phát hành bởi ${info.issuerOrg}` : "Văn bản điện tử", "italic", 10, muted);
-  y += 9;
-
-  const labelW = 45;
-  const row = (label: string, value: string | null | undefined, mono = false) => {
-    const lines = wrap(value || "—", "regular", mono ? 8.5 : 10, width - labelW);
-    text(label, left, y, "bold", 10);
-    lines.forEach((l, i) => text(l, left + labelW, y + i * 5, "regular", mono ? 8.5 : 10));
-    y += Math.max(1, lines.length) * 5 + 2;
-  };
-
-  row("Số văn bản", info.docNo);
-  row("Tiêu đề", info.title);
-  row("Mã tài liệu", info.docId, true);
-  row("SHA-256 nội dung", info.contentSha256, true);
-  row("Người ký", info.signerName);
-  row("Thời điểm ký", info.signedAtText);
-  row("Phương thức", info.methodText);
-  row("Địa chỉ IP", info.signedIp);
-  row("Thiết bị", info.userAgent ? info.userAgent.slice(0, 220) : null);
-  row("Xác nhận", info.consentText);
-
-  y += 3;
-  page.drawLine({ start: { x: mmToPt(left), y: PAGE_H_PT - mmToPt(y) }, end: { x: mmToPt(left + width), y: PAGE_H_PT - mmToPt(y) }, thickness: 0.5, color: muted });
-  y += 7;
-  text("NHẬT KÝ", left, y, "bold", 11, gold);
-  y += 7;
-  for (const ev of info.events) {
-    if (y > PAGE_HEIGHT_MM - 45) break;
-    text(ev.atText, left, y, "regular", 9, muted);
-    const lines = wrap(`${ev.label}${ev.detail ? ` - ${ev.detail}` : ""}`, "regular", 9.5, width - 52);
-    lines.forEach((l, i) => text(l, left + 52, y + i * 4.6, "regular", 9.5));
-    y += Math.max(1, lines.length) * 4.6 + 1.6;
-  }
-
-  const bottom = PAGE_HEIGHT_MM - 38;
-  if (info.verifyUrl) {
-    drawQr(page, info.verifyUrl, left, bottom, 22);
-    const lines = wrap(`Quét mã hoặc mở ${info.verifyUrl} để kiểm tra văn bản này có đúng bản gốc đã ký hay không.`, "regular", 9, width - 30);
-    lines.forEach((l, i) => text(l, left + 28, bottom + 5 + i * 4.5, "regular", 9, muted));
-  }
-  text(`Tạo tự động lúc ${info.generatedAtText}. Mọi thay đổi nội dung sau khi ký đều làm mã SHA-256 không còn khớp.`, left, PAGE_HEIGHT_MM - 10, "italic", 8, muted);
-}
-
-/** Tạo PDF hoàn chỉnh: các trang văn bản + (tuỳ chọn) trang chứng nhận ký. */
-export async function renderPdf(layout: LayoutResult, assets: PdfAssets, meta: PdfMeta, certificate?: CertificateInfo): Promise<Uint8Array> {
+/** Tạo PDF từ các trang văn bản đã dàn trang. */
+export async function renderPdf(layout: LayoutResult, assets: PdfAssets, meta: PdfMeta): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const fonts = await embedFonts(doc, assets.fonts, assets.subsetFonts === true);
 
   await drawLayoutPages(doc, layout, fonts, assets);
-  if (certificate) drawCertificate(doc, fonts, certificate);
 
   doc.setTitle(meta.title || meta.docNo || "Văn bản");
   doc.setAuthor("VinClub");

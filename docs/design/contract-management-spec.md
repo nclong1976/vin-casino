@@ -387,7 +387,6 @@ erDiagram
   document_templates  ||--o{ document_campaigns : "phát hành từ"
   document_campaigns  ||--o{ custom_documents   : "sinh ra"
   users               ||--o{ custom_documents   : "người nhận"
-  custom_documents    ||--o{ document_field_values : "giá trị trường (mới)"
   custom_documents    ||--o{ document_events    : "nhật ký"
   custom_documents    ||--o{ document_reminders : "lịch nhắc (mới)"
   custom_documents    ||--o| pdf_jobs           : "PDF"
@@ -500,24 +499,22 @@ Mảng vì một trường có thể xuất hiện nhiều lần (ký nháy mỗ
 
 Các cột đã có (`content_sha256`, `pdf_sha256`, `signed_ip`, `signed_user_agent`, `consent_text`…) giữ nguyên để kiểm tra "văn bản không bị sửa sau khi gửi" ở mức vận hành, không mang ý nghĩa pháp lý.
 
-### 4.6 Bảng mới
+### 4.6 Lưu giá trị trường & lịch nhắc
+
+**Đã triển khai (đợt 1):** giá trị trường lưu thẳng trong `custom_documents.field_values` (jsonb, 1 giá trị / trường — ký nháy lặp nhiều trang dùng chung 1 ảnh), ghi nguyên tử cùng chữ ký bởi `esign_record_signature(..., p_field_values)`; vị trí trường không lưu riêng vì bộ dàn trang tính lại xác định từ `layout_snapshot`.
+
+```json
+{
+  "ok_dieu5": { "type": "checkbox", "value_bool": true },
+  "ma_so_thue": { "type": "text", "value_text": "0101234567" },
+  "ky_nhay": { "type": "initials", "method": "draw", "asset_path": "<uid>/<doc>.field-ky_nhay.png", "image_data_url": "data:image/png;base64,…" },
+  "ngay_ky": { "type": "date", "value_text": "01/10/2026" }
+}
+```
+
+Lịch nhắc (đợt sau):
 
 ```sql
--- Giá trị từng trường người ký đã điền (1 dòng / trường / lần xuất hiện)
-create table public.document_field_values (
-  document_id   text not null references public.custom_documents(id) on delete cascade,
-  field_id      text not null,
-  occurrence    int  not null default 0,
-  type          text not null check (type in ('signature','initials','date','checkbox','text')),
-  value_text    text,            -- text / date ISO
-  value_bool    boolean,         -- checkbox
-  asset_path    text,            -- PNG chữ ký trong signed-documents
-  method        text,            -- draw | type | upload | saved
-  filled_at     timestamptz not null default now(),
-  primary key (document_id, field_id, occurrence)
-);
-
--- Lịch nhắc đã lên cho từng văn bản
 create table public.document_reminders (
   id            bigint generated always as identity primary key,
   document_id   text not null references public.custom_documents(id) on delete cascade,
@@ -529,7 +526,7 @@ create table public.document_reminders (
 create index on public.document_reminders (status, run_at);
 ```
 
-RLS: user chỉ SELECT `document_field_values` của văn bản mình; `document_reminders` không có policy cho `authenticated` (chỉ Edge Function/service role ghi/đọc).
+RLS: `document_reminders` không có policy cho `authenticated` (chỉ Edge Function/service role).
 
 ### 4.7 Cài đặt gửi (`document_campaigns.delivery_settings`)
 
@@ -612,7 +609,7 @@ Thứ tự kiểm tra (fail sớm, trả mã lỗi cụ thể):
 3. Trạng thái ∈ {sent, delivered, viewed}; chưa quá `due_at`; `content_sha256` khớp (văn bản không đổi từ lúc user mở).
 4. `read_completed_at` không null → nếu null: `409 READ_REQUIRED`.
 5. Đủ trường `required`; `checkbox.must_be_checked`; PNG hợp lệ (magic bytes, ≤ 500KB, không rỗng); không nhận trường của vai trò khác.
-6. Ghi `document_field_values`, ảnh vào `signed-documents/{uid}/{doc}/{field}-{n}.png`; `status=signed`, `signed_at=now()`, `locked_at`; event `signed`; `pdf_jobs` → nền `render-document-pdf`.
+6. Ghi `custom_documents.field_values`, ảnh vào `signed-documents/{uid}/{doc}.field-{id}.png`; `status=signed`, `signed_at=now()`, `locked_at`; event `signed`; `pdf_jobs` → nền `render-document-pdf`.
 
 Mã lỗi thêm so với v1: `409 READ_REQUIRED`, `422 FIELD_REQUIRED {field_id}`, `422 INVALID_FIELD_VALUE {field_id}`.
 
@@ -629,7 +626,7 @@ sequenceDiagram
   U->>FE: Cuộn hết, điền đủ trường, tick xác nhận
   FE->>SG: POST fields + consent + content_sha256
   SG->>DB: kiểm quyền, trạng thái, read_completed_at, trường bắt buộc
-  SG->>DB: ghi document_field_values, status=signed, signed_at=now(), event signed
+  SG->>DB: ghi field_values, status=signed, signed_at=now(), event signed
   SG-->>FE: 200 {signed_at, signer_name, pdf_status: queued}
   SG-)PDF: waitUntil(render)
   PDF->>DB: pdf_status=ready, event pdf_ready
@@ -667,7 +664,7 @@ Chữ ký chỉ minh hoạ (Q4) nên phần này nhằm **bảo vệ dữ liệu
 - [ ] Secret nội bộ (`esign_internal_secret`) chỉ ở Vault/Edge Function secrets.
 
 ### 6.2 Tính đúng của nội dung
-- [ ] Nội dung chụp cứng lúc gửi; trigger khoá nội dung khi `locked_at` không null (áp dụng cả admin), mở rộng sang `document_field_values`.
+- [ ] Nội dung chụp cứng lúc gửi; trigger khoá nội dung khi `locked_at` không null (áp dụng cả admin), mở rộng sang `field_values`.
 - [ ] `content_sha256` so khớp lúc ký để chặn ký trên bản đã bị đổi.
 - [ ] Rate limit ký 5 lần/phút/user; idempotency key.
 
@@ -682,14 +679,14 @@ Chữ ký chỉ minh hoạ (Q4) nên phần này nhằm **bảo vệ dữ liệu
 
 | Ticket | Nội dung | Phụ thuộc |
 |---|---|---|
-| C1 | Migration: cột mới `custom_documents`, `document_field_values`, `document_reminders`, cột `device` cho `document_events`, RPC N1–N3, N6–N8, cron hết hạn | — |
-| C2 | `shared/docLayout`: kiểu `FieldConfig`, embed `field_anchor`, tính `field_boxes` (flow / signature_zone / every_page_footer), `normalizeLayout()` từ `slots`, nhãn minh hoạ; test Vitest + Deno | — |
-| C3 | Soạn mẫu: palette trường, overlay kéo-thả/co giãn/snap, Inspector trường, tab Kiểm tra, preview theo người thật | C2 |
+| C1 | Migration: `field_values`, `read_completed_at`, RPC `mark_document_read`, `esign_record_signature` có trường (**xong — đợt 1**); `document_reminders`, cột `device`, RPC N1, N6–N8, cron hết hạn (đợt sau) | — |
+| C2 | `shared/docLayout`: kiểu `FieldConfig`, embed `field_anchor`, tính vị trí trường (flow / every_page_footer), nhãn minh hoạ; test Vitest + Deno (**xong — đợt 1**; khung ký người nhận giữ dạng `slots`) | — |
+| C3 | Soạn mẫu: palette trường, điểm neo trong Quill, overlay kéo-thả/co giãn, Inspector trường, kiểm tra trước xuất bản (**xong — đợt 1**); đường gióng/snap nâng cao (đợt sau) | C2 |
 | C4 | Gửi: bước Lọc hàng loạt, CSV biến, bước Cài đặt gửi (`delivery_settings`) | C1 |
 | C5 | `dispatch-campaign`: tính `field_boxes` từng người, lịch nhắc | C1, C2 |
 | C6 | Dashboard: Tổng quan KPI + bảng Hợp đồng & Văn bản + drawer nhật ký + hành động hàng loạt + realtime | C1 |
-| C7 | User: cổng cuộn, điều hướng trường, sheet ký 4 tab (thêm Tải ảnh), checkbox/text/date, màn xác nhận | C2 |
-| C8 | `sign-document` v2 + `render-document-pdf` (vẽ trường, nhãn minh hoạ) + chỉnh nhãn `/verify` | C1, C2 |
+| C7 | User: cổng cuộn, điều hướng "mục tiếp theo", sheet ký 4 tab, checkbox/text/date, màn xác nhận (**xong — đợt 1**) | C2 |
+| C8 | `sign-document` v2 + `render-document-pdf` (vẽ trường, nhãn minh hoạ, bỏ trang chứng nhận) (**xong — đợt 1**); chỉnh nhãn `/verify` (đợt sau) | C1, C2 |
 | C9 | `send-document-reminders` + cron | C1 |
 
 ## 8. Tiêu chí nghiệm thu chính

@@ -3,14 +3,8 @@
  * RenderRepo thật, core.test.ts dùng dữ liệu giả.
  */
 
-import {
-  buildLayoutInput,
-  formatVnDateTime,
-  layoutDocument,
-  sha256Hex,
-  type PublishedDocument,
-} from "../_shared/docLayout/index.ts";
-import { renderPdf, type CertificateEvent, type PdfFontBytes } from "../_shared/docLayout/pdf.ts";
+import { buildLayoutInput, layoutDocument, sha256Hex, type PublishedDocument } from "../_shared/docLayout/index.ts";
+import { renderPdf, type PdfFontBytes } from "../_shared/docLayout/pdf.ts";
 
 export interface DocumentForPdf extends PublishedDocument {
   id: string;
@@ -25,40 +19,19 @@ export interface DocumentForPdf extends PublishedDocument {
   consent_text?: string | null;
 }
 
-export interface EventRow {
-  event: string;
-  created_at: string;
-  ip?: string | null;
-  data?: Record<string, unknown> | null;
-}
-
 export interface RenderRepo {
   /** Nhận job; trả về số lần thử hoặc null nếu không có việc (đã xong / đang chạy / hết lượt). */
   claim(documentId: string): Promise<number | null>;
   loadDocument(documentId: string): Promise<DocumentForPdf | null>;
-  loadEvents(documentId: string): Promise<EventRow[]>;
   loadSignature(doc: DocumentForPdf): Promise<Uint8Array | null>;
+  /** Ảnh trường ký nháy / chữ ký phụ trong bucket signed-documents. */
+  loadAsset(path: string): Promise<Uint8Array | null>;
   fetchImage(url: string): Promise<Uint8Array | null>;
   fonts(): Promise<PdfFontBytes>;
   upload(path: string, pdf: Uint8Array): Promise<void>;
   finish(documentId: string, path: string, sha256: string): Promise<void>;
   fail(documentId: string, error: string): Promise<void>;
 }
-
-const EVENT_LABELS: Record<string, string> = {
-  dispatched: "Phát hành văn bản",
-  delivered: "Gửi tới người nhận",
-  viewed: "Người nhận mở văn bản",
-  signed: "Người nhận ký",
-};
-
-const METHOD_LABELS: Record<string, string> = {
-  draw: "Vẽ tay",
-  upload: "Tải ảnh chữ ký",
-  typed: "Tạo từ nét chữ",
-  saved: "Chữ ký đã lưu",
-  acknowledge: "Xác nhận đã đọc",
-};
 
 /** data:image/png;base64,... → bytes. */
 export function dataUrlToBytes(dataUrl: string | null | undefined): Uint8Array | null {
@@ -72,7 +45,6 @@ export function dataUrlToBytes(dataUrl: string | null | undefined): Uint8Array |
 
 export interface RenderOptions {
   verifyBaseUrl?: string;
-  now?: () => Date;
 }
 
 export type RenderResult =
@@ -81,7 +53,6 @@ export type RenderResult =
   | { outcome: "failed"; error: string };
 
 export async function renderDocumentPdf(repo: RenderRepo, documentId: string, options: RenderOptions = {}): Promise<RenderResult> {
-  const now = options.now || (() => new Date());
   const attempts = await repo.claim(documentId);
   if (attempts === null) return { outcome: "skipped" };
   const started = Date.now();
@@ -101,35 +72,20 @@ export async function renderDocumentPdf(repo: RenderRepo, documentId: string, op
     await Promise.all([...urls].map(async (u) => (images[u] = (await repo.fetchImage(u)) ?? undefined)));
     const signature = (await repo.loadSignature(doc)) ?? dataUrlToBytes(doc.signature_content);
 
-    const events = (await repo.loadEvents(documentId))
-      .filter((e) => EVENT_LABELS[e.event])
-      .map<CertificateEvent>((e) => ({
-        atText: formatVnDateTime(e.created_at).replace(" (GMT+7)", ""),
-        label: EVENT_LABELS[e.event],
-        detail: e.event === "signed" && e.ip ? `IP ${e.ip}` : undefined,
-      }));
+    const fieldImages: Record<string, Uint8Array | undefined> = {};
+    await Promise.all(
+      Object.entries(doc.field_values || {}).map(async ([id, v]) => {
+        const bytes = (v?.asset_path ? await repo.loadAsset(v.asset_path) : null) ?? dataUrlToBytes(v?.image_data_url);
+        if (bytes) fieldImages[id] = bytes;
+      }),
+    );
 
-    const verifyUrl = options.verifyBaseUrl ? `${options.verifyBaseUrl}${encodeURIComponent(doc.doc_no)}` : undefined;
+    // Chữ ký chỉ mang tính minh hoạ (spec hợp đồng Q4): không thêm trang
+    // "chứng nhận ký"; nhật ký vẫn xem được trong trang Admin.
     const pdf = await renderPdf(
       layout,
-      { fonts: await repo.fonts(), images, signatures: signature ? { recipient: signature } : {} },
+      { fonts: await repo.fonts(), images, signatures: signature ? { recipient: signature } : {}, fieldImages },
       { title: doc.title || doc.doc_no, docNo: doc.doc_no, contentSha256: doc.content_sha256, creationDate: new Date(doc.signed_at) },
-      {
-        docNo: doc.doc_no,
-        docId: doc.id,
-        title: doc.title || "",
-        issuerOrg: doc.letterhead_snapshot?.header?.org_name,
-        contentSha256: doc.content_sha256,
-        signerName: doc.signer_name,
-        signedAtText: formatVnDateTime(doc.signed_at),
-        signedIp: doc.signed_ip,
-        userAgent: doc.signed_user_agent,
-        methodText: METHOD_LABELS[doc.signature_method || ""] || doc.signature_method,
-        consentText: doc.consent_text,
-        events,
-        verifyUrl,
-        generatedAtText: formatVnDateTime(now()),
-      },
     );
 
     const sha256 = await sha256Hex(pdf);

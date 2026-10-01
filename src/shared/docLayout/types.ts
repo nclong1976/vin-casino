@@ -27,8 +27,16 @@ export interface VariableEmbed {
   variable: string;
 }
 
+/**
+ * Điểm neo của một trường (ô xác nhận, ký nháy...) trong thân văn bản -
+ * không hiện chữ; bộ dàn trang đặt trường ngay sau đoạn chứa điểm neo.
+ */
+export interface FieldAnchorEmbed {
+  field_anchor: string;
+}
+
 export interface DeltaOp {
-  insert: string | VariableEmbed;
+  insert: string | VariableEmbed | FieldAnchorEmbed;
   attributes?: DeltaAttributes;
 }
 

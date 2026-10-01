@@ -33,8 +33,12 @@ const TABS = [
  * onConfirm({ method, dataUrl, width, height, typedText?, font?,
  *             savedSignatureId?, saveForLater }) - trả Promise; lỗi thì bảng
  * giữ nguyên để người dùng thử lại.
+ *
+ * mode="capture": chỉ lấy ảnh chữ ký (ký nháy, chữ ký phụ...) - không hỏi
+ * câu đồng ý; văn bản được gửi ký ở bước xác nhận cuối của trang.
  */
-export default function SignatureSheet({ open, onOpenChange, signerName = "", busy = false, onConfirm }) {
+export default function SignatureSheet({ open, onOpenChange, signerName = "", busy = false, onConfirm, mode = "sign", title, description }) {
+  const capture = mode === "capture";
   const [tab, setTab] = useState("draw");
   const [color, setColor] = useState(INK_COLORS[0].id);
   const [hasInk, setHasInk] = useState(false);
@@ -105,7 +109,7 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
 
   const confirm = async () => {
     setError("");
-    if (!consent) {
+    if (!capture && !consent) {
       setError("Vui lòng tick xác nhận đã đọc và đồng ý");
       return;
     }
@@ -151,8 +155,10 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
         <div className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-gray-300" />
         <div className="mx-auto w-full max-w-lg overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <DrawerHeader className="pb-2 text-left">
-            <DrawerTitle className="text-[15px] text-gray-900">Ký văn bản</DrawerTitle>
-            <DrawerDescription className="text-[11px] text-gray-500">Chữ ký sẽ được đặt vào khung ký của bạn và khoá cùng văn bản.</DrawerDescription>
+            <DrawerTitle className="text-[15px] text-gray-900">{title || "Ký văn bản"}</DrawerTitle>
+            <DrawerDescription className="text-[11px] text-gray-500">
+              {description || "Chữ ký sẽ được đặt vào khung ký của bạn và khoá cùng văn bản."}
+            </DrawerDescription>
           </DrawerHeader>
 
           <div className="px-4 space-y-3">
@@ -300,10 +306,12 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
               </label>
             )}
 
-            <label className="flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-[11.5px] text-amber-900">
-              <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5 border-amber-700 data-[state=checked]:bg-[#948154] data-[state=checked]:border-[#948154] data-[state=checked]:text-white" />
-              <span>{CONSENT_TEXT}</span>
-            </label>
+            {!capture && (
+              <label className="flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-[11.5px] text-amber-900">
+                <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5 border-amber-700 data-[state=checked]:bg-[#948154] data-[state=checked]:border-[#948154] data-[state=checked]:text-white" />
+                <span>{CONSENT_TEXT}</span>
+              </label>
+            )}
 
             {error && <p className="text-[11px] text-rose-600">{error}</p>}
           </div>
@@ -312,11 +320,11 @@ export default function SignatureSheet({ open, onOpenChange, signerName = "", bu
             <button
               type="button"
               onClick={confirm}
-              disabled={!ready || !consent || busy}
+              disabled={!ready || (!capture && !consent) || busy}
               className="w-full h-11 rounded-lg bg-[#948154] hover:bg-[#837046] disabled:opacity-50 text-white text-[13px] font-semibold flex items-center justify-center gap-2"
             >
               {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-              {busy ? "Đang ký..." : "Xác nhận ký"}
+              {busy ? "Đang ký..." : capture ? "Dùng chữ ký này" : "Xác nhận ký"}
             </button>
             <button type="button" onClick={() => onOpenChange?.(false)} disabled={busy} className="w-full h-9 text-[12px] text-gray-500">
               Huỷ

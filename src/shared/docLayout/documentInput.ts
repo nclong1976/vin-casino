@@ -5,8 +5,20 @@
  */
 
 import type { Delta } from "./types";
-import type { LayoutInput, LetterheadSnapshot, TemplateLayout } from "./layout";
-import { formatVnDateLong, formatVnDateTime, resolveTemplateString } from "./resolve";
+import type { FieldFill, LayoutInput, LetterheadSnapshot, TemplateLayout } from "./layout";
+import { formatVnDate, formatVnDateLong, formatVnDateTime, resolveTemplateString } from "./resolve";
+
+/** Giá trị 1 trường người nhận đã điền (custom_documents.field_values). */
+export interface FieldValue {
+  type?: string;
+  value_text?: string | null;
+  value_bool?: boolean | null;
+  /** Ảnh chữ ký / ký nháy trong bucket signed-documents. */
+  asset_path?: string | null;
+  /** Cùng ảnh đó dạng data URL (trang web hiển thị). */
+  image_data_url?: string | null;
+  method?: string | null;
+}
 
 /** Các cột của custom_documents mà bộ dàn trang cần. */
 export interface PublishedDocument {
@@ -20,6 +32,7 @@ export interface PublishedDocument {
   content_sha256?: string | null;
   signer_name?: string | null;
   signed_at?: string | null;
+  field_values?: Record<string, FieldValue> | null;
 }
 
 export interface DocumentInputOptions {
@@ -30,6 +43,18 @@ export interface DocumentInputOptions {
 /** Văn bản có đi theo luồng Giai đoạn 2 (đã có snapshot dàn trang) hay không. */
 export function isPublishedDocument(doc: PublishedDocument | null | undefined): boolean {
   return !!doc && !!doc.rendered_model && Array.isArray(doc.rendered_model.ops);
+}
+
+/** Giá trị chữ/ô tick của các trường để bộ dàn trang vẽ (ngày ký lấy theo signed_at). */
+export function fieldFillsFor(doc: PublishedDocument): Record<string, FieldFill> {
+  const fills: Record<string, FieldFill> = {};
+  for (const [id, v] of Object.entries(doc.field_values || {})) {
+    if (!v) continue;
+    if (v.type === "checkbox") fills[id] = { checked: v.value_bool === true };
+    else if (v.type === "date") fills[id] = { text: v.value_text || (doc.signed_at ? formatVnDate(doc.signed_at) : "") };
+    else if (v.type === "text") fills[id] = { text: v.value_text || "" };
+  }
+  return fills;
 }
 
 export function buildLayoutInput(doc: PublishedDocument, options: DocumentInputOptions = {}): LayoutInput {
@@ -52,5 +77,6 @@ export function buildLayoutInput(doc: PublishedDocument, options: DocumentInputO
     slotFills: doc.signed_at
       ? { recipient: { name: doc.signer_name || "", signedAtText: `Ký lúc ${formatVnDateTime(doc.signed_at)}` } }
       : undefined,
+    fieldFills: fieldFillsFor(doc),
   };
 }

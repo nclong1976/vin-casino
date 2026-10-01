@@ -42,31 +42,16 @@ async function sample(paragraphs = 3) {
 }
 
 describe("renderPdf", () => {
-  it("renders every layout page plus the certificate page with metadata", async () => {
+  it("renders every layout page with metadata and field images", async () => {
     const draft = await sample(3);
     const bytes = await renderPdf(
       draft.layout,
-      { fonts, images: { seal: PNG_1PX, sig: PNG_1PX }, signatures: { recipient: PNG_1PX } },
+      { fonts, images: { seal: PNG_1PX, sig: PNG_1PX }, signatures: { recipient: PNG_1PX }, fieldImages: { ky_nhay: PNG_1PX } },
       { title: draft.title, docNo: draft.doc_no, contentSha256: draft.content_sha256, creationDate: new Date("2026-09-28T07:00:00Z") },
-      {
-        docNo: draft.doc_no,
-        docId: "doc_1",
-        title: draft.title,
-        contentSha256: draft.content_sha256,
-        signerName: "Nguyễn Văn A",
-        signedAtText: "14:00:00 28/09/2026 (GMT+7)",
-        signedIp: "1.2.3.4",
-        userAgent: "Mozilla/5.0",
-        methodText: "Vẽ tay",
-        consentText: "Tôi đã đọc và đồng ý",
-        events: [{ atText: "10:00 28/09/2026", label: "Phát hành" }],
-        verifyUrl: "https://app.test/verify/VC",
-        generatedAtText: "14:00:05 28/09/2026 (GMT+7)",
-      },
     );
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
     const parsed = await PDFDocument.load(bytes);
-    expect(parsed.getPageCount()).toBe(draft.layout.pageCount + 1);
+    expect(parsed.getPageCount()).toBe(draft.layout.pageCount);
     expect(parsed.getSubject()).toBe("VC/2026/000001");
     expect(parsed.getKeywords()).toBe(draft.content_sha256);
     const [w, h] = [parsed.getPage(0).getWidth(), parsed.getPage(0).getHeight()];

@@ -1,4 +1,4 @@
-import { collectVariableKeys, normalizeVariableKey, SYSTEM_VARIABLE_KEYS, templateBody } from "@/shared/docLayout";
+import { collectFieldAnchors, collectVariableKeys, normalizeFieldId, normalizeVariableKey, SYSTEM_VARIABLE_KEYS, templateBody } from "@/shared/docLayout";
 
 /**
  * Kiểm tra trước khi xuất bản (spec 6.1, 6.2). Trả về { errors, warnings }:
@@ -68,6 +68,26 @@ export function validateTemplate(template, preview) {
   const requiresSignature = template?.requires_signature !== false;
   if (requiresSignature && Array.isArray(slots) && slots.length > 0 && !slots.some((s) => s.role === "recipient")) {
     errors.push("Mẫu yêu cầu ký nhưng không có khung ký của người nhận");
+  }
+
+  const fields = template?.layout?.fields || [];
+  const fieldIds = new Set();
+  for (const f of fields) {
+    const id = normalizeFieldId(f.id);
+    if (!id) errors.push("Có trường chưa đặt mã");
+    else if (fieldIds.has(id)) errors.push(`Mã trường "${id}" bị trùng`);
+    fieldIds.add(id);
+    if (f.type === "checkbox" && !String(f.label || "").trim()) errors.push(`Ô xác nhận "${id}" chưa có nội dung`);
+  }
+  const anchors = collectFieldAnchors(templateBody(template || {}));
+  for (const f of fields) {
+    const id = normalizeFieldId(f.id);
+    if (id && f.anchor?.kind !== "every_page_footer" && !anchors.includes(id)) {
+      warnings.push(`Trường "${f.label || id}" chưa có điểm neo trong nội dung - sẽ đặt ngay sau thân văn bản`);
+    }
+  }
+  for (const id of anchors) {
+    if (!fieldIds.has(id)) warnings.push(`Điểm neo "${id}" trong nội dung không còn trường tương ứng - sẽ bị bỏ qua`);
   }
 
   if (preview?.exceedsMaxPages) errors.push(`Văn bản dài quá ${10} trang A4`);

@@ -4,12 +4,34 @@
  * do server quyết định; client chỉ gửi ảnh chữ ký.
  */
 
+import { normalizeFields, type FieldConfig } from "../_shared/docLayout/index.ts";
+
 export const CONSENT_TEXT = "Tôi đã đọc, hiểu và đồng ý với toàn bộ nội dung văn bản trên.";
 export const MAX_SIGNATURE_BYTES = 500 * 1024;
 export const MAX_SIGNATURE_WIDTH = 2400;
 export const MAX_SIGNATURE_HEIGHT = 1200;
 const METHODS = ["draw", "upload", "typed", "saved", "acknowledge"] as const;
 export type SignMethod = (typeof METHODS)[number];
+
+/** Giá trị người nhận gửi cho 1 trường (spec hợp đồng mục 5.2). */
+export interface FieldInput {
+  field_id: string;
+  image_png_base64?: string | null;
+  saved_signature_id?: string | null;
+  value_bool?: boolean | null;
+  value_text?: string | null;
+}
+
+/** Giá trị trường đã kiểm tra, lưu vào custom_documents.field_values. */
+export interface FieldValue {
+  type: FieldConfig["type"];
+  value_text?: string | null;
+  value_bool?: boolean | null;
+  asset_path?: string | null;
+  /** Ảnh dạng data URL để trang web hiển thị (bucket signed-documents là private). */
+  image_data_url?: string | null;
+  method?: string | null;
+}
 
 export interface SignRequest {
   document_id: string;
@@ -22,6 +44,7 @@ export interface SignRequest {
   save_for_later?: boolean;
   consent: boolean;
   content_sha256: string;
+  fields: FieldInput[];
 }
 
 export type SignErrorCode =
@@ -33,7 +56,10 @@ export type SignErrorCode =
   | "REVOKED"
   | "EXPIRED"
   | "DOCUMENT_CHANGED"
-  | "NOT_ESIGN_DOCUMENT";
+  | "NOT_ESIGN_DOCUMENT"
+  | "READ_REQUIRED"
+  | "FIELD_REQUIRED"
+  | "INVALID_FIELD_VALUE";
 
 export class SignError extends Error {
   constructor(public code: SignErrorCode, message?: string) {
@@ -51,6 +77,9 @@ export const HTTP_STATUS: Record<SignErrorCode, number> = {
   EXPIRED: 409,
   DOCUMENT_CHANGED: 409,
   NOT_ESIGN_DOCUMENT: 422,
+  READ_REQUIRED: 409,
+  FIELD_REQUIRED: 422,
+  INVALID_FIELD_VALUE: 422,
 };
 
 export function parseSignRequest(body: unknown): SignRequest {
@@ -67,6 +96,7 @@ export function parseSignRequest(body: unknown): SignRequest {
     save_for_later: b.save_for_later === true,
     consent: b.consent === true,
     content_sha256: str(b.content_sha256).toLowerCase(),
+    fields: parseFieldInputs(b.fields),
   };
   if (!req.document_id || !req.idempotency_key || req.idempotency_key.length > 100 || !METHODS.includes(req.method)) {
     throw new SignError("BAD_REQUEST", "Thiếu document_id / idempotency_key hoặc method không hợp lệ");
@@ -74,6 +104,22 @@ export function parseSignRequest(body: unknown): SignRequest {
   if (!/^[0-9a-f]{64}$/.test(req.content_sha256)) throw new SignError("BAD_REQUEST", "content_sha256 không hợp lệ");
   if (!req.consent) throw new SignError("CONSENT_REQUIRED");
   return req;
+}
+
+function parseFieldInputs(raw: unknown): FieldInput[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.length > 60) throw new SignError("BAD_REQUEST", "fields không hợp lệ");
+  return raw.map((f) => {
+    const r = (f || {}) as Record<string, unknown>;
+    if (typeof r.field_id !== "string" || !r.field_id) throw new SignError("BAD_REQUEST", "Thiếu field_id");
+    return {
+      field_id: r.field_id.slice(0, 40),
+      image_png_base64: typeof r.image_png_base64 === "string" ? r.image_png_base64 : null,
+      saved_signature_id: typeof r.saved_signature_id === "string" ? r.saved_signature_id : null,
+      value_bool: typeof r.value_bool === "boolean" ? r.value_bool : null,
+      value_text: typeof r.value_text === "string" ? r.value_text : null,
+    };
+  });
 }
 
 export function base64ToBytes(b64: string): Uint8Array {
@@ -118,6 +164,8 @@ export interface DocumentForSign {
   content_sha256: string | null;
   requires_signature: boolean;
   signature_meta?: Record<string, unknown> | null;
+  layout_snapshot?: { fields?: FieldConfig[] } | null;
+  read_completed_at?: string | null;
   signer_name?: string | null;
   signed_at?: string | null;
   pdf_status?: string | null;
@@ -144,6 +192,7 @@ export interface RecordArgs {
   ip: string | null;
   userAgent: string | null;
   consentText: string;
+  fieldValues: Record<string, FieldValue>;
 }
 
 export interface SignRepo {
@@ -183,6 +232,8 @@ export async function signDocument(
   if (doc.status !== "pending") throw new SignError("ALREADY_SIGNED");
   if (doc.content_sha256 && doc.content_sha256 !== req.content_sha256) throw new SignError("DOCUMENT_CHANGED");
 
+  if (!doc.read_completed_at) throw new SignError("READ_REQUIRED", "Vui lòng đọc hết văn bản trước khi ký");
+
   if (!doc.requires_signature && req.method !== "acknowledge") throw new SignError("BAD_REQUEST", "Văn bản này chỉ cần xác nhận đã đọc");
   if (doc.requires_signature && req.method === "acknowledge") throw new SignError("BAD_REQUEST", "Văn bản này cần chữ ký");
 
@@ -195,6 +246,9 @@ export async function signDocument(
     if (!req.image_png_base64) throw new SignError("INVALID_SIGNATURE_IMAGE", "Thiếu ảnh chữ ký");
     png = base64ToBytes(req.image_png_base64);
   }
+
+  // Kiểm tra mọi trường TRƯỚC khi lưu bất cứ ảnh nào.
+  const fieldPlan = await planFields(repo, userId, doc, req.fields);
 
   let dataUrl: string | null = null;
   let path: string | null = null;
@@ -213,6 +267,17 @@ export async function signDocument(
     await repo.uploadSignature(path, png);
   }
 
+  const fieldValues: Record<string, FieldValue> = {};
+  for (const item of fieldPlan) {
+    if (item.png) {
+      const assetPath = `${userId}/${doc.id}.field-${item.field.id}.png`;
+      await repo.uploadSignature(assetPath, item.png);
+      fieldValues[item.field.id] = { ...item.value, asset_path: assetPath };
+    } else {
+      fieldValues[item.field.id] = item.value;
+    }
+  }
+
   const result = await repo.record({
     documentId: doc.id,
     userId,
@@ -223,6 +288,7 @@ export async function signDocument(
     ip: ctx.ip,
     userAgent: ctx.userAgent,
     consentText: CONSENT_TEXT,
+    fieldValues,
   });
 
   if (req.save_for_later && dataUrl && req.method !== "saved") {
@@ -230,4 +296,66 @@ export async function signDocument(
   }
   repo.queueRender(doc.id);
   return result;
+}
+
+interface FieldPlanItem {
+  field: FieldConfig;
+  value: FieldValue;
+  png: Uint8Array | null;
+}
+
+/** Đối chiếu giá trị gửi lên với các trường của văn bản (lấy từ snapshot, không tin client). */
+export async function planFields(repo: SignRepo, userId: string, doc: DocumentForSign, inputs: FieldInput[]): Promise<FieldPlanItem[]> {
+  const fields = normalizeFields(doc.layout_snapshot?.fields);
+  const byId = new Map(inputs.map((f) => [f.field_id, f]));
+  const plan: FieldPlanItem[] = [];
+  for (const field of fields) {
+    const input = byId.get(field.id);
+    const required = field.required !== false;
+    switch (field.type) {
+      case "signature":
+      case "initials": {
+        let png: Uint8Array | null = null;
+        let method = "draw";
+        if (input?.image_png_base64) {
+          png = base64ToBytes(input.image_png_base64);
+        } else if (input?.saved_signature_id) {
+          const saved = await repo.loadSavedSignature(input.saved_signature_id, userId);
+          if (!saved) throw new SignError("INVALID_FIELD_VALUE", `Không tìm thấy chữ ký đã lưu (${field.id})`);
+          png = base64ToBytes(saved);
+          method = "saved";
+        }
+        if (!png) {
+          if (required) throw new SignError("FIELD_REQUIRED", field.id);
+          continue;
+        }
+        try {
+          inspectPng(png);
+        } catch (e) {
+          throw new SignError("INVALID_FIELD_VALUE", `${field.id}: ${(e as Error).message}`);
+        }
+        plan.push({ field, value: { type: field.type, method, image_data_url: `data:image/png;base64,${bytesToBase64(png)}` }, png });
+        break;
+      }
+      case "checkbox": {
+        const checked = input?.value_bool === true;
+        if (!checked && (required || field.options?.must_be_checked)) throw new SignError("FIELD_REQUIRED", field.id);
+        plan.push({ field, value: { type: "checkbox", value_bool: checked }, png: null });
+        break;
+      }
+      case "text": {
+        const text = String(input?.value_text || "").normalize("NFC").replace(/\s+/g, " ").trim();
+        const max = field.options?.max_length || 200;
+        if (text.length > max) throw new SignError("INVALID_FIELD_VALUE", `${field.id}: tối đa ${max} ký tự`);
+        if (!text && required) throw new SignError("FIELD_REQUIRED", field.id);
+        plan.push({ field, value: { type: "text", value_text: text }, png: null });
+        break;
+      }
+      case "date":
+        // Ngày ký do Postgres điền (esign_record_signature).
+        plan.push({ field, value: { type: "date", value_text: null }, png: null });
+        break;
+    }
+  }
+  return plan;
 }

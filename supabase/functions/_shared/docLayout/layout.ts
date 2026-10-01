@@ -13,7 +13,7 @@
  */
 
 import type { Delta, DeltaAttributes, DeltaOp } from "./types.ts";
-import { normalizeDelta } from "./resolve.ts";
+import { isFieldAnchor, normalizeDelta, normalizeFieldId } from "./resolve.ts";
 import {
   NOTO_SERIF,
   PT_PER_MM,
@@ -79,10 +79,37 @@ export interface SlotConfig {
   fill?: "auto_on_dispatch";
 }
 
+export type FieldType = "signature" | "initials" | "date" | "checkbox" | "text";
+
+export type FieldAnchor =
+  | { kind: "flow" }
+  | { kind: "every_page_footer"; align?: "left" | "right"; pages?: "all" | "all_but_last" };
+
+/**
+ * Trường người nhận điền khi ký (spec hợp đồng mục 2.2, 4.3). Vị trí thật
+ * (trang, x, y) do bộ dàn trang tính theo nội dung của từng người nhận:
+ * - "flow": ngay sau đoạn chứa điểm neo `{ field_anchor: id }` trong thân
+ *   (không có điểm neo thì đặt sau thân văn bản), lệch theo offset_mm.
+ * - "every_page_footer": lặp ở chân mọi trang (ký nháy).
+ */
+export interface FieldConfig {
+  id: string;
+  type: FieldType;
+  label?: string;
+  required?: boolean;
+  size_mm: { w: number; h: number };
+  anchor?: FieldAnchor;
+  offset_mm?: { x?: number; y?: number };
+  options?: { must_be_checked?: boolean; max_length?: number; placeholder?: string };
+}
+
 export interface TemplateLayout {
   page?: { size?: "A4"; orientation?: "portrait" };
   signature_zone?: { placement?: "after_body"; keep_together?: boolean; gap_top_mm?: number; columns?: number };
   slots?: SlotConfig[];
+  fields?: FieldConfig[];
+  /** Ghi "Chữ ký minh hoạ" dưới chữ ký/ký nháy và ở chân trang. Mặc định bật. */
+  illustrative_label?: boolean;
 }
 
 export const DEFAULT_THEME: Required<Omit<LetterheadTheme, "margins_mm">> & {
@@ -123,6 +150,8 @@ export const DEFAULT_LAYOUT: Required<TemplateLayout> = {
       show_name: true,
     },
   ],
+  fields: [],
+  illustrative_label: true,
 };
 
 export const PAGE_WIDTH_MM = 210;
@@ -188,7 +217,22 @@ export interface QrItem {
   value: string;
 }
 
-export type LayoutItem = TextItem | ImageItem | LineItem | SlotItem | QrItem;
+export interface FieldItem {
+  kind: "field";
+  fieldId: string;
+  type: FieldType;
+  /** Lần xuất hiện thứ mấy (ký nháy lặp mỗi trang). */
+  occurrence: number;
+  required: boolean;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Vùng đặt ảnh chữ ký / ký nháy. */
+  imageArea: { x: number; y: number; w: number; h: number };
+}
+
+export type LayoutItem = TextItem | ImageItem | LineItem | SlotItem | QrItem | FieldItem;
 
 export interface PageLayout {
   index: number;
@@ -208,10 +252,18 @@ export interface SlotBox {
 export interface LayoutResult {
   pages: PageLayout[];
   slotBoxes: Record<string, SlotBox>;
+  /** Mỗi trường 1 mảng vị trí (ký nháy có thể xuất hiện nhiều trang). */
+  fieldBoxes: Record<string, SlotBox[]>;
   pageCount: number;
   exceedsMaxPages: boolean;
   /** Ký tự không có trong font - UI cảnh báo trước khi phát hành. */
   unsupportedChars: string[];
+}
+
+/** Giá trị trường dạng chữ / ô tick - ảnh chữ ký, ký nháy do renderer vẽ. */
+export interface FieldFill {
+  text?: string | null;
+  checked?: boolean;
 }
 
 /** Nội dung điền vào khung ký (tên, giờ ký) - ảnh chữ ký do renderer vẽ. */
@@ -235,6 +287,7 @@ export interface LayoutInput {
   /** URL trang /verify cho mã QR (nếu footer.show_qr). */
   verifyUrl?: string;
   slotFills?: Record<string, SlotFill>;
+  fieldFills?: Record<string, FieldFill>;
   fonts?: FontFamilyMetrics;
 }
 
@@ -408,15 +461,21 @@ function breakLines(pieces: Piece[], avail: number, m: Measurer): Line[] {
 interface Paragraph {
   runs: { text: string; attrs?: DeltaAttributes; placeholder?: boolean }[];
   block: DeltaAttributes;
+  /** Trường neo trong đoạn này - đặt ngay sau đoạn. */
+  anchors: string[];
 }
 
 function toParagraphs(body: Delta | null | undefined): Paragraph[] {
   const paragraphs: Paragraph[] = [];
   let runs: Paragraph["runs"] = [];
+  let anchors: string[] = [];
   for (const op of normalizeDelta(body).ops as DeltaOp[]) {
     if (op.insert === "\n") {
-      paragraphs.push({ runs, block: op.attributes || {} });
+      paragraphs.push({ runs, block: op.attributes || {}, anchors });
       runs = [];
+      anchors = [];
+    } else if (isFieldAnchor(op.insert)) {
+      anchors.push(op.insert.field_anchor);
     } else if (typeof op.insert === "string") {
       runs.push({ text: op.insert, attrs: op.attributes });
     } else {
@@ -584,6 +643,7 @@ function layoutBody(
   contentW: number,
   baseSize: number,
   factor: number,
+  afterParagraph?: (p: Paragraph) => void,
 ) {
   const counters: number[] = [];
   let prevList: string | undefined;
@@ -663,6 +723,7 @@ function layoutBody(
     });
 
     b.y += spacing(mp.lh);
+    if (p.anchors.length) afterParagraph?.(p);
   });
 }
 
@@ -699,6 +760,7 @@ function layoutSignatureZone(
   const slots = layout.slots || [];
   if (!slots.length) return;
   const zone = layout.signature_zone || {};
+  const illustrativeSlot = (slot: SlotConfig) => layout.illustrative_label !== false && slot.role === "recipient";
   const colW = contentW / 2;
   const colX = (c: SlotConfig["column"]) => (c === "right" ? x0 + colW : x0);
 
@@ -707,7 +769,8 @@ function layoutSignatureZone(
     measureSimpleHeight(m, slot.hint || "", colW, "italic", SLOT_HINT_SIZE_PT) +
     2 +
     Math.max(0, slot.box.offset_y_mm || 0) +
-    slot.box.h_mm;
+    slot.box.h_mm +
+    (illustrativeSlot(slot) ? ILLUSTRATIVE_BAND_MM : 0);
 
   const zoneHeight = (zone.gap_top_mm ?? 8) + Math.max(...slots.map(columnHeight));
   if (zone.keep_together !== false) b.ensure(zoneHeight);
@@ -754,7 +817,11 @@ function layoutSignatureZone(
       const text = fitText(m, fill.signedAtText, box.w - 2 * SLOT_PADDING_MM, "regular", SLOT_TIME_SIZE_PT);
       emitLine(b, singleLine(m, text, "regular", SLOT_TIME_SIZE_PT, MUTED_COLOR), box.x + SLOT_PADDING_MM, box.w - 2 * SLOT_PADDING_MM, "center", false, bandTop + m.baseline("regular", SLOT_TIME_SIZE_PT, SLOT_TIME_BAND_MM));
     }
-    bottom = Math.max(bottom, box.y + box.h);
+    if (illustrativeSlot(slot)) {
+      const text = fitText(m, ILLUSTRATIVE_TEXT, box.w, "italic", ILLUSTRATIVE_SIZE_PT);
+      emitLine(b, singleLine(m, text, "italic", ILLUSTRATIVE_SIZE_PT, MUTED_COLOR), box.x, box.w, "center", false, box.y + box.h + m.baseline("italic", ILLUSTRATIVE_SIZE_PT, ILLUSTRATIVE_BAND_MM));
+    }
+    bottom = Math.max(bottom, box.y + box.h + (illustrativeSlot(slot) ? ILLUSTRATIVE_BAND_MM : 0));
   }
 
   // Tên + chức vụ bên phát hành dưới khung (nếu có).
@@ -780,9 +847,10 @@ function fitText(m: Measurer, text: string, width: number, font: FontStyleKey, s
   return `${chars.join("").trimEnd()}…`;
 }
 
-function layoutFooters(pages: PageLayout[], m: Measurer, input: LayoutInput, margins: { left: number; right: number }) {
+function layoutFooters(pages: PageLayout[], m: Measurer, input: LayoutInput, margins: { left: number; right: number }, illustrative = false) {
   const footer = input.letterhead?.footer || {};
   const lines = (input.footerLines ?? footer.lines ?? []).filter((l) => l && l.trim());
+  if (illustrative) lines.push(ILLUSTRATIVE_FOOTER);
   const qr = footer.show_qr && input.verifyUrl;
   const contentW = PAGE_WIDTH_MM - margins.left - margins.right;
   const textW = qr ? contentW - QR_SIZE_MM - 3 : contentW;
@@ -812,6 +880,228 @@ function layoutFooters(pages: PageLayout[], m: Measurer, input: LayoutInput, mar
   }
 }
 
+// ─── Trường người nhận điền (chữ ký, ký nháy, ngày, ô xác nhận, ô nhập) ──
+
+export const ILLUSTRATIVE_TEXT = "Chữ ký minh hoạ";
+export const ILLUSTRATIVE_FOOTER = "Chữ ký trên văn bản này mang tính minh hoạ.";
+const ILLUSTRATIVE_BAND_MM = 3.5;
+const ILLUSTRATIVE_SIZE_PT = 7;
+const FIELD_LABEL_BAND_MM = 4.5;
+const FIELD_LABEL_SIZE_PT = 9;
+const FIELD_VALUE_SIZE_PT = 10.5;
+const CHECKBOX_LABEL_SIZE_PT = 10.5;
+export const MAX_FIELDS = 30;
+
+/** Kích thước mặc định và giới hạn (mm) theo loại trường. */
+export const FIELD_SIZE_LIMITS: Record<FieldType, { def: [number, number]; min: [number, number]; max: [number, number] }> = {
+  signature: { def: [60, 25], min: [30, 12], max: [90, 45] },
+  initials: { def: [22, 12], min: [12, 8], max: [45, 25] },
+  date: { def: [35, 7], min: [20, 5], max: [70, 12] },
+  checkbox: { def: [5, 5], min: [4, 4], max: [8, 8] },
+  text: { def: [70, 7], min: [20, 5], max: [170, 15] },
+};
+
+const FIELD_TYPES: FieldType[] = ["signature", "initials", "date", "checkbox", "text"];
+const clampNum = (n: unknown, lo: number, hi: number, fallback: number) => {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.min(Math.max(v, lo), hi) : fallback;
+};
+
+/** Chuẩn hoá danh sách trường: mã hợp lệ, không trùng, kích thước trong giới hạn. */
+export function normalizeFields(fields: FieldConfig[] | null | undefined): FieldConfig[] {
+  const out: FieldConfig[] = [];
+  const seen = new Set<string>();
+  for (const raw of Array.isArray(fields) ? fields : []) {
+    if (out.length >= MAX_FIELDS) break;
+    const id = normalizeFieldId(raw?.id || "");
+    const type = raw?.type as FieldType;
+    if (!id || seen.has(id) || !FIELD_TYPES.includes(type)) continue;
+    seen.add(id);
+    const lim = FIELD_SIZE_LIMITS[type];
+    let w = clampNum(raw.size_mm?.w, lim.min[0], lim.max[0], lim.def[0]);
+    let h = clampNum(raw.size_mm?.h, lim.min[1], lim.max[1], lim.def[1]);
+    if (type === "checkbox") w = h = Math.min(w, h);
+    const footer = raw.anchor?.kind === "every_page_footer" && type === "initials";
+    const anchor: FieldAnchor = footer
+      ? {
+          kind: "every_page_footer",
+          align: (raw.anchor as { align?: string }).align === "left" ? "left" : "right",
+          pages: (raw.anchor as { pages?: string }).pages === "all" ? "all" : "all_but_last",
+        }
+      : { kind: "flow" };
+    const field: FieldConfig = {
+      id,
+      type,
+      label: String(raw.label || "").slice(0, 160),
+      required: raw.required !== false,
+      size_mm: { w, h },
+      anchor,
+      offset_mm: { x: clampNum(raw.offset_mm?.x, 0, 170, 0), y: clampNum(raw.offset_mm?.y, 0, 30, 0) },
+    };
+    const options: NonNullable<FieldConfig["options"]> = {};
+    if (type === "checkbox" && raw.options?.must_be_checked) options.must_be_checked = true;
+    if (type === "text") {
+      options.max_length = clampNum(raw.options?.max_length, 1, 200, 200);
+      if (raw.options?.placeholder) options.placeholder = String(raw.options.placeholder).slice(0, 80);
+    }
+    if (Object.keys(options).length) field.options = options;
+    out.push(field);
+  }
+  return out;
+}
+
+function hasIllustrativeBand(layout: Required<TemplateLayout>, type: FieldType): boolean {
+  return layout.illustrative_label !== false && (type === "signature" || type === "initials");
+}
+
+function addRectLines(b: PageBuilder, x: number, y: number, w: number, h: number, thickness: number, color: string) {
+  b.add({ kind: "line", x1: x, y1: y, x2: x + w, y2: y, thickness, color });
+  b.add({ kind: "line", x1: x + w, y1: y, x2: x + w, y2: y + h, thickness, color });
+  b.add({ kind: "line", x1: x + w, y1: y + h, x2: x, y2: y + h, thickness, color });
+  b.add({ kind: "line", x1: x, y1: y + h, x2: x, y2: y, thickness, color });
+}
+
+/** Vẽ khung trường + giá trị dạng chữ/ô tick (ảnh chữ ký do renderer vẽ). */
+function emitField(
+  b: PageBuilder,
+  m: Measurer,
+  field: FieldConfig,
+  occurrence: number,
+  box: { x: number; y: number; w: number; h: number },
+  fill: FieldFill | undefined,
+  illustrative: boolean,
+  fieldBoxes: Record<string, SlotBox[]>,
+) {
+  const inset = field.type === "checkbox" ? 0 : 1;
+  b.add({
+    kind: "field",
+    fieldId: field.id,
+    type: field.type,
+    occurrence,
+    required: field.required !== false,
+    ...box,
+    imageArea: { x: box.x + inset, y: box.y + inset, w: Math.max(box.w - 2 * inset, 0), h: Math.max(box.h - 2 * inset, 0) },
+  });
+  (fieldBoxes[field.id] ||= []).push({ page: b.page.index, x_mm: box.x, y_mm: box.y, w_mm: box.w, h_mm: box.h });
+
+  if (field.type === "checkbox") {
+    addRectLines(b, box.x, box.y, box.w, box.h, 0.3, TEXT_COLOR);
+    if (fill?.checked) {
+      const t = 0.45;
+      b.add({ kind: "line", x1: box.x + box.w * 0.2, y1: box.y + box.h * 0.55, x2: box.x + box.w * 0.42, y2: box.y + box.h * 0.78, thickness: t, color: TEXT_COLOR });
+      b.add({ kind: "line", x1: box.x + box.w * 0.42, y1: box.y + box.h * 0.78, x2: box.x + box.w * 0.82, y2: box.y + box.h * 0.22, thickness: t, color: TEXT_COLOR });
+    }
+  } else if (field.type === "date" || field.type === "text") {
+    b.add({ kind: "line", x1: box.x, y1: box.y + box.h, x2: box.x + box.w, y2: box.y + box.h, thickness: 0.2, color: MUTED_COLOR });
+    if (fill?.text) {
+      const text = fitText(m, fill.text, box.w - 1, "regular", FIELD_VALUE_SIZE_PT);
+      emitLine(b, singleLine(m, text, "regular", FIELD_VALUE_SIZE_PT), box.x + 0.5, box.w - 1, "left", false, box.y + m.baseline("regular", FIELD_VALUE_SIZE_PT, box.h));
+    }
+  }
+
+  if (illustrative) {
+    const text = fitText(m, ILLUSTRATIVE_TEXT, Math.max(box.w, 30), "italic", ILLUSTRATIVE_SIZE_PT);
+    const cx = box.x + box.w / 2;
+    const w = Math.max(box.w, 30);
+    emitLine(b, singleLine(m, text, "italic", ILLUSTRATIVE_SIZE_PT, MUTED_COLOR), cx - w / 2, w, "center", false, box.y + box.h + m.baseline("italic", ILLUSTRATIVE_SIZE_PT, ILLUSTRATIVE_BAND_MM));
+  }
+}
+
+/** Đặt 1 trường "flow" ở vị trí hiện tại của luồng chữ (ngay sau đoạn neo). */
+function placeFlowField(
+  b: PageBuilder,
+  m: Measurer,
+  field: FieldConfig,
+  layout: Required<TemplateLayout>,
+  x0: number,
+  contentW: number,
+  fills: Record<string, FieldFill> | undefined,
+  fieldBoxes: Record<string, SlotBox[]>,
+) {
+  const { w, h } = field.size_mm;
+  const offX = Math.min(field.offset_mm?.x || 0, Math.max(contentW - w, 0));
+  const offY = field.offset_mm?.y || 0;
+  const x = x0 + offX;
+  const illustrative = hasIllustrativeBand(layout, field.type);
+  const labelText = (field.label || "").trim();
+
+  if (field.type === "checkbox") {
+    const labelX = x + w + 2;
+    const labelW = Math.max(x0 + contentW - labelX, 20);
+    const labelH = labelText ? measureSimpleHeight(m, labelText, labelW, "regular", CHECKBOX_LABEL_SIZE_PT) : 0;
+    const height = offY + Math.max(h, labelH);
+    b.ensure(height + 1);
+    const top = b.y + offY;
+    const lh = lineHeightMm(CHECKBOX_LABEL_SIZE_PT, 1.3);
+    const boxY = top + Math.max((lh - h) / 2, 0);
+    emitField(b, m, field, 0, { x, y: boxY, w, h }, fills?.[field.id], false, fieldBoxes);
+    if (labelText) {
+      b.y = top;
+      placeSimpleText(b, m, labelText, { x: labelX, width: labelW, font: "regular", sizePt: CHECKBOX_LABEL_SIZE_PT });
+    }
+    b.y = top + Math.max(h, labelH) + 1.5;
+    return;
+  }
+
+  const labelBand = labelText ? FIELD_LABEL_BAND_MM : 0;
+  const height = offY + labelBand + h + (illustrative ? ILLUSTRATIVE_BAND_MM : 0);
+  b.ensure(height + 1);
+  const top = b.y + offY;
+  if (labelText) {
+    const labelW = Math.max(x0 + contentW - x, 20);
+    const text = fitText(m, labelText, labelW, "italic", FIELD_LABEL_SIZE_PT);
+    emitLine(b, singleLine(m, text, "italic", FIELD_LABEL_SIZE_PT, MUTED_COLOR), x, labelW, "left", false, top + m.baseline("italic", FIELD_LABEL_SIZE_PT, FIELD_LABEL_BAND_MM));
+  }
+  emitField(b, m, field, 0, { x, y: top + labelBand, w, h }, fills?.[field.id], illustrative, fieldBoxes);
+  b.y = top + labelBand + h + (illustrative ? ILLUSTRATIVE_BAND_MM : 0) + 1.5;
+}
+
+/** Khoảng (mm) dành ở đáy mỗi trang cho các trường lặp ở chân trang. */
+function footerFieldReserve(fields: FieldConfig[], layout: Required<TemplateLayout>): number {
+  let reserve = 0;
+  for (const f of fields) {
+    if (f.anchor?.kind !== "every_page_footer") continue;
+    reserve = Math.max(reserve, f.size_mm.h + (hasIllustrativeBand(layout, f.type) ? ILLUSTRATIVE_BAND_MM : 0) + 2);
+  }
+  return reserve;
+}
+
+function placeFooterFields(
+  b: PageBuilder,
+  m: Measurer,
+  fields: FieldConfig[],
+  layout: Required<TemplateLayout>,
+  margins: { left: number; right: number },
+  bodyBottom: number,
+  fills: Record<string, FieldFill> | undefined,
+  fieldBoxes: Record<string, SlotBox[]>,
+) {
+  const footerFields = fields.filter((f) => f.anchor?.kind === "every_page_footer");
+  if (!footerFields.length) return;
+  const pages = b.pages;
+  for (const page of pages) {
+    let right = PAGE_WIDTH_MM - margins.right;
+    let left = margins.left;
+    for (const field of footerFields) {
+      const anchor = field.anchor as Extract<FieldAnchor, { kind: "every_page_footer" }>;
+      if (anchor.pages !== "all" && pages.length > 1 && page.index === pages.length - 1) continue;
+      if (anchor.pages !== "all" && pages.length === 1) continue;
+      const { w, h } = field.size_mm;
+      let x: number;
+      if (anchor.align === "left") {
+        x = left;
+        left += w + 4;
+      } else {
+        x = right - w;
+        right -= w + 4;
+      }
+      const pb = new PageBuilder(0, PAGE_HEIGHT_MM);
+      pb.pages = [page];
+      emitField(pb, m, field, page.index, { x, y: bodyBottom + 1, w, h }, fills?.[field.id], hasIllustrativeBand(layout, field.type), fieldBoxes);
+    }
+  }
+}
+
 /** Bố cục đầy đủ: phần thiếu lấy theo DEFAULT_LAYOUT (spec 4.3.1). */
 export function normalizeLayout(layout: TemplateLayout | null | undefined): Required<TemplateLayout> {
   return {
@@ -820,6 +1110,8 @@ export function normalizeLayout(layout: TemplateLayout | null | undefined): Requ
     page: { ...DEFAULT_LAYOUT.page, ...(layout?.page || {}) },
     signature_zone: { ...DEFAULT_LAYOUT.signature_zone, ...(layout?.signature_zone || {}) },
     slots: layout?.slots?.length ? layout.slots : DEFAULT_LAYOUT.slots,
+    fields: normalizeFields(layout?.fields),
+    illustrative_label: layout?.illustrative_label !== false,
   };
 }
 
@@ -834,7 +1126,8 @@ export function layoutDocument(input: LayoutInput): LayoutResult {
   const factor = Number(theme.line_height) || DEFAULT_THEME.line_height;
   const x0 = margins.left;
   const contentW = PAGE_WIDTH_MM - margins.left - margins.right;
-  const bodyBottom = PAGE_HEIGHT_MM - margins.bottom;
+  const fields = layout.fields;
+  const bodyBottom = PAGE_HEIGHT_MM - margins.bottom - footerFieldReserve(fields, layout);
 
   const b = new PageBuilder(margins.top, bodyBottom);
   layoutHeader(b, m, input, margins);
@@ -844,15 +1137,29 @@ export function layoutDocument(input: LayoutInput): LayoutResult {
     b.y += 5;
   }
 
-  layoutBody(b, m, toParagraphs(input.body), x0, contentW, baseSize, factor);
+  const fieldBoxes: Record<string, SlotBox[]> = {};
+  const flowFields = new Map(fields.filter((f) => f.anchor?.kind !== "every_page_footer").map((f) => [f.id, f]));
+  const placed = new Set<string>();
+  const placeFlow = (id: string) => {
+    const field = flowFields.get(id);
+    if (!field || placed.has(id)) return;
+    placed.add(id);
+    placeFlowField(b, m, field, layout, x0, contentW, input.fieldFills, fieldBoxes);
+  };
+
+  layoutBody(b, m, toParagraphs(input.body), x0, contentW, baseSize, factor, (p) => p.anchors.forEach(placeFlow));
+  // Trường chưa có điểm neo trong thân: đặt ngay sau thân văn bản.
+  for (const id of flowFields.keys()) placeFlow(id);
 
   const slotBoxes: Record<string, SlotBox> = {};
   layoutSignatureZone(b, m, input, layout, x0, contentW, slotBoxes);
-  layoutFooters(b.pages, m, input, margins);
+  placeFooterFields(b, m, fields, layout, margins, bodyBottom, input.fieldFills, fieldBoxes);
+  layoutFooters(b.pages, m, input, margins, layout.illustrative_label !== false);
 
   return {
     pages: b.pages,
     slotBoxes,
+    fieldBoxes,
     pageCount: b.pages.length,
     exceedsMaxPages: b.pages.length > MAX_PAGES,
     unsupportedChars: [...m.unsupported],
