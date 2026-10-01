@@ -1,7 +1,7 @@
 # Thiết kế: Module Quản lý Hợp đồng điện tử (tab "Văn bản" — luồng Admin & User)
 
-> Trạng thái: **v3 — bản đề xuất, chờ chốt các quyết định ở mục 0.2**
-> Phạm vi: mở rộng tab **Văn bản** đã có (Giai đoạn 2, xem `docs/design/e-sign-letterhead-spec.md`) thành module hợp đồng đầy đủ: trường ký kéo-thả, OTP, nhắc hạn, bảng trạng thái chi tiết, PDF niêm phong.
+> Trạng thái: **v3.1 — đã chốt: không dùng OTP; chữ ký chỉ mang tính minh hoạ**
+> Phạm vi: mở rộng tab **Văn bản** đã có (Giai đoạn 2, xem `docs/design/e-sign-letterhead-spec.md`) thành module hợp đồng đầy đủ: trường ký kéo-thả, nhắc hạn, bảng trạng thái chi tiết, PDF bản ký.
 > Stack giữ nguyên: Vite + React host tĩnh trên GitHub Pages; backend 100% Supabase (Postgres + RLS + Realtime + Storage + Edge Functions + pg_cron/pg_net).
 
 ---
@@ -13,26 +13,26 @@
 | Thành phần | Vị trí | Dùng lại thế nào |
 |---|---|---|
 | 5 sub-tab Văn bản: Khung văn bản · Mẫu · Nhóm · Phát hành · Theo dõi | `src/components/admin/ESignTab.jsx`, `esign/*` | Giữ khung; nâng cấp Mẫu (trường kéo-thả), Phát hành (cài đặt gửi), Theo dõi (bảng trạng thái) |
-| Soạn thân văn bản Quill + biến `{{…}}` dạng embed | `esign/QuillBodyEditor.jsx`, `shared/docLayout/resolve.ts` | Thêm embed **trường** (`FieldEmbed`) bên cạnh `VariableEmbed` |
+| Soạn thân văn bản Quill + biến `{{…}}` dạng embed | `esign/QuillBodyEditor.jsx`, `shared/docLayout/resolve.ts` | Thêm embed **neo trường** (`field_anchor`) bên cạnh `VariableEmbed` |
 | Layout engine dùng chung trình duyệt ↔ Edge Function | `src/shared/docLayout/*` → `supabase/functions/_shared/docLayout` | Tính toạ độ trường theo từng người nhận (mục 4.4) |
 | Khung ký người nhận / bên phát hành | `layout.slots[]`, `custom_documents.slot_boxes` | Trở thành 2 trường đặc biệt trong mô hình trường mới (tương thích ngược) |
 | Phát hành theo lô, nhóm tĩnh/động | Edge Function `dispatch-campaign`, `user_groups` | Thêm `delivery_settings` |
-| Ký qua server, hash nội dung, PDF + trang chứng nhận, `/verify` | `sign-document`, `render-document-pdf`, `get-document-pdf`, `pages/Verify.jsx` | Mở rộng payload ký (nhiều trường + OTP), thêm watermark, chuỗi hash audit |
-| Audit `document_events` chỉ ghi thêm | migration `esign_phase2_schema` | Thêm metadata thiết bị + chuỗi hash chống sửa |
+| Ký qua server, PDF, `/verify` | `sign-document`, `render-document-pdf`, `get-document-pdf`, `pages/Verify.jsx` | Mở rộng payload ký (nhiều trường), thêm nhãn "chữ ký minh hoạ" |
+| Nhật ký `document_events` chỉ ghi thêm | migration `esign_phase2_schema` | Thêm thông tin thiết bị |
 
 Dữ liệu thật hiện tại (01/10/2026): 0 mẫu, 0 đợt, 0 văn bản → **đổi schema không cần chuyển dữ liệu**.
 
-### 0.2 Quyết định cần chốt (yêu cầu mới khác với spec v2)
+### 0.2 Quyết định đã chốt
 
-| # | Yêu cầu mới | Thực trạng | Đề xuất |
+| # | Chủ đề | Quyết định | Ảnh hưởng |
 |---|---|---|---|
-| Q1 | OTP qua Email/SĐT trước khi ký (v2 đã chốt **không** OTP — D2) | **100% tài khoản dùng email ảo `…@vinclub.com`** (10/10), chỉ 3/10 có SĐT. Chưa có nhà cung cấp SMS/Email | **OTP qua SMS** (Edge Function + nhà cung cấp SMS: eSMS/SpeedSMS/Twilio). Người chưa có SĐT: bắt buộc **xác thực lại mật khẩu** thay OTP. Bật/tắt OTP **theo mẫu** (`require_otp`) |
-| Q2 | Gửi thông báo qua Email | Email ảo → không gửi được | **Chỉ In-App + Web Push** (hạ tầng đã có). Kênh Email để sẵn trong schema, bật khi có email thật |
-| Q3 | Kéo-thả trường ký vào **vị trí cụ thể (X, Y, trang)** | Nội dung dài/ngắn khác nhau theo từng người → toạ độ tuyệt đối sẽ đè chữ | **Neo theo nội dung** (mục 2.3): Admin thả trường vào canvas, hệ thống lưu *điểm neo trong văn bản + độ lệch mm*; toạ độ X/Y/trang thật được tính **riêng cho từng người nhận** lúc phát hành và lưu cố định |
-| Q4 | Chứng thư số (digital certificate) | Chưa có | **Giai đoạn A:** chữ ký điện tử + SHA-256 + chuỗi hash audit + niêm phong PDF. **Giai đoạn B (tuỳ chọn):** ký số PAdES bằng chứng thư tổ chức từ CA được cấp phép tại VN + dấu thời gian RFC 3161 |
-| Q5 | Trạng thái "Delivered" | Web app không biết chắc thông báo đã tới máy | Delivered = **người nhận đã tải văn bản về thiết bị lần đầu** (mở hộp văn bản / app nhận realtime) — ghi bằng RPC, phân biệt với Viewed (mở xem văn bản) |
+| Q1 | OTP trước khi ký | **Không dùng OTP** (giữ như D2 của spec v2) | Người ký = tài khoản đang đăng nhập (JWT). Không cần nhà cung cấp SMS/Email, không có bảng OTP |
+| Q2 | Kênh thông báo | **In-App + Web Push** (10/10 tài khoản dùng email ảo `…@vinclub.com` nên không gửi Email) | Kênh Email để sẵn trong schema, mặc định tắt |
+| Q3 | Vị trí trường ký | **Kéo-thả, neo theo nội dung** (mục 2.3) | Toạ độ X/Y/trang thật tính riêng cho từng người nhận lúc gửi |
+| Q4 | Giá trị chữ ký | **Chữ ký chỉ mang tính minh hoạ**, không phải chữ ký số / chữ ký điện tử có giá trị chứng cứ | Không chứng thư số, không PAdES, không chuỗi hash pháp lý, không trang "chứng nhận ký". Văn bản và PDF hiển thị nhãn "Chữ ký minh hoạ" (bật/tắt theo mẫu, mục 2.6) |
+| Q5 | Trạng thái "Delivered" | = người nhận đã tải văn bản về thiết bị lần đầu; "Viewed" = mở xem văn bản | RPC riêng cho từng mốc |
 
-Các mục dưới đây viết theo phương án đề xuất. Đổi phương án nào ở Q1–Q5 chỉ ảnh hưởng các mục được ghi chú.
+Hệ quả của Q4: hệ thống vẫn **khoá nội dung sau khi ký** và lưu nhật ký ai/khi nào để vận hành (tránh tranh cãi nội bộ, hiển thị đúng trạng thái), nhưng **không** thiết kế hay quảng bá như bằng chứng pháp lý.
 
 ---
 
@@ -67,18 +67,18 @@ flowchart TD
   G --> H[Gửi: chọn mẫu đã xuất bản]
   H --> I[Điền biến cấp đợt]
   I --> J[Chọn người nhận: 1 người · Lọc · Nhóm · Tất cả]
-  J --> K[Cài đặt gửi: hạn ký, nhắc tự động, OTP, quyền tải PDF, kênh báo]
+  J --> K[Cài đặt gửi: hạn ký, nhắc tự động, quyền tải PDF, kênh báo]
   K --> L[Xem lại: preview 3 người ngẫu nhiên + số người N]
   L --> M{Gửi ngay / Hẹn giờ / Lưu nháp đợt}
   M -- Lưu nháp --> M1[(campaign: draft)]
   M -- Hẹn giờ --> M2[(campaign: scheduled)] --> N
-  M -- Gửi ngay --> N[[Edge Fn dispatch-campaign<br/>tính toạ độ trường từng người, snapshot, hash]]
+  M -- Gửi ngay --> N[[Edge Fn dispatch-campaign<br/>tính toạ độ trường từng người, chụp nội dung]]
   N --> O[Theo dõi: Tổng quan / Bảng văn bản / Theo dõi đợt]
   O --> P{Hành động}
-  P --> P1[Nhắc lại] & P2[Thu hồi] & P3[Gia hạn ký] & P4[Duyệt / Từ chối] & P5[Xem audit + tải PDF]
+  P --> P1[Nhắc lại] & P2[Thu hồi] & P3[Gia hạn ký] & P4[Duyệt / Từ chối] & P5[Xem nhật ký + tải PDF]
 ```
 
-### 1.3 Luồng User: Nhận → Xác thực → Xem → Ký → Hoàn tất
+### 1.3 Luồng User: Nhận → Mở → Xem → Ký → Hoàn tất
 
 ```mermaid
 flowchart TD
@@ -93,17 +93,15 @@ flowchart TD
   F --> G{Đã cuộn tới cuối?}
   G -- Chưa --> F
   G -- Rồi --> H[Điền lần lượt các trường được giao<br/>Chữ ký · Ký nháy · Ngày · Ô xác nhận]
-  H --> I{Đủ trường bắt buộc + tick đồng ý?}
+  H --> I{Đủ trường bắt buộc + tick xác nhận?}
   I -- Chưa --> H
-  I -- Đủ --> J{Mẫu yêu cầu OTP?}
-  J -- Không --> L
-  J -- Có, có SĐT --> K[Gửi OTP SMS → nhập 6 số]
-  J -- Có, không SĐT --> K2[Nhập lại mật khẩu]
-  K & K2 --> L[[Edge Fn sign-document]]
+  I -- Đủ --> L[[Edge Fn sign-document]]
   L --> M[Khoá văn bản, giờ ký theo server]
-  M --> N[[render-document-pdf: PDF + watermark hash + trang chứng nhận]]
-  N --> O([Hoàn tất: Tải PDF · bản lưu ở mục Văn bản của tôi · Admin thấy ngay])
+  M --> N[[render-document-pdf: PDF có chữ ký minh hoạ]]
+  N --> O([Hoàn tất: Tải PDF · bản lưu ở Văn bản của tôi · Admin thấy ngay])
 ```
+
+Xác thực người ký = phiên đăng nhập hiện tại (JWT). Không có bước OTP hay nhập lại mật khẩu.
 
 ### 1.4 Máy trạng thái văn bản
 
@@ -114,7 +112,7 @@ stateDiagram-v2
   sent --> delivered: user tải văn bản lần đầu
   delivered --> viewed: user mở xem
   sent --> viewed: mở thẳng từ thông báo
-  viewed --> signed: sign-document (đủ trường + OTP nếu bật)
+  viewed --> signed: sign-document (đủ trường bắt buộc)
   sent --> expired: quá due_at (pg_cron)
   delivered --> expired
   viewed --> expired
@@ -159,7 +157,7 @@ Thiết kế theo token đã có: màu chính `#948154`, chữ 11–14px, bo `ro
 │ ▾ Trường       │  │ └─────────────┘      └──────────────────┘│  │                          │
 │  ✍ Chữ ký      │  │  📅 [Ngày ký]        (ký nháy mỗi trang ↓)│  │ ▸ Mẫu                    │
 │  ✎ Ký nháy     │  ├─────────────────────────────────────────┤  │   Danh mục, Khung VB     │
-│  📅 Ngày ký    │  │ FOOTER 🔒 · Trang 1/3 · [Ký nháy ▢]      │  │   ☑ Yêu cầu OTP          │
+│  📅 Ngày ký    │  │ FOOTER 🔒 · Trang 1/3 · [Ký nháy ▢]      │  │   ☑ Nhãn "Chữ ký minh hoạ"│
 │  ☐ Ô xác nhận  │  └─────────────────────────────────────────┘  │   Lưu trữ PDF [1 năm ▼]  │
 │  ▭ Ô nhập chữ  │                                               │                          │
 │ ▾ Khối nhanh   │  ⚠ 1 biến chưa khai báo: {{tax_code}}         │ ▸ Kiểm tra (2 lỗi)       │
@@ -167,7 +165,7 @@ Thiết kế theo token đã có: màu chính `#948154`, chữ 11–14px, bo `ro
 ```
 
 **Sidebar trái (260px, 3 tab)**
-- **Biến**: danh sách biến hệ thống (`user_name`, `phone`, `id_card_number`, `doc_no`, `date`, `due_date`…) + biến tuỳ chỉnh của mẫu (`tax_code`, `effective_date`, `custom_field`…). "+ Thêm biến" mở form: key (snake_case), nhãn, kiểu `text|richtext|date|money|number`, phạm vi `campaign|recipient`, bắt buộc. Chèn bằng kéo chip vào canvas hoặc gõ `{{` → autocomplete.
+- **Biến**: biến hệ thống (`user_name`, `phone`, `id_card_number`, `doc_no`, `date`, `due_date`…) + biến tuỳ chỉnh của mẫu (`tax_code`, `effective_date`, `custom_field`…). "+ Thêm biến" mở form: key (snake_case), nhãn, kiểu `text|richtext|date|money|number`, phạm vi `campaign|recipient`, bắt buộc. Chèn bằng kéo chip vào canvas hoặc gõ `{{` → autocomplete.
 - **Trường**: 5 loại có thể kéo-thả (mục 2.2).
 - **Khối nhanh**: đoạn mẫu "Căn cứ", "Điều khoản thanh toán", "Nơi nhận"… chèn Delta có sẵn.
 
@@ -228,7 +226,7 @@ Wizard 4 bước (nâng cấp `DispatchWizard.jsx`):
 - *Nhóm*: multi-select nhóm tĩnh/động + "Thêm người lẻ" + "Loại trừ".
 - *Tất cả*: cảnh báo cam, gõ lại số N để xác nhận khi N > 50.
 - Import CSV biến cấp người nhận (`user_id|phone|identifier, tax_code, effective_date…`) → bảng khớp/không khớp trước khi tiếp tục.
-- Thanh dưới luôn hiện **"Sẽ gửi tới N người · M người thiếu SĐT (OTP sẽ dùng mật khẩu)"**.
+- Thanh dưới luôn hiện **"Sẽ gửi tới N người"**.
 
 **④ Cài đặt gửi**
 
@@ -236,9 +234,8 @@ Wizard 4 bước (nâng cấp `DispatchWizard.jsx`):
 |---|---|---|
 | Hạn | Hạn ký (ngày/giờ), hết hạn tự chuyển `expired` | +7 ngày |
 | Nhắc tự động | Lịch nhắc: `[3 ngày trước hạn, 1 ngày trước hạn, ngày hết hạn 09:00]`; tối đa 3 lần; dừng khi đã ký | Bật |
-| Xác thực | Yêu cầu OTP (theo mẫu, ghi đè được) | Theo mẫu |
 | Quyền | Người nhận được tải PDF đã ký · Cho xem lại sau khi hết hạn · Ẩn văn bản khi thu hồi | Bật · Bật · Bật |
-| Kênh báo | In-App (luôn bật) · Web Push · Email (mờ — chưa khả dụng, Q2) · SMS khi gửi (tốn phí, tắt) | In-App + Push |
+| Kênh báo | In-App (luôn bật) · Web Push · Email (mờ — chưa khả dụng, Q2) | In-App + Push |
 | Sự kiện báo Admin | Khi có người ký · Khi đợt hoàn tất 100% · Khi PDF lỗi | Bật cả 3 |
 | Lưu trữ | Thời gian lưu PDF (theo cài đặt chung / ghi đè) | Theo mẫu |
 | Thời điểm | Gửi ngay / Hẹn giờ | Gửi ngay |
@@ -248,12 +245,12 @@ Wizard 4 bước (nâng cấp `DispatchWizard.jsx`):
 **Tổng quan** (sub-tab mặc định):
 
 ```
-┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
+┌──────────┬───────────┬───────────┬──────────┬──────────┬──────────┬──────────┐
 │ Nháp  3  │ Đã gửi 120│ Đã nhận 98│ Đã xem 76│ Đã ký 61 │ Hết hạn 4│ Thu hồi 2│   ← thẻ KPI (bấm = lọc bảng)
-└──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
+└──────────┴───────────┴───────────┴──────────┴──────────┴──────────┴──────────┘
  Phễu 30 ngày: Gửi ▇▇▇▇▇▇▇▇▇ → Xem ▇▇▇▇▇▇ → Ký ▇▇▇▇▇   ·  Thời gian ký trung vị: 1,8 ngày
  ⚠ Sắp hết hạn ký (48h): 9   ⚠ PDF lỗi: 1   ⚠ Sắp hết hạn lưu trữ (7 ngày): 0
- Hoạt động gần đây (realtime): 14:32 Nguyễn A đã ký HĐ-2026-00123 · IP 113.x · iPhone Safari …
+ Hoạt động gần đây (realtime): 14:32 Nguyễn A đã ký HĐ-2026-00123 · iPhone Safari …
 ```
 
 **Bảng Hợp đồng & Văn bản**
@@ -287,29 +284,36 @@ Menu `⋮` theo trạng thái:
 
 | Hành động | sent/delivered/viewed | signed | expired | revoked |
 |---|---|---|---|---|
-| Xem văn bản / Xem audit | ✔ | ✔ | ✔ | ✔ |
+| Xem văn bản / Xem nhật ký | ✔ | ✔ | ✔ | ✔ |
 | Nhắc lại ngay | ✔ | | | |
 | Gia hạn ký | ✔ | | ✔ | |
 | Thu hồi (bắt buộc lý do) | ✔ | | ✔ | |
 | Tải PDF đã ký / Tạo lại PDF | | ✔ | | |
 | Duyệt / Từ chối | | ✔ | | |
-| Gia hạn lưu trữ / Giữ pháp lý | | ✔ | | |
+| Gia hạn lưu trữ | | ✔ | | |
 | Gửi lại bản mới (nhân bản sang đợt mới) | ✔ | ✔ | ✔ | ✔ |
 
-**Drawer chi tiết văn bản** (bấm vào dòng): trái = preview bản in (đã ký thì là PDF), phải = **dòng thời gian audit**:
+**Drawer chi tiết văn bản** (bấm vào dòng): trái = preview bản in (đã ký thì là PDF), phải = **dòng thời gian hoạt động**:
 
 ```
 ● 28/09 09:00:02  Đã gửi          bởi admin@… · đợt "HĐ đầu tư T9"
-● 28/09 09:00:05  Đã nhận         Android 14 · Chrome 128 · IP 113.161.x.x
+● 28/09 09:00:05  Đã nhận         Android 14 · Chrome 128
 ● 28/09 20:14:40  Đã xem (1/3)    cuộn hết 3/3 trang lúc 20:16:02
-● 29/09 14:31:10  Gửi OTP         SMS ••••3475
-● 29/09 14:31:44  OTP đúng
 ● 29/09 14:32:05  Đã ký           Vẽ tay · 4 trường · iPhone 15 · Safari 18 · IP 14.x.x.x
-● 29/09 14:32:09  PDF sẵn sàng    SHA-256 9f2c…e1
-  Chuỗi audit: ✔ toàn vẹn (12 sự kiện)                [Xuất audit JSON] [Tải PDF]
+● 29/09 14:32:09  PDF sẵn sàng
+                                                     [Xuất nhật ký CSV] [Tải PDF]
 ```
 
 Realtime: bảng subscribe `custom_documents` + `document_events` (filter theo trang hiện tại) — đổi trạng thái không cần tải lại.
+
+### 2.6 Nhãn "Chữ ký minh hoạ" (Q4)
+
+- Tuỳ chọn theo mẫu `illustrative_label` (mặc định **bật**), có thể ghi đè theo đợt.
+- Khi bật:
+  - Dưới mỗi trường chữ ký/ký nháy trên màn hình và PDF in dòng 6pt xám: *"Chữ ký minh hoạ"*.
+  - Footer PDF thêm: *"Văn bản ký trên VinClub — chữ ký mang tính minh hoạ."*
+  - Câu xác nhận trước khi ký (mục 3.4) dùng lời *"Tôi đã đọc và đồng ý với nội dung văn bản"*, không dùng các từ "ràng buộc pháp lý", "chữ ký số".
+- Khi tắt: không in nhãn; hệ thống vẫn không đưa ra bất kỳ khẳng định pháp lý nào.
 
 ---
 
@@ -337,8 +341,8 @@ Realtime: bảng subscribe `custom_documents` + `document_events` (filter theo t
 └─────────────────────────────┘
 ```
 
-- **Cổng cuộn**: `IntersectionObserver` gắn sentinel cuối mỗi trang; trường chỉ bấm được khi trang chứa nó đã hiện ≥ 60%; CTA ký chỉ bật khi sentinel trang cuối đã hiện. Ghi event `read_completed` `{pages_seen, duration_ms}` (bằng chứng đã đọc).
-- Nút **"Trường tiếp theo"** cuộn tới trường bắt buộc chưa điền kế tiếp (giống DocuSign "Next").
+- **Cổng cuộn**: `IntersectionObserver` gắn sentinel cuối mỗi trang; trường chỉ bấm được khi trang chứa nó đã hiện ≥ 60%; CTA ký chỉ bật khi sentinel trang cuối đã hiện. Ghi event `read_completed` `{pages_seen, duration_ms}`.
+- Nút **"Trường tiếp theo"** cuộn tới trường bắt buộc chưa điền kế tiếp.
 
 ### 3.3 Ký (bottom sheet `vaul`)
 
@@ -351,27 +355,23 @@ Với trường `signature`/`initials`, sheet có 4 tab (đã có Vẽ/Gõ/Đã 
 
 Trường `date` tự điền khi ký (hiển thị "Sẽ ghi ngày ký"). `checkbox` chạm để tick. `text` mở bàn phím.
 
-### 3.4 Xác nhận cuối & OTP
+### 3.4 Xác nhận cuối (không OTP)
 
 ```
 ┌─────────────────────────────────────┐
 │  Xác nhận ký                         │
 │  ✔ 4/4 trường đã điền                │
-│  ☐ Tôi đồng ý ký điện tử và xác nhận │
-│    nội dung văn bản trên là ràng buộc │
-│  ─────────────────────────────────── │
-│  Mã OTP đã gửi tới ••••3475          │
-│  [ _ ][ _ ][ _ ][ _ ][ _ ][ _ ]       │  ← autocomplete="one-time-code"
-│  Gửi lại sau 0:45                    │
+│  ☐ Tôi đã đọc và đồng ý với nội dung │
+│    văn bản trên.                      │
+│  ⓘ Chữ ký mang tính minh hoạ         │  ← chỉ hiện khi illustrative_label bật
 │  [        Ký và hoàn tất        ]    │
 └─────────────────────────────────────┘
 ```
 
-- Không có SĐT → thay khối OTP bằng ô **mật khẩu** (xác thực lại qua `supabase.auth.signInWithPassword` phía Edge Function, Q1).
-- Sai OTP: còn n lần thử; sai 5 lần → khoá 15 phút; OTP hết hạn sau 5 phút.
+Bấm "Ký và hoàn tất" gửi thẳng `sign-document`; không có bước OTP hay nhập lại mật khẩu.
 
 ### 3.5 Hoàn tất
-1. Optimistic: các trường hiện giá trị + "Đang niêm phong…".
+1. Optimistic: các trường hiện giá trị + "Đang lưu…".
 2. Server trả `signed_at`, `signer_name` → overlay **"ĐÃ KÝ"**, CTA thành **Tải PDF** (khoá tới khi `pdf_status=ready`, Realtime).
 3. Thông báo chuông "Đã lưu bản hợp đồng đã ký" + bản PDF ở Văn bản của tôi; Admin nhận thông báo theo cài đặt 2.4.
 
@@ -379,7 +379,7 @@ Trường `date` tự điền khi ký (hiển thị "Sẽ ghi ngày ký"). `chec
 
 ## 4. Data Structure & Variable Schema
 
-### 4.1 Sơ đồ quan hệ (phần mới in đậm)
+### 4.1 Sơ đồ quan hệ
 
 ```mermaid
 erDiagram
@@ -387,9 +387,8 @@ erDiagram
   document_templates  ||--o{ document_campaigns : "phát hành từ"
   document_campaigns  ||--o{ custom_documents   : "sinh ra"
   users               ||--o{ custom_documents   : "người nhận"
-  custom_documents    ||--o{ document_field_values : "GIÁ TRỊ TRƯỜNG (mới)"
-  custom_documents    ||--o{ document_events    : "audit (thêm chuỗi hash)"
-  custom_documents    ||--o{ signing_otps       : "OTP (mới)"
+  custom_documents    ||--o{ document_field_values : "giá trị trường (mới)"
+  custom_documents    ||--o{ document_events    : "nhật ký"
   custom_documents    ||--o{ document_reminders : "lịch nhắc (mới)"
   custom_documents    ||--o| pdf_jobs           : "PDF"
 ```
@@ -399,24 +398,25 @@ erDiagram
 ```json
 {
   "variables": [
-    { "key": "user_name",      "label": "Họ tên",        "type": "text",  "scope": "system" },
-    { "key": "tax_code",       "label": "Mã số thuế",     "type": "text",  "scope": "recipient", "required": true,
+    { "key": "user_name",      "label": "Họ tên",          "type": "text",     "scope": "system" },
+    { "key": "tax_code",       "label": "Mã số thuế",       "type": "text",     "scope": "recipient", "required": true,
       "validation": { "pattern": "^[0-9]{10}([0-9]{3})?$", "message": "MST 10 hoặc 13 số" } },
-    { "key": "effective_date", "label": "Ngày hiệu lực",  "type": "date",  "scope": "campaign",  "required": true },
-    { "key": "custom_field",   "label": "Điều khoản riêng","type": "richtext","scope": "recipient" }
+    { "key": "effective_date", "label": "Ngày hiệu lực",    "type": "date",     "scope": "campaign",  "required": true },
+    { "key": "custom_field",   "label": "Điều khoản riêng", "type": "richtext", "scope": "recipient" }
   ]
 }
 ```
 
 - `scope`: `system` (tự sinh: `user_name`, `phone`, `id_card_number` che bớt, `doc_no`, `date`, `due_date`, `signed_at`), `campaign` (nhập 1 lần cho đợt), `recipient` (từng người — nhập tay hoặc CSV).
 - Thứ tự ưu tiên khi trùng key: `system < campaign < recipient` (giữ như `resolve.ts`).
-- Giá trị đã thay được **chụp cứng** vào `rendered_model`; `recipient_vars` lưu riêng để audit.
+- Giá trị đã thay được **chụp cứng** vào `rendered_model`; `recipient_vars` lưu riêng để tra cứu.
 
 ### 4.3 Định nghĩa trường trong mẫu (`document_templates.layout.fields[]`)
 
 ```json
 {
   "page": { "size": "A4", "orientation": "portrait" },
+  "illustrative_label": true,
   "signers": [
     { "role": "recipient", "label": "Bên B (Khách hàng)", "order": 1 },
     { "role": "issuer",    "label": "Bên A (VinClub)",    "order": 0, "fill": "auto_on_dispatch" }
@@ -473,32 +473,32 @@ erDiagram
 
 ```json
 {
-  "fld_sig_b":    [{ "page": 3, "x_mm": 22.0, "y_mm": 201.4, "w_mm": 60, "h_mm": 25 }],
-  "fld_ok_dieu5": [{ "page": 2, "x_mm": 20.0, "y_mm": 148.7, "w_mm": 5,  "h_mm": 5  }],
+  "fld_sig_b":    [{ "page": 3, "x_mm": 22.0,  "y_mm": 201.4, "w_mm": 60, "h_mm": 25 }],
+  "fld_ok_dieu5": [{ "page": 2, "x_mm": 20.0,  "y_mm": 148.7, "w_mm": 5,  "h_mm": 5  }],
   "fld_initials": [{ "page": 1, "x_mm": 170.0, "y_mm": 274.0, "w_mm": 20, "h_mm": 12 },
                    { "page": 2, "x_mm": 170.0, "y_mm": 274.0, "w_mm": 20, "h_mm": 12 }],
-  "fld_date":     [{ "page": 3, "x_mm": 34.5, "y_mm": 229.4, "w_mm": 35, "h_mm": 7 }]
+  "fld_date":     [{ "page": 3, "x_mm": 34.5,  "y_mm": 229.4, "w_mm": 35, "h_mm": 7 }]
 }
 ```
 
 Mảng vì một trường có thể xuất hiện nhiều lần (ký nháy mỗi trang). `slot_boxes` cũ giữ lại (alias của các trường signature) để code hiện tại không vỡ trong lúc chuyển đổi.
 
-### 4.5 Payload metadata văn bản (`custom_documents` — cột mới)
+### 4.5 Metadata văn bản (`custom_documents` — cột mới)
 
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
-| `status` | text | thêm `delivered`, `viewed` vào enum hiện có (`pending` → đổi tên hiển thị "Đã gửi"; giữ giá trị `pending` trong DB để tương thích) |
+| `status` | text | thêm `delivered`, `viewed` vào enum hiện có (`pending` hiển thị "Đã gửi"; giữ giá trị `pending` trong DB để tương thích) |
 | `delivered_at` | timestamptz | đã có cột, nay có RPC ghi |
 | `read_completed_at` | timestamptz | cuộn hết văn bản |
 | `fields_snapshot` | jsonb | `layout.fields` tại thời điểm gửi |
 | `field_boxes` | jsonb | mục 4.4 |
 | `recipient_vars` | jsonb | giá trị biến cấp người nhận đã dùng |
 | `delivery_settings` | jsonb | chụp từ đợt (mục 4.7) |
-| `require_otp` | boolean | |
-| `auth_method` | text | `otp_sms \| password \| session` — cách xác thực thực tế lúc ký |
-| `final_pdf_sha256` | text | (đã có `pdf_sha256`) |
+| `illustrative_label` | boolean | chụp từ mẫu/đợt |
 | `revoked_reason`, `revoked_by` | text | |
 | `reminder_count`, `last_reminded_at` | int, timestamptz | |
+
+Các cột đã có (`content_sha256`, `pdf_sha256`, `signed_ip`, `signed_user_agent`, `consent_text`…) giữ nguyên để kiểm tra "văn bản không bị sửa sau khi gửi" ở mức vận hành, không mang ý nghĩa pháp lý.
 
 ### 4.6 Bảng mới
 
@@ -512,24 +512,9 @@ create table public.document_field_values (
   value_text    text,            -- text / date ISO
   value_bool    boolean,         -- checkbox
   asset_path    text,            -- PNG chữ ký trong signed-documents
-  asset_sha256  text,
   method        text,            -- draw | type | upload | saved
   filled_at     timestamptz not null default now(),
   primary key (document_id, field_id, occurrence)
-);
-
--- OTP ký (chỉ lưu hash, không lưu mã)
-create table public.signing_otps (
-  id            bigint generated always as identity primary key,
-  document_id   text not null references public.custom_documents(id) on delete cascade,
-  user_id       text not null,
-  channel       text not null check (channel in ('sms','email')),
-  destination   text not null,   -- đã che: ••••3475
-  code_hash     text not null,   -- HMAC-SHA256(code, server_secret || id)
-  expires_at    timestamptz not null,
-  attempts      int not null default 0,
-  consumed_at   timestamptz,
-  created_at    timestamptz not null default now()
 );
 
 -- Lịch nhắc đã lên cho từng văn bản
@@ -544,7 +529,7 @@ create table public.document_reminders (
 create index on public.document_reminders (status, run_at);
 ```
 
-Tất cả bật RLS: user chỉ SELECT dòng của văn bản mình (`document_field_values`); `signing_otps`, `document_reminders` không có policy cho `authenticated` (chỉ Edge Function/service role).
+RLS: user chỉ SELECT `document_field_values` của văn bản mình; `document_reminders` không có policy cho `authenticated` (chỉ Edge Function/service role ghi/đọc).
 
 ### 4.7 Cài đặt gửi (`document_campaigns.delivery_settings`)
 
@@ -553,17 +538,17 @@ Tất cả bật RLS: user chỉ SELECT dòng của văn bản mình (`document_
   "due_at": "2026-10-05T16:59:59Z",
   "auto_expire": true,
   "reminders": { "enabled": true, "offsets_hours": [-72, -24, 0], "at_local_time": "09:00", "max": 3 },
-  "auth": { "require_otp": true, "otp_channel": "sms", "fallback": "password" },
   "permissions": { "recipient_can_download_pdf": true, "visible_after_expiry": true, "hide_on_revoke": true },
-  "channels": { "in_app": true, "push": true, "email": false, "sms_on_send": false },
+  "channels": { "in_app": true, "push": true, "email": false },
   "admin_alerts": { "on_signed": true, "on_campaign_complete": true, "on_pdf_failed": true },
+  "illustrative_label": true,
   "retention_days": 365
 }
 ```
 
-### 4.8 Audit trail chống sửa (`document_events` mở rộng)
+### 4.8 Nhật ký hoạt động (`document_events`)
 
-Cột thêm: `device jsonb`, `geo jsonb` (tuỳ chọn, từ header CDN), `prev_hash text`, `event_hash text`.
+Thêm cột `device jsonb`. Không có chuỗi hash (Q4).
 
 ```json
 {
@@ -574,23 +559,13 @@ Cột thêm: `device jsonb`, `geo jsonb` (tuỳ chọn, từ header CDN), `prev_
   "ip": "14.191.x.x",
   "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 …) Safari/604.1",
   "device": { "os": "iOS 18.0", "browser": "Safari 18", "type": "mobile", "screen": "1179x2556", "tz": "Asia/Ho_Chi_Minh", "lang": "vi-VN" },
-  "data": {
-    "auth_method": "otp_sms",
-    "fields": ["fld_sig_b", "fld_ok_dieu5", "fld_initials", "fld_date"],
-    "content_sha256": "9f2c…e1",
-    "consent_text": "Tôi đồng ý ký điện tử và xác nhận nội dung văn bản trên là ràng buộc"
-  },
-  "created_at": "2026-09-29T07:32:05.114Z",
-  "prev_hash": "5ab0…77",
-  "event_hash": "c41d…9e"
+  "data": { "fields": ["fld_sig_b", "fld_ok_dieu5", "fld_initials", "fld_date"], "method": "draw" },
+  "created_at": "2026-09-29T07:32:05.114Z"
 }
 ```
 
-- `event_hash = SHA-256(prev_hash ‖ canonical_json(id, document_id, event, actor_id, ip, user_agent, device, data, created_at))`, tính trong **trigger BEFORE INSERT** (Postgres `pgcrypto.digest`), `prev_hash` = `event_hash` của sự kiện trước cùng `document_id` (khoá `FOR UPDATE` dòng văn bản để tuần tự).
-- RPC `verify_document_audit(p_document_id)` tính lại toàn chuỗi → `{ ok, broken_at }` (hiển thị "Chuỗi audit: ✔ toàn vẹn" ở drawer 2.5).
-- Không có policy UPDATE/DELETE; audit không bị xoá khi PDF hết hạn lưu trữ.
-
-Danh sách `event`: `dispatched, delivered, viewed, read_completed, field_filled, otp_sent, otp_verified, otp_failed, signed, pdf_ready, pdf_failed, downloaded, reminded, extended, revoked, expired, approved, rejected, pdf_purged, legal_hold_set, legal_hold_released`.
+- Chỉ ghi thêm qua RPC/Edge Function; không có policy UPDATE/DELETE cho `authenticated`.
+- Danh sách `event`: `dispatched, delivered, viewed, read_completed, signed, pdf_ready, pdf_failed, downloaded, reminded, extended, revoked, expired, approved, rejected, pdf_purged`.
 
 ---
 
@@ -603,13 +578,11 @@ Danh sách `event`: `dispatched, delivered, viewed, read_completed, field_filled
 | N1 | `mark_document_delivered(p_document_id, p_device jsonb)` | RPC | User | Lần đầu tải → `delivered` |
 | N2 | `mark_document_viewed(...)` (mở rộng nhận `device`) | RPC | User | |
 | N3 | `mark_document_read(p_document_id, p_pages_seen int, p_duration_ms int)` | RPC | User | `read_completed_at` |
-| N4 | `POST /functions/v1/request-signing-otp` | Edge Fn | User | Kiểm tra quyền + đã đọc hết → sinh OTP 6 số, gửi SMS, rate limit 1/60s, 5/giờ |
-| N5 | `POST /functions/v1/sign-document` (v2) | Edge Fn | User | Nhận tất cả trường + `otp_code` hoặc `password` |
-| N6 | `POST /functions/v1/send-document-reminders` | Edge Fn nội bộ | pg_cron mỗi 15 phút | Gửi nhắc đến hạn, cập nhật `document_reminders` |
-| N7 | `extend_document_due(p_ids text[], p_due_at)` | RPC admin | Admin | `expired → sent`, lên lại lịch nhắc |
-| N8 | `revoke_documents(p_ids text[], p_reason)` | RPC admin | Admin | Thu hồi hàng loạt (mở rộng A6) |
-| N9 | `verify_document_audit(p_document_id)` | RPC admin | Admin | Kiểm chuỗi hash |
-| N10 | `export_document_audit(p_document_id)` | RPC admin | Admin | JSON audit đầy đủ để lưu hồ sơ |
+| N4 | `POST /functions/v1/sign-document` (v2) | Edge Fn | User | Nhận tất cả trường |
+| N5 | `POST /functions/v1/send-document-reminders` | Edge Fn nội bộ | pg_cron mỗi 15 phút | Gửi nhắc đến hạn |
+| N6 | `extend_document_due(p_ids text[], p_due_at)` | RPC admin | Admin | `expired → sent`, lên lại lịch nhắc |
+| N7 | `revoke_documents(p_ids text[], p_reason)` | RPC admin | Admin | Thu hồi hàng loạt |
+| N8 | `export_document_events(p_document_id)` | RPC admin | Admin | Xuất nhật ký CSV/JSON |
 | — | pg_cron `esign-expire-documents` (mỗi 15 phút) | SQL | hệ thống | `due_at < now()` & chưa ký → `expired` + event |
 
 ### 5.2 `sign-document` v2
@@ -623,11 +596,10 @@ Authorization: Bearer <user JWT>
   "idempotency_key": "b2f1c9e4-…",
   "content_sha256": "9f2c…e1",
   "consent": true,
-  "auth": { "method": "otp_sms", "otp_request_id": 912, "code": "482915" },
   "fields": [
-    { "field_id": "fld_sig_b", "occurrence": 0, "method": "draw", "image_png_base64": "iVBORw0…" },
-    { "field_id": "fld_initials", "occurrence": 0, "method": "reuse", "from": "fld_sig_b_initials" },
-    { "field_id": "fld_initials", "occurrence": 1, "method": "reuse", "from": "fld_sig_b_initials" },
+    { "field_id": "fld_sig_b",    "occurrence": 0, "method": "draw", "image_png_base64": "iVBORw0…" },
+    { "field_id": "fld_initials", "occurrence": 0, "method": "draw", "image_png_base64": "iVBORw0…" },
+    { "field_id": "fld_initials", "occurrence": 1, "method": "reuse", "from": { "field_id": "fld_initials", "occurrence": 0 } },
     { "field_id": "fld_ok_dieu5", "occurrence": 0, "value_bool": true }
   ],
   "device": { "screen": "1179x2556", "tz": "Asia/Ho_Chi_Minh", "lang": "vi-VN" }
@@ -637,49 +609,41 @@ Authorization: Bearer <user JWT>
 Thứ tự kiểm tra (fail sớm, trả mã lỗi cụ thể):
 1. JWT → `user_id`; văn bản thuộc user, `FOR UPDATE`.
 2. Idempotency → trả kết quả cũ nếu trùng key.
-3. Trạng thái ∈ {sent, delivered, viewed}; chưa quá `due_at`; `content_sha256` khớp.
+3. Trạng thái ∈ {sent, delivered, viewed}; chưa quá `due_at`; `content_sha256` khớp (văn bản không đổi từ lúc user mở).
 4. `read_completed_at` không null → nếu null: `409 READ_REQUIRED`.
-5. Xác thực: OTP (hash khớp, chưa hết hạn, chưa dùng, attempts < 5) hoặc mật khẩu → sai: `401 AUTH_FAILED` + event `otp_failed`.
-6. Đủ trường `required`; `checkbox.must_be_checked`; PNG hợp lệ (magic bytes, ≤ 500KB, không rỗng); không nhận trường của vai trò khác.
-7. Ghi `document_field_values`, ảnh vào `signed-documents/{uid}/{doc}/{field}-{n}.png`; `status=signed`, `signed_at=now()`, `locked_at`, `auth_method`; event `signed`; `pdf_jobs` → nền `render-document-pdf`.
+5. Đủ trường `required`; `checkbox.must_be_checked`; PNG hợp lệ (magic bytes, ≤ 500KB, không rỗng); không nhận trường của vai trò khác.
+6. Ghi `document_field_values`, ảnh vào `signed-documents/{uid}/{doc}/{field}-{n}.png`; `status=signed`, `signed_at=now()`, `locked_at`; event `signed`; `pdf_jobs` → nền `render-document-pdf`.
 
-Mã lỗi thêm so với v1: `409 READ_REQUIRED`, `401 AUTH_FAILED`, `423 OTP_LOCKED`, `422 FIELD_REQUIRED {field_id}`, `422 INVALID_FIELD_VALUE {field_id}`.
+Mã lỗi thêm so với v1: `409 READ_REQUIRED`, `422 FIELD_REQUIRED {field_id}`, `422 INVALID_FIELD_VALUE {field_id}`.
 
-### 5.3 Trình tự ký có OTP
+### 5.3 Trình tự ký
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor U as User
   participant FE as /document/:id
-  participant OTP as Edge Fn request-signing-otp
-  participant SMS as Nhà cung cấp SMS
   participant SG as Edge Fn sign-document
   participant DB as Postgres
   participant PDF as Edge Fn render-document-pdf
-  U->>FE: Điền đủ trường, tick đồng ý
-  FE->>OTP: POST {document_id}
-  OTP->>DB: kiểm quyền, read_completed_at, rate limit
-  OTP->>DB: insert signing_otps(code_hash, expires_at=+5m)
-  OTP->>SMS: gửi "Ma xac nhan ky HD-2026-0123: 482915 (5 phut)"
-  OTP-->>FE: {otp_request_id, destination: "••••3475", resend_after: 60}
-  U->>FE: Nhập 6 số
-  FE->>SG: POST fields + auth{otp_request_id, code}
-  SG->>DB: xác minh OTP (consume), ghi trường, signed, event
+  U->>FE: Cuộn hết, điền đủ trường, tick xác nhận
+  FE->>SG: POST fields + consent + content_sha256
+  SG->>DB: kiểm quyền, trạng thái, read_completed_at, trường bắt buộc
+  SG->>DB: ghi document_field_values, status=signed, signed_at=now(), event signed
   SG-->>FE: 200 {signed_at, signer_name, pdf_status: queued}
   SG-)PDF: waitUntil(render)
-  PDF->>DB: pdf_status=ready, pdf_sha256, event pdf_ready
+  PDF->>DB: pdf_status=ready, event pdf_ready
   DB-)FE: Realtime → "Tải PDF"
 ```
 
-### 5.4 PDF niêm phong (`render-document-pdf` mở rộng)
+### 5.4 PDF bản ký (`render-document-pdf` mở rộng)
 
 - Vẽ mọi trường theo `field_boxes` (ảnh chữ ký contain + tên + giờ, ☑, ngày, chữ nhập) bằng hàm dùng chung với FE.
-- **Watermark trên mọi trang** (chữ xám 6pt chạy dọc lề phải): `Đã ký điện tử · HĐ-2026-0123 · 29/09/2026 14:32:05 GMT+7 · SHA-256 nội dung 9f2c…e1`. Không in `pdf_sha256` vào chính file (tra ở `/verify`).
-- **Trang Chứng nhận ký**: thông tin văn bản, người ký, cách xác thực (OTP SMS ••••3475 / mật khẩu), bảng audit đầy đủ (giờ, sự kiện, IP, thiết bị), `content_sha256`, mã kiểm tra chuỗi audit (event_hash cuối), QR tới `/verify/:doc_no`.
-- Metadata PDF: Title, Author=VinClub, Subject=doc_no, Keywords=content_sha256, CreationDate = `signed_at`.
-- Lưu `signed-documents/{uid}/{doc}.pdf` (bucket private), `pdf_sha256` vào DB; Admin và User tải qua signed URL 5 phút (`get-document-pdf`, có kiểm `permissions.recipient_can_download_pdf`).
-- **Giai đoạn B (Q4)**: sau khi tạo PDF, ký số PAdES-B-LT bằng chứng thư tổ chức (khoá riêng trong HSM/dịch vụ ký từ xa của CA, không đặt khoá trong Edge Function secret dạng file) + timestamp RFC 3161 → PDF mở bằng Adobe/Foxit hiện "Chữ ký hợp lệ".
+- Nếu `illustrative_label = true`: dòng "Chữ ký minh hoạ" dưới mỗi chữ ký/ký nháy + câu footer ở mục 2.6.
+- **Không** có trang chứng nhận ký, không ký số, không dấu thời gian bên thứ ba.
+- Metadata PDF: Title, Author=VinClub, Subject=doc_no, CreationDate = `signed_at`.
+- Lưu `signed-documents/{uid}/{doc}.pdf` (bucket private); Admin và User tải qua signed URL 5 phút (`get-document-pdf`, có kiểm `permissions.recipient_can_download_pdf`).
+- Trang `/verify` giữ chức năng tra cứu mã văn bản (có tồn tại, đã ký ngày nào); đổi nhãn kết quả thành "Văn bản có trên hệ thống VinClub", không dùng từ "hợp lệ pháp lý".
 
 ### 5.5 Nhắc & hết hạn
 - Lúc dispatch: sinh dòng `document_reminders` theo `offsets_hours` (bỏ mốc đã qua).
@@ -688,46 +652,29 @@ sequenceDiagram
 
 ---
 
-## 6. Bảo mật & Tuân thủ — Checklist
+## 6. Bảo mật — Checklist
 
-### 6.1 Toàn vẹn & mật mã
-- [ ] `content_sha256` = SHA-256 của JSON chuẩn hoá (khoá sắp xếp, NFC) gồm letterhead + layout + `fields_snapshot` + `rendered_model` + `recipient_vars`; tính lúc gửi, client gửi lại khi ký, server so khớp.
-- [ ] `pdf_sha256` của file cuối; `asset_sha256` cho từng ảnh chữ ký.
-- [ ] Chuỗi hash audit (4.8) trong trigger; RPC kiểm chứng; xuất được JSON audit.
-- [ ] Trigger khoá nội dung khi `locked_at` không null áp dụng **cả admin và service role** (đã có, mở rộng sang `document_field_values`).
-- [ ] OTP: 6 số từ `crypto.getRandomValues`, lưu **HMAC** không lưu mã, hết hạn 5 phút, dùng 1 lần, tối đa 5 lần thử, khoá 15 phút, rate limit gửi 1/60s và 5/giờ/văn bản.
-- [ ] Giai đoạn B: ký số PAdES bằng chứng thư tổ chức + TSA RFC 3161; khoá riêng nằm ở HSM/dịch vụ ký từ xa của CA.
+Chữ ký chỉ minh hoạ (Q4) nên phần này nhằm **bảo vệ dữ liệu và tính đúng của hệ thống**, không nhằm tạo bằng chứng pháp lý.
 
-### 6.2 Truy cập & dữ liệu
-- [ ] RLS mọi bảng mới; user chỉ thấy văn bản của mình; `signing_otps`/`document_reminders` không có policy cho `authenticated`.
-- [ ] Mọi thao tác có giá trị bằng chứng chạy qua Edge Function/RPC SECURITY DEFINER (`SET search_path = public`, `REVOKE EXECUTE … FROM anon`).
+### 6.1 Truy cập & dữ liệu
+- [ ] RLS mọi bảng mới; user chỉ thấy văn bản của mình; `document_reminders` không có policy cho `authenticated`.
+- [ ] Mọi thao tác thay đổi trạng thái chạy qua Edge Function/RPC SECURITY DEFINER (`SET search_path = public`, `REVOKE EXECUTE … FROM anon`).
 - [ ] `user_id` lấy từ JWT, `signer_name` lấy từ `users`, thời gian từ `now()` Postgres — không tin client.
 - [ ] Bucket `signed-documents` private, signed URL 5 phút; không bao giờ public.
 - [ ] Ảnh chữ ký: kiểm magic bytes + giải mã thử; không nhận SVG; giới hạn kích thước.
 - [ ] Che dữ liệu nhạy cảm khi hiển thị: SĐT `••••3475`, CCCD `0791••••••23`.
 - [ ] Thu hồi/gia hạn/duyệt đều ghi event kèm admin thực hiện; không xoá cứng văn bản đã gửi.
-- [ ] Secret nội bộ (`esign_internal_secret`) và khoá nhà cung cấp SMS chỉ ở Vault/Edge Function secrets.
+- [ ] Secret nội bộ (`esign_internal_secret`) chỉ ở Vault/Edge Function secrets.
 
-### 6.3 Lưu trữ
-- [ ] Audit + metadata + hash giữ vĩnh viễn kể cả khi PDF hết hạn lưu trữ.
-- [ ] Thời gian lưu PDF theo cài đặt (mặc định 365 ngày), "Giữ pháp lý" chặn tự xoá.
-- [ ] Sao lưu: Supabase PITR (gói Pro) cho DB; Storage cân nhắc sao chép định kỳ PDF đã ký sang kho thứ hai.
+### 6.2 Tính đúng của nội dung
+- [ ] Nội dung chụp cứng lúc gửi; trigger khoá nội dung khi `locked_at` không null (áp dụng cả admin), mở rộng sang `document_field_values`.
+- [ ] `content_sha256` so khớp lúc ký để chặn ký trên bản đã bị đổi.
+- [ ] Rate limit ký 5 lần/phút/user; idempotency key.
 
-### 6.4 Khung pháp lý (cần bộ phận pháp chế xác nhận trước khi đưa vào dùng)
-
-| Khu vực | Văn bản | Ý nghĩa với hệ thống |
-|---|---|---|
-| Việt Nam | Luật Giao dịch điện tử số 20/2023/QH15 (hiệu lực 01/07/2024) | Thông điệp dữ liệu và chữ ký điện tử có giá trị pháp lý khi xác định được người ký, đảm bảo toàn vẹn. Giai đoạn A là **chữ ký điện tử chuyên dùng**; giá trị chứng minh dựa trên audit + hash + xác thực OTP |
-| Việt Nam | Nghị định quy định chi tiết về chữ ký điện tử và dịch vụ tin cậy (thay NĐ 130/2018) | Điều kiện để có **chữ ký số** có giá trị cao nhất: chứng thư từ tổ chức cung cấp dịch vụ chứng thực được cấp phép → Giai đoạn B |
-| Việt Nam | Quy định bảo vệ dữ liệu cá nhân (NĐ 13/2023/NĐ-CP và Luật Bảo vệ dữ liệu cá nhân) | Thông báo mục đích xử lý dữ liệu (IP, thiết bị, chữ ký) trong câu đồng ý; quyền truy cập dữ liệu của người dùng; thời hạn lưu |
-| EU | eIDAS (Quy định 910/2014, sửa đổi 2024/1183) | Giai đoạn A ≈ SES/AES (nếu gắn duy nhất với người ký + phát hiện sửa đổi); QES cần chứng thư đủ điều kiện |
-| Hoa Kỳ | ESIGN Act (2000) & UETA | Cần: ý định ký, đồng ý giao dịch điện tử, gắn chữ ký với bản ghi, lưu giữ và tái tạo được bản ghi → đáp ứng bởi consent + audit + PDF |
-
-Yêu cầu sản phẩm suy ra:
-- [ ] Câu đồng ý ký điện tử hiển thị rõ, lưu nguyên văn (`consent_text`) + phiên bản câu.
-- [ ] Người ký tải được bản PDF đã ký (quyền mặc định bật).
-- [ ] Trang chứng nhận ký trình bày được: ai, khi nào, bằng cách nào, nội dung nào (hash).
-- [ ] `/verify` cho bên thứ ba kiểm tra file mà không cần đăng nhập (chỉ trả Đúng/Sai + ngày ký).
+### 6.3 Lưu trữ & quyền riêng tư
+- [ ] Thời gian lưu PDF theo cài đặt (mặc định 365 ngày); nhật ký + metadata giữ lại khi PDF hết hạn.
+- [ ] Câu thông báo xử lý dữ liệu (IP, thiết bị, ảnh chữ ký) hiển thị trong màn ký, phù hợp quy định bảo vệ dữ liệu cá nhân của Việt Nam.
+- [ ] Không đưa vào giao diện, PDF hay thông báo bất kỳ cụm từ khẳng định giá trị pháp lý ("chữ ký số", "ràng buộc pháp lý", "có giá trị như bản giấy").
 
 ---
 
@@ -735,27 +682,23 @@ Yêu cầu sản phẩm suy ra:
 
 | Ticket | Nội dung | Phụ thuộc |
 |---|---|---|
-| C1 | Migration: cột mới `custom_documents`, `document_field_values`, `signing_otps`, `document_reminders`, mở rộng `document_events` + trigger chuỗi hash, RPC N1–N3, N7–N10, cron hết hạn | — |
-| C2 | `shared/docLayout`: kiểu `FieldConfig`, embed `field_anchor`, tính `field_boxes` (flow / signature_zone / every_page_footer), `normalizeLayout()` từ `slots`; test Vitest + Deno | — |
+| C1 | Migration: cột mới `custom_documents`, `document_field_values`, `document_reminders`, cột `device` cho `document_events`, RPC N1–N3, N6–N8, cron hết hạn | — |
+| C2 | `shared/docLayout`: kiểu `FieldConfig`, embed `field_anchor`, tính `field_boxes` (flow / signature_zone / every_page_footer), `normalizeLayout()` từ `slots`, nhãn minh hoạ; test Vitest + Deno | — |
 | C3 | Soạn mẫu: palette trường, overlay kéo-thả/co giãn/snap, Inspector trường, tab Kiểm tra, preview theo người thật | C2 |
-| C4 | Gửi: bước Lọc hàng loạt, CSV biến, bước Cài đặt gửi (`delivery_settings`), cảnh báo thiếu SĐT | C1 |
+| C4 | Gửi: bước Lọc hàng loạt, CSV biến, bước Cài đặt gửi (`delivery_settings`) | C1 |
 | C5 | `dispatch-campaign`: tính `field_boxes` từng người, lịch nhắc | C1, C2 |
-| C6 | Dashboard: Tổng quan KPI + bảng Hợp đồng & Văn bản + drawer audit + hành động hàng loạt + realtime | C1 |
-| C7 | User: cổng cuộn, điều hướng trường, sheet ký 4 tab (thêm Tải ảnh), checkbox/text/date | C2 |
-| C8 | `request-signing-otp` + tích hợp nhà cung cấp SMS (sau khi chốt Q1) + fallback mật khẩu | C1, Q1 |
-| C9 | `sign-document` v2 + `render-document-pdf` (vẽ trường, watermark, trang chứng nhận mới) | C1, C2 |
-| C10 | `send-document-reminders` + cron | C1 |
-| C11 | Pháp chế duyệt câu đồng ý, trang chứng nhận, chính sách lưu trữ | — |
-| C12 (B) | Ký số PAdES + TSA với CA được cấp phép | Q4 |
+| C6 | Dashboard: Tổng quan KPI + bảng Hợp đồng & Văn bản + drawer nhật ký + hành động hàng loạt + realtime | C1 |
+| C7 | User: cổng cuộn, điều hướng trường, sheet ký 4 tab (thêm Tải ảnh), checkbox/text/date, màn xác nhận | C2 |
+| C8 | `sign-document` v2 + `render-document-pdf` (vẽ trường, nhãn minh hoạ) + chỉnh nhãn `/verify` | C1, C2 |
+| C9 | `send-document-reminders` + cron | C1 |
 
 ## 8. Tiêu chí nghiệm thu chính
 
 - Thả 1 trường Chữ ký sau "Điều 5"; gửi cho 2 người có `custom_field` dài 1 dòng và 2 trang → trường của mỗi người nằm ngay sau Điều 5, không đè chữ, PDF trùng vị trí màn hình (sai số ≤ 0,5 mm).
 - Ký nháy `every_page_footer` xuất hiện đúng ở mọi trang trừ trang cuối; ký 1 lần điền hết.
 - Chưa cuộn hết → không bấm được Ký; server trả `READ_REQUIRED` nếu gọi thẳng API.
-- OTP sai 5 lần → khoá 15 phút; OTP đúng nhưng hết hạn → báo hết hạn; gửi lại phải chờ 60 s.
-- Sửa 1 dòng `document_events` bằng SQL → `verify_document_audit` báo gãy tại đúng sự kiện đó.
+- Ký không cần OTP hay mật khẩu; người khác (JWT khác) gọi API ký văn bản không phải của mình → 403.
 - Sửa nội dung văn bản đã ký (kể cả admin) → bị trigger từ chối.
 - Hết `due_at` → trạng thái Hết hạn, nhắc còn lại bị huỷ, Admin gia hạn → quay về Đã gửi và có lịch nhắc mới.
 - Bảng Admin cập nhật realtime khi user xem/ký; lọc theo trạng thái, mẫu, đợt, khoảng ngày; xuất CSV đúng dữ liệu lọc.
-- PDF có watermark hash mọi trang, trang chứng nhận có audit đầy đủ, `/verify` báo Đúng với file gốc và Sai với file đã sửa 1 byte.
+- `illustrative_label` bật → nhãn "Chữ ký minh hoạ" có trên màn hình ký, màn đã ký và PDF; tắt → không có. Không nơi nào xuất hiện cụm từ khẳng định giá trị pháp lý.
