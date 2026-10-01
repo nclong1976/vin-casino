@@ -4,12 +4,13 @@ import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { validateTemplate } from "@/lib/esignValidation";
-import { normalizeLayout, normalizeVariableKey, templateBody } from "@/shared/docLayout";
+import { collectFieldAnchors, normalizeLayout, normalizeVariableKey, templateBody } from "@/shared/docLayout";
 import LetterheadRenderer from "@/components/documents/LetterheadRenderer";
 import QuillBodyEditor from "./QuillBodyEditor";
 import VariablesPanel, { SYSTEM_VARIABLES } from "./VariablesPanel";
 import RetentionSelect, { retentionLabel } from "./RetentionSelect";
 import { SlotDragOverlay, SlotInspector, columnWidthMm } from "./SlotEditor";
+import { FieldDragOverlay, FieldsPanel, newField } from "./FieldEditor";
 import { SAMPLE_RECIPIENT, sampleValuesFor, usePublishedPreview } from "./preview";
 import { Badge, Button, EmptyState, Field, Section, STATUS_BADGE, TextInput, Toggle } from "./ui";
 
@@ -186,6 +187,7 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
   const [form, setForm] = useState(() => toForm(row));
   const [mode, setMode] = useState("compose"); // compose | print
   const [selectedSlot, setSelectedSlot] = useState("recipient");
+  const [selectedField, setSelectedField] = useState(null);
   const [recipient, setRecipient] = useState(null);
   const [saving, setSaving] = useState(false);
   const editorRef = useRef(null);
@@ -232,7 +234,34 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
   const updateSlotBox = (id, box) => set({ layout: { ...form.layout, slots: form.layout.slots.map((s) => (s.id === id ? { ...s, box } : s)) } });
   const swapSides = () =>
     set({ layout: { ...form.layout, slots: form.layout.slots.map((s) => ({ ...s, column: s.column === "left" ? "right" : "left" })) } });
-  const resetSlots = () => set({ layout: normalizeLayout(null) });
+  const resetSlots = () => set({ layout: { ...normalizeLayout(null), fields: form.layout.fields, illustrative_label: form.layout.illustrative_label } });
+
+  const fields = form.layout.fields || [];
+  const anchoredIds = useMemo(() => collectFieldAnchors(form.body_delta), [form.body_delta]);
+  const setFields = (next) => set({ layout: { ...form.layout, fields: next } });
+  const addField = (type) => {
+    const field = newField(type, fields);
+    setFields([...fields, field]);
+    setSelectedField(field.id);
+    if (field.anchor.kind === "flow" && mode === "compose") editorRef.current?.insertFieldAnchor(field.id);
+  };
+  const updateField = (next) => setFields(fields.map((f) => (f.id === next.id ? next : f)));
+  const removeField = (id) => {
+    editorRef.current?.removeFieldAnchor(id);
+    setFields(fields.filter((f) => f.id !== id));
+    setSelectedField(null);
+  };
+  const insertFieldAnchor = (id) => {
+    const place = () => {
+      editorRef.current?.removeFieldAnchor(id);
+      editorRef.current?.insertFieldAnchor(id);
+    };
+    if (mode === "compose") place();
+    else {
+      setMode("compose");
+      requestAnimationFrame(place);
+    }
+  };
 
   const save = async (status) => {
     if (status === "published" && validation.errors.length) {
@@ -369,13 +398,16 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
                 <LetterheadRenderer
                   layout={preview.layout}
                   renderPageOverlay={(page) => (
-                    <SlotDragOverlay page={page} slots={form.layout.slots} selectedId={selectedSlot} onSelect={setSelectedSlot} onChangeBox={updateSlotBox} colW={colW} />
+                    <>
+                      <SlotDragOverlay page={page} slots={form.layout.slots} selectedId={selectedSlot} onSelect={setSelectedSlot} onChangeBox={updateSlotBox} colW={colW} />
+                      <FieldDragOverlay page={page} fields={fields} selectedId={selectedField} onSelect={setSelectedField} onChangeField={updateField} />
+                    </>
                   )}
                 />
               ) : (
                 <div className="aspect-[210/297] rounded-lg bg-white border border-gray-200 animate-pulse" />
               )}
-              <p className="text-[10px] text-gray-400">Kéo khung ký để đổi vị trí, kéo góc dưới-phải để đổi kích thước. Giá trị biến tuỳ chỉnh đang là dữ liệu mẫu.</p>
+              <p className="text-[10px] text-gray-400">Kéo khung ký / trường để đổi vị trí, kéo góc dưới-phải để đổi kích thước. Giá trị biến tuỳ chỉnh đang là dữ liệu mẫu.</p>
             </div>
           )}
         </main>
@@ -395,6 +427,11 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
               </select>
             </Field>
             <Toggle checked={form.requires_signature} onChange={(v) => set({ requires_signature: v })} label="Yêu cầu người nhận ký" />
+            <Toggle
+              checked={form.layout.illustrative_label !== false}
+              onChange={(v) => set({ layout: { ...form.layout, illustrative_label: v } })}
+              label='Ghi "Chữ ký minh hoạ"'
+            />
             <Field label="Lưu trữ PDF">
               <RetentionSelect value={form.retention_days} onChange={(retention_days) => set({ retention_days })} inheritLabel="Theo mặc định trong Cài đặt" />
             </Field>
@@ -424,6 +461,18 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
               ))}
             </div>
             <SlotInspector slot={slot} onChange={updateSlot} colW={colW} />
+          </Section>
+          <Section title="Trường người nhận điền">
+            <FieldsPanel
+              fields={fields}
+              selectedId={selectedField}
+              anchoredIds={anchoredIds}
+              onSelect={setSelectedField}
+              onAdd={addField}
+              onChange={updateField}
+              onRemove={removeField}
+              onInsertAnchor={insertFieldAnchor}
+            />
           </Section>
           {preview && (
             <p className="text-[10px] text-gray-400 px-1">

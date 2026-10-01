@@ -57,6 +57,7 @@ const pendingDoc = (patch: Partial<DocumentForSign> = {}): DocumentForSign => ({
   rendered_model: { ops: [] },
   content_sha256: HASH,
   requires_signature: true,
+  read_completed_at: "2026-09-28T07:30:00Z",
   ...patch,
 });
 
@@ -121,4 +122,56 @@ Deno.test("uses a saved signature owned by the user", async () => {
     SignError,
     "chữ ký đã lưu",
   );
+});
+
+const FIELDS = [
+  { id: "ky_nhay", type: "initials", size_mm: { w: 22, h: 12 }, anchor: { kind: "every_page_footer" } },
+  { id: "ok_dieu5", type: "checkbox", size_mm: { w: 5, h: 5 }, options: { must_be_checked: true } },
+  { id: "mst", type: "text", size_mm: { w: 60, h: 7 } },
+  { id: "ngay", type: "date", size_mm: { w: 35, h: 7 } },
+];
+const docWithFields = () => pendingDoc({ layout_snapshot: { fields: FIELDS } as DocumentForSign["layout_snapshot"] });
+const goodFields = [
+  { field_id: "ky_nhay", image_png_base64: b64(fakePng(200, 100)) },
+  { field_id: "ok_dieu5", value_bool: true },
+  { field_id: "mst", value_text: "  0101234567 " },
+];
+
+Deno.test("requires reading the whole document first", async () => {
+  const repo = new FakeRepo(pendingDoc({ read_completed_at: null }));
+  await assertRejects(() => signDocument(repo, "u1", parseSignRequest(baseReq), { ip: null, userAgent: null }), SignError, "đọc hết");
+  assertEquals(repo.uploads.length, 0);
+});
+
+Deno.test("records field values: uploads initials, keeps checkbox/text, date left to server", async () => {
+  const repo = new FakeRepo(docWithFields());
+  await signDocument(repo, "u1", parseSignRequest({ ...baseReq, fields: goodFields }), { ip: null, userAgent: null });
+  assertEquals(repo.uploads, ["u1/doc_1.signature.png", "u1/doc_1.field-ky_nhay.png"]);
+  assertEquals(repo.recorded?.fieldValues, {
+    ky_nhay: { type: "initials", method: "draw", asset_path: "u1/doc_1.field-ky_nhay.png", image_data_url: `data:image/png;base64,${b64(fakePng(200, 100))}` },
+    ok_dieu5: { type: "checkbox", value_bool: true },
+    mst: { type: "text", value_text: "0101234567" },
+    ngay: { type: "date", value_text: null },
+  });
+});
+
+Deno.test("rejects missing required fields before uploading anything", async () => {
+  for (const drop of ["ky_nhay", "ok_dieu5", "mst"]) {
+    const repo = new FakeRepo(docWithFields());
+    const fields = goodFields.filter((f) => f.field_id !== drop);
+    await assertRejects(() => signDocument(repo, "u1", parseSignRequest({ ...baseReq, fields }), { ip: null, userAgent: null }), SignError, drop);
+    assertEquals(repo.uploads.length, 0);
+  }
+  const repo = new FakeRepo(docWithFields());
+  const unchecked = goodFields.map((f) => (f.field_id === "ok_dieu5" ? { ...f, value_bool: false } : f));
+  await assertRejects(() => signDocument(repo, "u1", parseSignRequest({ ...baseReq, fields: unchecked }), { ip: null, userAgent: null }), SignError);
+});
+
+Deno.test("rejects oversized text and bad field images", async () => {
+  const repo = new FakeRepo(docWithFields());
+  const long = goodFields.map((f) => (f.field_id === "mst" ? { ...f, value_text: "x".repeat(201) } : f));
+  await assertRejects(() => signDocument(repo, "u1", parseSignRequest({ ...baseReq, fields: long }), { ip: null, userAgent: null }), SignError, "200");
+  const badImg = goodFields.map((f) => (f.field_id === "ky_nhay" ? { ...f, image_png_base64: b64(new Uint8Array(40)) } : f));
+  await assertRejects(() => signDocument(repo, "u1", parseSignRequest({ ...baseReq, fields: badImg }), { ip: null, userAgent: null }), SignError, "ky_nhay");
+  assertThrows(() => parseSignRequest({ ...baseReq, fields: "nope" }), SignError);
 });

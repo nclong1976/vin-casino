@@ -31,8 +31,32 @@ if (!Quill.imports["formats/variable"]) {
   Quill.register("formats/variable", VariableBlot);
 }
 
+// Điểm neo trường (ô xác nhận, chữ ký phụ...) - Delta { insert: { field_anchor: "id" } }.
+// Không in ra văn bản; bộ dàn trang đặt trường ngay sau đoạn chứa điểm neo.
+class FieldAnchorBlot extends Embed {
+  static create(value) {
+    const node = super.create();
+    const id = typeof value === "string" ? value : value?.field_anchor || "";
+    node.setAttribute("data-field-anchor", id);
+    node.setAttribute("contenteditable", "false");
+    node.textContent = `⚓ ${id}`;
+    return node;
+  }
+
+  static value(node) {
+    return node.getAttribute("data-field-anchor");
+  }
+}
+FieldAnchorBlot.blotName = "field_anchor";
+FieldAnchorBlot.tagName = "span";
+FieldAnchorBlot.className = "ql-field-anchor";
+
+if (!Quill.imports["formats/field_anchor"]) {
+  Quill.register("formats/field_anchor", FieldAnchorBlot);
+}
+
 /** Đúng tập định dạng mà bộ dàn trang/PDF hỗ trợ (spec 3.4). Dán từ Word tự lọc bỏ phần còn lại. */
-export const EDITOR_FORMATS = ["header", "bold", "italic", "underline", "color", "align", "list", "indent", "variable"];
+export const EDITOR_FORMATS = ["header", "bold", "italic", "underline", "color", "align", "list", "indent", "variable", "field_anchor"];
 
 const TOOLBAR = [
   [{ header: [1, 2, 3, false] }],
@@ -46,6 +70,7 @@ const TOOLBAR = [
 
 const CHIP_STYLE = `
 .ql-variable-chip { background:#948154; color:#fff; border-radius:9999px; padding:0 6px; font-size:0.85em; white-space:nowrap; }
+.ql-field-anchor { background:#e0f2fe; color:#0369a1; border:1px dashed #38bdf8; border-radius:6px; padding:0 5px; margin:0 2px; font-family:system-ui,sans-serif; font-size:0.72em; white-space:nowrap; }
 .esign-quill .ql-container { font-family:'Noto Serif Doc','Noto Serif',serif; font-size:15px; min-height:260px; border-bottom-left-radius:10px; border-bottom-right-radius:10px; }
 .esign-quill .ql-toolbar { border-top-left-radius:10px; border-top-right-radius:10px; background:#fafafa; }
 .esign-quill .ql-editor { min-height:260px; line-height:1.55; }
@@ -76,7 +101,37 @@ const QuillBodyEditor = forwardRef(function QuillBodyEditor({ docKey, initialDel
     q.setSelection(index + 2, 0, "user");
   }, []);
 
-  useImperativeHandle(ref, () => ({ insertVariable: (key) => insertVariable(key) }), [insertVariable]);
+  /** Chèn điểm neo trường ở cuối dòng chứa con trỏ (trường đặt ngay sau đoạn đó). */
+  const insertFieldAnchor = useCallback((id) => {
+    const q = editor();
+    if (!q || !id) return;
+    const range = q.getSelection(true);
+    const index = range?.index ?? q.getLength() - 1;
+    const [line, offset] = q.getLine(index);
+    const end = line ? index - offset + line.length() - 1 : index;
+    q.insertEmbed(Math.max(end, 0), "field_anchor", id, "user");
+    q.setSelection(Math.max(end, 0) + 1, 0, "user");
+  }, []);
+
+  /** Bỏ mọi điểm neo của 1 trường (khi xoá trường). */
+  const removeFieldAnchor = useCallback((id) => {
+    const q = editor();
+    if (!q) return;
+    let index = 0;
+    const hits = [];
+    for (const op of q.getContents().ops) {
+      const len = typeof op.insert === "string" ? op.insert.length : 1;
+      if (op.insert && typeof op.insert === "object" && op.insert.field_anchor === id) hits.push(index);
+      index += len;
+    }
+    hits.reverse().forEach((i) => q.deleteText(i, 1, "user"));
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({ insertVariable: (key) => insertVariable(key), insertFieldAnchor, removeFieldAnchor }),
+    [insertVariable, insertFieldAnchor, removeFieldAnchor],
+  );
 
   const modules = useMemo(() => ({ toolbar: TOOLBAR, clipboard: { matchVisual: false } }), []);
 

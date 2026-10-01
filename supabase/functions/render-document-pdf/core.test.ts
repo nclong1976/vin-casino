@@ -50,15 +50,10 @@ class FakeRepo implements RenderRepo {
   loadDocument() {
     return Promise.resolve(this.doc);
   }
-  loadEvents() {
-    return Promise.resolve([
-      { event: "dispatched", created_at: "2026-09-28T03:00:00Z" },
-      { event: "viewed", created_at: "2026-09-28T07:00:00Z" },
-      { event: "signed", created_at: "2026-09-28T07:32:05Z", ip: "1.2.3.4" },
-      { event: "downloaded", created_at: "2026-09-28T08:00:00Z" },
-    ]);
-  }
   loadSignature() {
+    return Promise.resolve(null);
+  }
+  loadAsset() {
     return Promise.resolve(null);
   }
   fetchImage() {
@@ -88,7 +83,7 @@ Deno.test("renders, uploads and records the PDF hash", async () => {
   assertEquals(repo.uploaded?.path, "u1/doc_1.pdf");
   assertEquals(repo.finished?.sha256, await sha256Hex(repo.uploaded!.pdf));
   const pdf = await PDFDocument.load(repo.uploaded!.pdf);
-  assertEquals(pdf.getPageCount(), 2); // 1 trang văn bản + trang chứng nhận
+  assertEquals(pdf.getPageCount(), 1); // chữ ký minh hoạ: không có trang chứng nhận
   assertEquals(pdf.getSubject(), "VC/2026/000001");
   if (r.outcome === "done") assert(r.ms < 3000, `render took ${r.ms} ms`);
 });

@@ -103,6 +103,17 @@ export async function markDocumentViewed(documentId) {
   return unwrap(await supabase.rpc("mark_document_viewed", { p_document_id: documentId }));
 }
 
+/** Người nhận đã cuộn hết văn bản (bắt buộc trước khi ký). */
+export async function markDocumentRead(documentId, pagesSeen = null, durationMs = null) {
+  return unwrap(
+    await supabase.rpc("mark_document_read", {
+      p_document_id: documentId,
+      p_pages_seen: pagesSeen,
+      p_duration_ms: durationMs === null ? null : Math.round(durationMs),
+    }),
+  );
+}
+
 /** Kiểm tra công khai theo số văn bản (+ SHA-256 của file nếu có). */
 export async function verifyDocument(docNo, sha256 = null) {
   return unwrap(await supabase.rpc("verify_document", { p_doc_no: docNo, p_sha256: sha256 }));

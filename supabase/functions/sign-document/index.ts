@@ -3,7 +3,8 @@
  *
  * POST (Authorization: Bearer <JWT người dùng>)
  * { document_id, idempotency_key, method, image_png_base64?, typed_text?, font?,
- *   saved_signature_id?, save_for_later?, consent, content_sha256 }
+ *   saved_signature_id?, save_for_later?, consent, content_sha256,
+ *   fields?: [{ field_id, image_png_base64?, saved_signature_id?, value_bool?, value_text? }] }
  *
  * Kiểm tra quyền sở hữu + trạng thái + hash nội dung, lưu PNG chữ ký vào bucket
  * private, ghi chữ ký bằng RPC esign_record_signature (thời điểm ký = now()
@@ -19,7 +20,7 @@ function repo(): SignRepo {
     async loadDocument(id, userId) {
       const { data, error } = await db
         .from("custom_documents")
-        .select("id, user_id, status, rendered_model, content_sha256, requires_signature, signature_meta, signer_name, signed_at, pdf_status, pdf_expires_at")
+        .select("id, user_id, status, rendered_model, content_sha256, requires_signature, signature_meta, layout_snapshot, read_completed_at, signer_name, signed_at, pdf_status, pdf_expires_at")
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
@@ -45,6 +46,7 @@ function repo(): SignRepo {
         p_ip: a.ip,
         p_user_agent: a.userAgent,
         p_consent_text: a.consentText,
+        p_field_values: a.fieldValues,
       });
       if (error) {
         const code = (Object.keys(HTTP_STATUS) as SignErrorCode[]).find((c) => error.message.includes(c));
