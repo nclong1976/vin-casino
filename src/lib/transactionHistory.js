@@ -27,6 +27,7 @@ const BONUS_CATEGORIES = new Set([
   "Thưởng Vòng Quay",
   "Đáo Hạn Dự Án",
   "Lãi Ngày Dự Án",
+  "Admin Cộng Thưởng",
 ]);
 
 export const TRANSACTION_KINDS = /** @type {const} */ ({

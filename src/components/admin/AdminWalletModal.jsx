@@ -13,6 +13,12 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
   const [mode, setMode] = useState("add");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  // Cộng tiền: có tính vào "Tổng đã nạp" không. Tổng đã nạp = nạp được
+  // duyệt + Admin cộng trực tiếp (category "Nạp Tiền Trực Tiếp"); giải ngân,
+  // lãi, thưởng... chọn "Thưởng / Lãi" để không bị tính. Postgres tự tính
+  // lại users.total_deposited từ lịch sử ví (migration
+  // total_deposited_from_ledger).
+  const [countAsDeposit, setCountAsDeposit] = useState(true);
   const [balance, setBalance] = useState(0);
   const [loadingBal, setLoadingBal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,6 +28,7 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
       setMode("add");
       setAmount("");
       setNote("");
+      setCountAsDeposit(true);
       setBalance(Number(user.balance || 0));
       setLoadingBal(false);
     }
@@ -57,7 +64,7 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
       const result = await adjustUserBalanceStrict(
         user.id,
         mode === "add" ? numAmount : -numAmount,
-        mode === "add" ? numAmount : 0
+        0
       );
       if (!result) {
         toast.error("Không thể ghi nhận thay đổi số dư, vui lòng thử lại!");
@@ -69,6 +76,7 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
         type: mode === "add" ? "deposit" : "withdraw",
         amount: numAmount,
         status: "completed",
+        ...(mode === "add" ? { category: countAsDeposit ? "Nạp Tiền Trực Tiếp" : "Admin Cộng Thưởng" } : {}),
         description:
           note ||
           (mode === "add"
@@ -215,6 +223,27 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
                   </button>
                 ))}
               </div>
+
+              {mode === "add" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setCountAsDeposit(true)}
+                    className={`py-2 rounded-xl text-[11px] font-semibold border transition ${
+                      countAsDeposit ? "border-[#948154] bg-[#948154]/10 text-[#948154]" : "border-gray-200 bg-white text-gray-400"
+                    }`}
+                  >
+                    Nạp tiền (tính vào Tổng nạp)
+                  </button>
+                  <button
+                    onClick={() => setCountAsDeposit(false)}
+                    className={`py-2 rounded-xl text-[11px] font-semibold border transition ${
+                      !countAsDeposit ? "border-[#948154] bg-[#948154]/10 text-[#948154]" : "border-gray-200 bg-white text-gray-400"
+                    }`}
+                  >
+                    Thưởng / Lãi (không tính)
+                  </button>
+                </div>
+              )}
 
               {/* Note */}
               <div>
