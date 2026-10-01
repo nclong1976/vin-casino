@@ -1217,12 +1217,12 @@ const ENTITY_COLUMNS = {
     'campaign_id', 'letterhead_snapshot', 'layout_snapshot', 'rendered_model', 'slot_boxes', 'content_sha256', 'doc_no', 'requires_signature', 'due_at',
     'delivered_at', 'first_viewed_at', 'signer_name', 'signature_method', 'signature_path', 'signature_meta', 'signed_ip', 'signed_user_agent', 'consent_text',
     'locked_at', 'pdf_status', 'pdf_path', 'pdf_sha256', 'pdf_generated_at', 'retention_days', 'pdf_expires_at', 'legal_hold',
-    'field_values', 'read_completed_at'],
+    'field_values', 'read_completed_at', 'revoked_reason', 'revoked_by', 'reminder_count', 'last_reminded_at'],
   DocumentTemplate: ['id', 'name', 'category', 'body', 'variables', 'status', 'version', 'created_by', 'created_date', 'updated_date',
     'letterhead_id', 'title_template', 'body_delta', 'layout', 'requires_signature', 'retention_days'],
   DocumentLetterhead: ['id', 'name', 'is_default', 'header', 'footer', 'issuer', 'theme', 'status', 'version', 'created_by', 'created_date', 'updated_date'],
   DocumentCampaign: ['id', 'template_id', 'template_version', 'title', 'campaign_values', 'audience', 'recipient_count', 'due_at', 'retention_days', 'status',
-    'dispatch_cursor', 'scheduled_at', 'created_by', 'created_date', 'dispatched_at'],
+    'dispatch_cursor', 'scheduled_at', 'created_by', 'created_date', 'dispatched_at', 'delivery_settings'],
   UserGroup: ['id', 'name', 'description', 'color', 'kind', 'filters', 'member_count', 'created_by', 'created_date', 'updated_date'],
 };
 

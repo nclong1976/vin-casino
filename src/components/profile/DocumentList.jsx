@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { markDocumentsDelivered } from "@/lib/esignApi";
+import { deviceInfo } from "@/lib/esignStatus";
 
 const STATUS_CONFIG = {
   pending: { label: "Chờ ký", icon: Clock, className: "bg-blue-50 text-blue-700 border-blue-200/60" },
@@ -49,6 +51,15 @@ export default function DocumentList({ docs = [], loading = false }) {
   // Mặc định mở "Cần ký" nếu còn văn bản chờ ký.
   const activeTab = tab || (counts.todo > 0 ? "todo" : "all");
   const filtered = docs.filter(TABS.find((t) => t.id === activeTab).filter);
+
+  // Văn bản đã tới máy người nhận → "Đã nhận" phía Admin (mỗi văn bản 1 lần).
+  const reported = useRef(new Set());
+  useEffect(() => {
+    const ids = docs.filter((d) => d.rendered_model && d.status === "pending" && !d.delivered_at && !reported.current.has(d.id)).map((d) => d.id);
+    if (!ids.length) return;
+    ids.forEach((id) => reported.current.add(id));
+    markDocumentsDelivered(ids, deviceInfo()).catch(() => {});
+  }, [docs]);
 
   if (loading) {
     return (
@@ -119,7 +130,11 @@ export default function DocumentList({ docs = [], loading = false }) {
               </div>
 
               <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-50">
-                <span className="text-[9.5px] text-gray-400">{formatCompactDate(d.created_date)}</span>
+                <span className="text-[9.5px] text-gray-400">
+                  {formatCompactDate(d.created_date)}
+                  {needsSigning(d) && d.due_at && <span className="text-amber-600"> · Hạn ký {formatCompactDate(d.due_at)}</span>}
+                  {d.status === "revoked" && d.revoked_reason && <span> · {d.revoked_reason}</span>}
+                </span>
                 <Link
                   to={`/document/${d.id}`}
                   className="inline-flex items-center gap-1 text-[10px] font-bold text-[#948154] hover:text-[#7d6d45] transition-colors"

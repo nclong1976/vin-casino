@@ -1,4 +1,5 @@
 import React, { forwardRef } from "react";
+import { DOC_STATUS, displayStatus } from "@/lib/esignStatus";
 
 /** Các khối giao diện nhỏ dùng chung cho tab "Văn bản" (ký điện tử). */
 
@@ -99,6 +100,18 @@ export const STATUS_BADGE = {
   published: { label: "Đã xuất bản", color: "green" },
   archived: { label: "Đã lưu trữ", color: "orange" },
 };
+
+/** Nhãn trạng thái văn bản đã phát hành (Đã gửi/Đã nhận/Đã xem/…). */
+export function DocStatusBadge({ doc, status }) {
+  const key = status || displayStatus(doc);
+  const st = DOC_STATUS[key] || DOC_STATUS.sent;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9.5px] font-semibold whitespace-nowrap ${st.className}`}>
+      <span aria-hidden="true">{st.icon}</span>
+      {st.label}
+    </span>
+  );
+}
 
 export function EmptyState({ icon: Icon, title, description, action }) {
   return (
