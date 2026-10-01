@@ -90,6 +90,26 @@ CREATE TRIGGER trg_sync_total_deposited
   AFTER INSERT OR UPDATE OR DELETE ON public.wallet_transactions
   FOR EACH ROW EXECUTE FUNCTION public.sync_total_deposited_from_wallet_tx();
 
+-- Lần cộng tiền từ giao diện Admin cũ (chưa gửi category) với mô tả mặc
+-- định vẫn được đánh dấu là tiền nạp trực tiếp, để không bị bỏ sót trong
+-- lúc bản web mới chưa triển khai.
+CREATE OR REPLACE FUNCTION public.tag_admin_direct_deposit()
+RETURNS trigger LANGUAGE plpgsql SET search_path TO 'public' AS $$
+begin
+  if new.type = 'deposit' and new.category is null and coalesce(new.code, '') like 'VCW%'
+     and (btrim(coalesce(new.description, '')) ilike 'Admin cộng tiền vào ví'
+          or btrim(coalesce(new.description, '')) ilike 'Nạp tiền trực tiếp%') then
+    new.category := 'Nạp Tiền Trực Tiếp';
+  end if;
+  return new;
+end;
+$$;
+
+DROP TRIGGER IF EXISTS trg_tag_admin_direct_deposit ON public.wallet_transactions;
+CREATE TRIGGER trg_tag_admin_direct_deposit
+  BEFORE INSERT ON public.wallet_transactions
+  FOR EACH ROW EXECUTE FUNCTION public.tag_admin_direct_deposit();
+
 -- Đánh dấu các lần "Admin cộng tiền" cũ là tiền nạp trực tiếp (nút Cộng
 -- tiền ghi mô tả mặc định "Admin cộng tiền vào ví", hoặc admin tự ghi
 -- "Nạp tiền trực tiếp..."). Các lần cộng có ghi chú khác (giải ngân dự án,
