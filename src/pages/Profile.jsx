@@ -315,7 +315,7 @@ export default function Profile() {
         </div>
 
         {/* Tài liệu & Giấy tờ - hợp đồng/giấy tờ TÙY Ý Admin gửi riêng (bảng
-            custom_documents, xem DocumentsTab.jsx phía admin) - tách khỏi
+            custom_documents) - tách khỏi
             "Đầu tư (Hợp đồng)" ở trên vì không gắn giao dịch đầu tư nào. */}
         <div>
           <h2 className="text-[13px] font-bold text-black mb-2 flex items-center gap-1.5">

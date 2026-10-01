@@ -39,7 +39,7 @@ const formatCompactDate = (dateStr) => {
 };
 
 /** Danh sách hợp đồng/giấy tờ TÙY Ý Admin đã gửi cho chính người dùng này
- * (bảng custom_documents, xem DocumentsTab.jsx phía admin) - mỗi dòng dẫn
+ * (bảng custom_documents) - mỗi dòng dẫn
  * tới /document/:id để đọc và ký, đúng mẫu TransactionList.jsx (hợp đồng
  * đầu tư tự sinh) nhưng đơn giản hơn (không có lãi/kỳ hạn để tính). */
 export default function DocumentList({ docs = [], loading = false }) {
