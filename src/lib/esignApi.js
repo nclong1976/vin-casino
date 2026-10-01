@@ -149,7 +149,7 @@ export async function setDocumentRetention(documentId, retentionDays, legalHold)
 // ─── Đọc dữ liệu theo dõi ─────────────────────────────────────────────────
 
 const DOC_TRACK_COLUMNS =
-  "id, user_id, title, doc_no, status, requires_signature, due_at, created_date, delivered_at, first_viewed_at, signed_at, signer_name, signed_ip, pdf_status, pdf_expires_at, retention_days, legal_hold";
+  "id, user_id, title, doc_no, status, requires_signature, due_at, created_date, delivered_at, first_viewed_at, signed_at, signer_name, signed_ip, pdf_status, pdf_expires_at, retention_days, legal_hold, locked_at, revoked_reason, reminder_count";
 
 export async function listCampaignDocuments(campaignId) {
   return unwrap(await supabase.from("custom_documents").select(DOC_TRACK_COLUMNS).eq("campaign_id", campaignId).order("created_date", { ascending: true }).limit(10000));
@@ -171,4 +171,93 @@ export async function campaignProgress(campaignIds) {
     if (r.status === "revoked") p.revoked += 1;
   }
   return out;
+}
+
+// ─── Đợt 2: trạng thái chi tiết, thao tác hàng loạt, thống kê ────────────
+
+/** Người nhận đã tải văn bản về máy (danh sách "Văn bản của tôi" / trang văn bản). */
+export async function markDocumentsDelivered(documentIds, device = null) {
+  if (!documentIds?.length) return 0;
+  return unwrap(await supabase.rpc("mark_documents_delivered", { p_document_ids: documentIds, p_device: device }));
+}
+
+export async function remindDocuments(documentIds) {
+  return unwrap(await supabase.rpc("remind_documents", { p_document_ids: documentIds }));
+}
+
+export async function extendDocumentDue(documentIds, dueAt) {
+  return unwrap(await supabase.rpc("extend_document_due", { p_document_ids: documentIds, p_due_at: dueAt }));
+}
+
+export async function revokeDocuments(documentIds, reason) {
+  return unwrap(await supabase.rpc("revoke_documents", { p_document_ids: documentIds, p_reason: reason }));
+}
+
+export async function approveDocuments(documentIds, status = "approved") {
+  const { data, error } = await supabase.from("custom_documents").update({ status }).in("id", documentIds).eq("status", "signed").select("id");
+  if (error) throw new Error(error.message);
+  return data?.length || 0;
+}
+
+export async function documentStats(days = 30) {
+  return unwrap(await supabase.rpc("esign_document_stats", { p_days: days }));
+}
+
+const BOARD_COLUMNS =
+  "id, user_id, title, doc_no, status, requires_signature, due_at, created_date, created_by, campaign_id, template_id, delivered_at, first_viewed_at, read_completed_at, signed_at, signer_name, signed_ip, locked_at, pdf_status, pdf_expires_at, retention_days, legal_hold, revoked_reason, reminder_count, last_reminded_at";
+
+/**
+ * Bảng "Hợp đồng & Văn bản" (spec 2.5). status là trạng thái hiển thị
+ * (sent/delivered/viewed/expired... - xem esignStatus.js), lọc trên server.
+ */
+export async function listDocuments({ status, templateId, campaignId, from, to, userIds, search, dueSoon, ids, page = 0, pageSize = 50 } = {}) {
+  let q = supabase.from("custom_documents").select(BOARD_COLUMNS, { count: "exact" }).not("rendered_model", "is", null);
+  const nowIso = new Date().toISOString();
+  if (status === "sent") q = q.eq("status", "pending").is("delivered_at", null).is("first_viewed_at", null).or(`due_at.is.null,due_at.gte.${nowIso}`);
+  else if (status === "delivered") q = q.eq("status", "pending").not("delivered_at", "is", null).is("first_viewed_at", null).or(`due_at.is.null,due_at.gte.${nowIso}`);
+  else if (status === "viewed") q = q.eq("status", "pending").not("first_viewed_at", "is", null).or(`due_at.is.null,due_at.gte.${nowIso}`);
+  else if (status === "expired") q = q.or(`status.eq.expired,and(status.eq.pending,due_at.lt.${nowIso})`);
+  else if (status === "open") q = q.eq("status", "pending");
+  else if (status) q = q.eq("status", status);
+  if (dueSoon) q = q.eq("status", "pending").gte("due_at", nowIso).lte("due_at", new Date(Date.now() + 48 * 3600 * 1000).toISOString());
+  if (ids?.length) q = q.in("id", ids);
+  if (templateId) q = q.eq("template_id", templateId);
+  if (campaignId) q = q.eq("campaign_id", campaignId);
+  if (from) q = q.gte("created_date", from);
+  if (to) q = q.lte("created_date", to);
+  const s = String(search || "").trim().replace(/[%_,()]/g, " ");
+  if (s || userIds) {
+    const parts = [];
+    if (s) parts.push(`doc_no.ilike.%${s}%`, `title.ilike.%${s}%`);
+    if (userIds?.length) parts.push(`user_id.in.(${userIds.map((id) => `"${id}"`).join(",")})`);
+    if (parts.length) q = q.or(parts.join(","));
+    else return { rows: [], total: 0 };
+  }
+  const { data, error, count } = await q.order("created_date", { ascending: false }).range(page * pageSize, page * pageSize + pageSize - 1);
+  if (error) throw new Error(error.message);
+  return { rows: data || [], total: count || 0 };
+}
+
+export async function listDocumentEvents(documentId) {
+  return unwrap(
+    await supabase.from("document_events").select("id, event, actor_id, ip, user_agent, device, data, created_at").eq("document_id", documentId).order("created_at", { ascending: true }),
+  );
+}
+
+export async function recentDocumentEvents(limit = 15) {
+  return unwrap(
+    await supabase
+      .from("document_events")
+      .select("id, event, actor_id, ip, user_agent, data, created_at, document_id, custom_documents(title, doc_no, user_id)")
+      .order("created_at", { ascending: false })
+      .limit(limit),
+  );
+}
+
+export function watchDocumentsTable(onChange) {
+  const channel = supabase
+    .channel(`esign-docs-${Math.random().toString(36).slice(2, 8)}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "custom_documents" }, onChange)
+    .subscribe();
+  return () => supabase.removeChannel(channel);
 }

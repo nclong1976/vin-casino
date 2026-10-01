@@ -1,14 +1,18 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { FileBadge, FileText, Users, Send, BarChart3 } from "lucide-react";
+import { FileBadge, FileText, Users, Send, BarChart3, LayoutDashboard, Signature } from "lucide-react";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import LetterheadLibrary from "@/components/admin/esign/LetterheadLibrary";
 import TemplateLibrary from "@/components/admin/esign/TemplateLibrary";
 import UserGroupsManager from "@/components/admin/esign/UserGroupsManager";
 import DispatchWizard from "@/components/admin/esign/DispatchWizard";
 import CampaignDashboard from "@/components/admin/esign/CampaignDashboard";
+import EsignOverview from "@/components/admin/esign/EsignOverview";
+import DocumentsBoard from "@/components/admin/esign/DocumentsBoard";
 
 const SUBTABS = [
+  { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
+  { id: "documents", label: "Hợp đồng & Văn bản", icon: Signature },
   { id: "letterheads", label: "Khung văn bản", icon: FileBadge },
   { id: "templates", label: "Mẫu", icon: FileText },
   { id: "groups", label: "Nhóm người dùng", icon: Users },
@@ -22,7 +26,14 @@ const SUBTABS = [
  * đoạn 1) ở "Quản lý Hội viên & Giao dịch" đã được gỡ khỏi Admin.
  */
 export default function ESignTab() {
-  const [sub, setSub] = useState("letterheads");
+  const [sub, setSub] = useState("overview");
+  // Bộ lọc khi mở bảng văn bản từ Tổng quan (đổi object để bảng nhận lại).
+  const [boardFilter, setBoardFilter] = useState(null);
+
+  const openBoard = (filter) => {
+    setBoardFilter({ ...filter });
+    setSub("documents");
+  };
   // Mẫu được chọn sẵn khi bấm "Phát hành" từ màn Mẫu.
   const [dispatchTemplateId, setDispatchTemplateId] = useState(null);
 
@@ -54,6 +65,8 @@ export default function ESignTab() {
       </div>
 
       <AdminErrorBoundary>
+        {sub === "overview" && <EsignOverview onOpenBoard={openBoard} onNavigate={setSub} />}
+        {sub === "documents" && <DocumentsBoard initialFilter={boardFilter} />}
         {sub === "letterheads" && <LetterheadLibrary />}
         {sub === "templates" && <TemplateLibrary onDispatch={startDispatch} />}
         {sub === "groups" && <UserGroupsManager />}

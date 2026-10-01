@@ -3,11 +3,12 @@ import { ArrowLeft, BarChart3, Bell, Download, ExternalLink, Play, RefreshCw, Sh
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/lib/supabase";
-import { campaignProgress, getDocumentPdfUrl, invokeDispatch, listCampaignDocuments, remindCampaign, requeueDocumentPdf, revokeCampaign, setDocumentRetention } from "@/lib/esignApi";
+import { campaignProgress, getDocumentPdfUrl, invokeDispatch, listCampaignDocuments, remindCampaign, requeueDocumentPdf, revokeDocuments, setDocumentRetention } from "@/lib/esignApi";
 import { toCsv } from "@/lib/csv";
 import { formatVnDateTime } from "@/shared/docLayout";
 import RetentionSelect, { retentionLabel } from "./RetentionSelect";
-import { Badge, Button, EmptyState, Section } from "./ui";
+import { DOC_STATUS, OPEN_STATUSES, STATUS_ORDER, displayStatus } from "@/lib/esignStatus";
+import { Badge, Button, DocStatusBadge, EmptyState, Section } from "./ui";
 
 const CAMPAIGN_STATUS = {
   draft: { label: "Lỗi / nháp", color: "red" },
@@ -17,14 +18,6 @@ const CAMPAIGN_STATUS = {
   revoked: { label: "Đã thu hồi", color: "gray" },
 };
 
-const DOC_STATUS = {
-  pending: { label: "Chờ ký", color: "blue" },
-  signed: { label: "Đã ký", color: "green" },
-  approved: { label: "Đã duyệt", color: "green" },
-  rejected: { label: "Từ chối", color: "red" },
-  revoked: { label: "Thu hồi", color: "gray" },
-  expired: { label: "Hết hạn", color: "orange" },
-};
 
 const fmt = (iso) => (iso ? formatVnDateTime(iso).replace(" (GMT+7)", "") : "—");
 
@@ -203,10 +196,14 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
 
   const counts = useMemo(() => {
     const c = { all: docs.length };
-    for (const d of docs) c[d.status] = (c[d.status] || 0) + 1;
+    for (const d of docs) {
+      const k = displayStatus(d);
+      c[k] = (c[k] || 0) + 1;
+      if (OPEN_STATUSES.includes(k)) c.open = (c.open || 0) + 1;
+    }
     return c;
   }, [docs]);
-  const shown = filter === "all" ? docs : docs.filter((d) => d.status === filter);
+  const shown = filter === "all" ? docs : docs.filter((d) => displayStatus(d) === filter);
   const name = (d) => users[d.user_id]?.full_name || users[d.user_id]?.name || d.user_id;
 
   const run = async (fn, ok) => {
@@ -238,6 +235,14 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
       return data?.length || 0;
     }, (n) => `Đã duyệt ${n} văn bản`);
 
+  const revokeUnsigned = () => {
+    const ids = docs.filter((d) => [...OPEN_STATUSES, "expired"].includes(displayStatus(d)) && !d.locked_at).map((d) => d.id);
+    if (!ids.length) return;
+    const reason = window.prompt(`Thu hồi ${ids.length} văn bản chưa ký. Lý do (người nhận sẽ thấy):`);
+    if (!reason?.trim()) return;
+    run(() => revokeDocuments(ids, reason.trim()), (n) => `Đã thu hồi ${n} văn bản`);
+  };
+
   const exportCsv = () => {
     const rows = [["Số VB", "Người nhận", "Email", "Trạng thái", "Đã xem", "Đã ký", "Người ký", "IP", "PDF", "Lưu trữ đến", "Giữ pháp lý"]];
     for (const d of docs) {
@@ -245,7 +250,7 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
         d.doc_no,
         name(d),
         users[d.user_id]?.email || "",
-        DOC_STATUS[d.status]?.label || d.status,
+        DOC_STATUS[displayStatus(d)]?.label || d.status,
         fmt(d.first_viewed_at),
         fmt(d.signed_at),
         d.signer_name || "",
@@ -280,14 +285,10 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
         }
       >
         <div className="flex flex-wrap gap-1.5">
-          <Button variant="secondary" disabled={busy || !counts.pending} onClick={() => run(() => remindCampaign(campaign.id), (n) => `Đã nhắc ${n} người`)}>
+          <Button variant="secondary" disabled={busy || !counts.open} onClick={() => run(() => remindCampaign(campaign.id), (n) => `Đã nhắc ${n} người`)}>
             <Bell className="w-3.5 h-3.5" /> Nhắc người chưa ký
           </Button>
-          <Button
-            variant="danger"
-            disabled={busy || !counts.pending}
-            onClick={() => window.confirm(`Thu hồi ${counts.pending} văn bản chưa ký?`) && run(() => revokeCampaign(campaign.id, true), (n) => `Đã thu hồi ${n} văn bản`)}
-          >
+          <Button variant="danger" disabled={busy || !(counts.open || counts.expired)} onClick={revokeUnsigned}>
             <Undo2 className="w-3.5 h-3.5" /> Thu hồi phần chưa ký
           </Button>
           <Button variant="secondary" disabled={busy || !counts.signed} onClick={approveSigned}>
@@ -309,7 +310,7 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
       </Section>
 
       <div className="flex gap-1 flex-wrap">
-        {[["all", "Tất cả"], ...Object.entries(DOC_STATUS).map(([k, v]) => [k, v.label])].map(([k, label]) =>
+        {[["all", "Tất cả"], ...STATUS_ORDER.map((k) => [k, DOC_STATUS[k].label])].map(([k, label]) =>
           k === "all" || counts[k] ? (
             <button key={k} type="button" onClick={() => setFilter(k)} className={`px-2.5 py-1 rounded-full text-[10.5px] border ${filter === k ? "bg-[#948154] text-white border-[#948154]" : "border-gray-300 text-gray-600"}`}>
               {label} ({counts[k] || 0})
@@ -332,7 +333,6 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {shown.map((d) => {
-              const st = DOC_STATUS[d.status] || { label: d.status, color: "gray" };
               return (
                 <tr key={d.id}>
                   <td className="px-2 py-1.5">
@@ -340,7 +340,8 @@ function CampaignDetail({ campaign, template, audienceText, onBack }) {
                     <span className="block text-[9.5px] text-gray-400 font-mono">{d.doc_no}</span>
                   </td>
                   <td className="px-2 py-1.5">
-                    <Badge color={st.color}>{st.label}</Badge>
+                    <DocStatusBadge doc={d} />
+                    {d.reminder_count > 0 && <span className="block text-[9.5px] text-gray-400">Đã nhắc {d.reminder_count} lần</span>}
                   </td>
                   <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">{fmt(d.first_viewed_at)}</td>
                   <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">

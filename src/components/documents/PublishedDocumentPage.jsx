@@ -164,7 +164,7 @@ export default function PublishedDocumentPage({ doc: initialDoc, reload }) {
       const { url } = await getDocumentPdfUrl(doc.id);
       window.location.assign(url);
     } catch (e) {
-      toast.error(e.code === "PURGED" ? "Bản PDF đã hết thời gian lưu trữ" : e.code === "NOT_READY" ? "Bản PDF đang được tạo, vui lòng đợi" : "Không tải được PDF");
+      toast.error(e.code === "PURGED" ? "Bản PDF đã hết thời gian lưu trữ" : e.code === "NOT_READY" ? "Bản PDF đang được tạo, vui lòng đợi" : e.code === "DOWNLOAD_DISABLED" ? "Văn bản này không cho phép tải PDF" : "Không tải được PDF");
     } finally {
       setDownloading(false);
     }
@@ -307,7 +307,7 @@ function PdfStatus({ doc }) {
 
 function statusBanner(doc, overdue) {
   const signedSub = doc.signed_at ? `${doc.signer_name || ""} ký lúc ${fmt(doc.signed_at)}`.trim() : undefined;
-  if (doc.status === "revoked") return { icon: XCircle, bg: "bg-gray-100", text: "text-gray-600", label: "Văn bản đã bị thu hồi" };
+  if (doc.status === "revoked") return { icon: XCircle, bg: "bg-gray-100", text: "text-gray-600", label: "Văn bản đã bị thu hồi", sub: doc.revoked_reason ? `Lý do: ${doc.revoked_reason}` : undefined };
   if (doc.status === "expired" || overdue) return { icon: AlertTriangle, bg: "bg-rose-50", text: "text-rose-700", label: "Văn bản đã quá hạn ký" };
   if (doc.status === "approved") return { icon: CheckCircle2, bg: "bg-green-50", text: "text-green-700", label: "Đã ký và được duyệt", sub: signedSub };
   if (doc.status === "rejected") return { icon: XCircle, bg: "bg-rose-50", text: "text-rose-700", label: "Văn bản bị từ chối", sub: signedSub };

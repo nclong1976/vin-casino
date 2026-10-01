@@ -14,6 +14,11 @@ import { Badge, Button, EmptyState, Field, Section, TextInput, Toggle } from "./
 
 const STEPS = ["Chọn mẫu", "Nội dung", "Người nhận", "Xem lại & gửi"];
 const CONFIRM_THRESHOLD = 50;
+const REMINDER_DAY_OPTIONS = [7, 3, 1, 0];
+
+function reminderDayLabel(d) {
+  return d === 0 ? "Ngày hết hạn" : `Trước ${d} ngày`;
+}
 
 function userLabel(u) {
   return u?.full_name || u?.name || u?.email || u?.id;
@@ -107,6 +112,10 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
   const [count, setCount] = useState(null);
 
   const [retention, setRetention] = useState(null);
+  const [remindersOn, setRemindersOn] = useState(true);
+  const [reminderDays, setReminderDays] = useState([3, 1, 0]);
+  const [autoExpire, setAutoExpire] = useState(true);
+  const [allowDownload, setAllowDownload] = useState(true);
   const [scheduleMode, setScheduleMode] = useState("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [confirmText, setConfirmText] = useState("");
@@ -264,6 +273,11 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
         audience,
         due_at: endOfDayVn(dueDate),
         retention_days: retention,
+        delivery_settings: {
+          reminders: { enabled: remindersOn && !!dueDate && reminderDays.length > 0, days_before: [...reminderDays].sort((a, b) => b - a), at: "09:00" },
+          auto_expire: autoExpire,
+          permissions: { recipient_can_download_pdf: allowDownload },
+        },
         status: "scheduled",
         scheduled_at: scheduleMode === "later" ? new Date(scheduledAt).toISOString() : new Date().toISOString(),
         created_by: adminUser?.email || adminUser?.id || null,
@@ -496,9 +510,37 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
                 </dd>
                 <dt className="text-gray-500">Hạn ký</dt>
                 <dd>{dueDate ? new Date(`${dueDate}T00:00:00`).toLocaleDateString("vi-VN") : "Không đặt"}</dd>
+                <dt className="text-gray-500">Nhắc ký</dt>
+                <dd>
+                  {remindersOn && dueDate && reminderDays.length
+                    ? [...reminderDays].sort((a, b) => b - a).map(reminderDayLabel).join(", ")
+                    : "Không"}
+                </dd>
                 <dt className="text-gray-500">Khung văn bản</dt>
                 <dd>{letterhead?.name || "—"}</dd>
               </dl>
+            </Section>
+            <Section title="Nhắc ký & quyền người nhận" description="Nhắc ký gửi thông báo trong ứng dụng lúc 09:00 (giờ VN) tới người chưa ký.">
+              <Toggle checked={remindersOn && !!dueDate} disabled={!dueDate} onChange={setRemindersOn} label={dueDate ? "Tự động nhắc ký" : "Tự động nhắc ký (cần đặt hạn ký ở bước Nội dung)"} />
+              {remindersOn && dueDate && (
+                <div className="flex flex-wrap gap-1.5">
+                  {REMINDER_DAY_OPTIONS.map((d) => {
+                    const on = reminderDays.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setReminderDays((ds) => (on ? ds.filter((x) => x !== d) : [...ds, d]))}
+                        className={`px-2.5 py-1 rounded-full text-[11px] border ${on ? "bg-[#948154] text-white border-[#948154]" : "border-gray-300 text-gray-700"}`}
+                      >
+                        {reminderDayLabel(d)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <Toggle checked={autoExpire} onChange={setAutoExpire} label="Tự chuyển 'Hết hạn' khi quá hạn ký" />
+              <Toggle checked={allowDownload} onChange={setAllowDownload} label="Người nhận được tải PDF" />
             </Section>
             <Section title="Lưu trữ PDF">
               <RetentionSelect
