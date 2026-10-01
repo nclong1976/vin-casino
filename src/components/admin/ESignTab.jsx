@@ -18,8 +18,8 @@ const SUBTABS = [
 
 /**
  * Tab "Văn bản" - Quản lý & ký văn bản điện tử Giai đoạn 2 (xem
- * docs/design/e-sign-letterhead-spec.md mục 6). Luồng soạn/duyệt văn bản
- * tuỳ ý Giai đoạn 1 vẫn nằm ở "Quản lý Hội viên & Giao dịch" → "Soạn giấy tờ".
+ * docs/design/e-sign-letterhead-spec.md mục 6). Mục "Soạn giấy tờ" (Giai
+ * đoạn 1) ở "Quản lý Hội viên & Giao dịch" đã được gỡ khỏi Admin.
  */
 export default function ESignTab() {
   const [sub, setSub] = useState("letterheads");

@@ -23,8 +23,13 @@ export function serviceClient(): SupabaseClient {
 }
 
 export interface RuntimeConfig {
-  /** Secret cho lời gọi nội bộ (pg_cron / function gọi function). */
+  /** Secret gửi kèm lời gọi nội bộ đi ra (function gọi function). */
   internalSecret: string;
+  /**
+   * Mọi secret nội bộ được chấp nhận khi nhận lời gọi: giá trị trong Vault
+   * (pg_cron luôn dùng giá trị này) và secret Edge Function nếu có đặt.
+   */
+  acceptedSecrets: string[];
   /** Gốc URL của app, không có "/" cuối - cho mã QR /verify và tải font. */
   appPublicUrl: string;
 }
@@ -32,22 +37,27 @@ export interface RuntimeConfig {
 let configCache: Promise<RuntimeConfig> | null = null;
 
 /**
- * Cấu hình chạy: ưu tiên secret Edge Function (ESIGN_INTERNAL_SECRET,
- * APP_PUBLIC_URL); thiếu thì đọc từ Supabase Vault qua RPC
- * esign_runtime_config (chỉ service role gọi được) - để không phải đặt
- * secret trùng lặp ở 2 nơi. Cache theo instance; lỗi thì không cache.
+ * Cấu hình chạy. Secret nội bộ lấy từ Supabase Vault (esign_internal_secret,
+ * đọc qua RPC esign_runtime_config - chỉ service role) vì pg_cron cũng dùng
+ * đúng giá trị này; secret Edge Function ESIGN_INTERNAL_SECRET (nếu có) chỉ
+ * được chấp nhận thêm, nên 2 nơi có lệch nhau cũng không làm pg_cron bị 403.
+ * APP_PUBLIC_URL ưu tiên secret Edge Function, thiếu thì lấy từ Vault.
+ * Cache theo instance; lỗi thì không cache.
  */
 export function runtimeConfig(): Promise<RuntimeConfig> {
   configCache ??= (async () => {
-    let internalSecret = ENV_INTERNAL_SECRET;
-    let appPublicUrl = ENV_APP_PUBLIC_URL;
-    if (!internalSecret || !appPublicUrl) {
-      const { data, error } = await serviceClient().rpc("esign_runtime_config");
-      if (error) throw new Error(`Không đọc được cấu hình từ Vault: ${error.message}`);
-      internalSecret ||= String(data?.internal_secret ?? "");
-      appPublicUrl ||= String(data?.app_public_url ?? "");
+    const { data, error } = await serviceClient().rpc("esign_runtime_config");
+    if (error && !(ENV_INTERNAL_SECRET && ENV_APP_PUBLIC_URL)) {
+      throw new Error(`Không đọc được cấu hình từ Vault: ${error.message}`);
     }
-    return { internalSecret, appPublicUrl: appPublicUrl.replace(/\/+$/, "") };
+    const vaultSecret = error ? "" : String(data?.internal_secret ?? "").trim();
+    const envSecret = ENV_INTERNAL_SECRET.trim();
+    const appPublicUrl = (ENV_APP_PUBLIC_URL || (error ? "" : String(data?.app_public_url ?? ""))).trim();
+    return {
+      internalSecret: vaultSecret || envSecret,
+      acceptedSecrets: [...new Set([vaultSecret, envSecret].filter(Boolean))],
+      appPublicUrl: appPublicUrl.replace(/\/+$/, ""),
+    };
   })().catch((e) => {
     configCache = null;
     throw e;
@@ -55,11 +65,19 @@ export function runtimeConfig(): Promise<RuntimeConfig> {
   return configCache;
 }
 
+function safeEqual(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return diff === 0;
+}
+
 export async function isInternalRequest(req: Request): Promise<boolean> {
-  const header = req.headers.get("X-Internal-Secret");
+  const header = req.headers.get("X-Internal-Secret")?.trim();
   if (!header) return false;
-  const { internalSecret } = await runtimeConfig().catch(() => ({ internalSecret: "" }));
-  return !!internalSecret && header === internalSecret;
+  const { acceptedSecrets } = await runtimeConfig().catch(() => ({ acceptedSecrets: [] as string[] }));
+  return acceptedSecrets.some((s) => safeEqual(header, s));
 }
 
 /** Người dùng đang đăng nhập (từ JWT) + client mang JWT đó; null nếu không hợp lệ. */

@@ -196,10 +196,13 @@ export default function Profile() {
     };
   }, [user, location.search]);
 
-  const { depSum: depositSumFromTxs, netCalculated: netCalculatedBalance } = computeWalletNet(walletTxs);
+  const { netCalculated: netCalculatedBalance } = computeWalletNet(walletTxs);
   const currentBalance = Math.max(Number(user?.balance || 0), netCalculatedBalance);
 
-  const totalDepositSum = Math.max(Number(user?.total_deposited || 0), depositSumFromTxs);
+  // Tổng nạp = users.total_deposited (Postgres tự tính: nạp được duyệt +
+  // Admin cộng trực tiếp, không gồm lãi/thưởng/hoàn tiền) - không lấy max với
+  // tổng mọi khoản tiền vào ví nữa vì tổng đó có cả lãi dự án, lãi ngày.
+  const totalDepositSum = Number(user?.total_deposited || 0);
   const userTier = getCardTierInfo(user?.membership_tier);
 
   const displayName = user?.full_name || user?.name || user?.username || user?.email || "KHÁCH HÀNG";
@@ -312,7 +315,7 @@ export default function Profile() {
         </div>
 
         {/* Tài liệu & Giấy tờ - hợp đồng/giấy tờ TÙY Ý Admin gửi riêng (bảng
-            custom_documents, xem DocumentsTab.jsx phía admin) - tách khỏi
+            custom_documents) - tách khỏi
             "Đầu tư (Hợp đồng)" ở trên vì không gắn giao dịch đầu tư nào. */}
         <div>
           <h2 className="text-[13px] font-bold text-black mb-2 flex items-center gap-1.5">

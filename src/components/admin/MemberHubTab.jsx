@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Users, ArrowRightLeft, FileSignature, FileText } from "lucide-react";
+import { Users, ArrowRightLeft, FileSignature } from "lucide-react";
 import { motion } from "framer-motion";
 import UsersTab from "@/components/admin/UsersTab";
 import TransactionsTab from "@/components/admin/TransactionsTab";
 import ContractsTab from "@/components/admin/ContractsTab";
-import DocumentsTab from "@/components/admin/DocumentsTab";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import { base44 } from "@/api/base44Client";
@@ -16,7 +15,7 @@ import { countSupabaseUsers } from "@/lib/supabaseDb";
 // còn việc CHUYỂN TIẾP prop này cho UsersTab/TransactionsTab, không còn giữ
 // state/khung chat gì ở component này nữa.
 export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat = null }) {
-  const [subTab, setSubTab] = useState(initialSubTab); // 'users' | 'transactions' | 'contracts' | 'documents'
+  const [subTab, setSubTab] = useState(initialSubTab); // 'users' | 'transactions' | 'contracts'
 
   // Cross-navigation states
   const [txSearchQuery, setTxSearchQuery] = useState("");
@@ -25,7 +24,6 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
   const [pendingTxCount, setPendingTxCount] = useState(0);
   const [totalUsersCount, setTotalUsersCount] = useState(0);
   const [pendingContractsCount, setPendingContractsCount] = useState(0);
-  const [pendingDocumentsCount, setPendingDocumentsCount] = useState(0);
 
   const fetchHubStats = () => {
     Promise.all([
@@ -42,15 +40,10 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
       // chữ ký) - giờ gộp làm subtab thứ 3 tại đây, cần đếm số hợp đồng
       // đang chờ duyệt để hiện badge y hệt cách subtab kia đang làm.
       base44.entities.Transaction.filter({ signature_content: { $exists: true } }, "-created_date", 100).catch(() => []),
-      // "Soạn giấy tờ" (subtab 4, DocumentsTab.jsx) - đếm tài liệu tuỳ ý đã
-      // được khách ký, đang chờ Admin duyệt (status="signed"), cùng cách
-      // đếm badge như subtab "Hợp đồng".
-      base44.entities.CustomDocument.filter({ status: "signed" }, "-created_date", 100).catch(() => []),
-    ]).then(([pendingTxs, usersCount, signedTxs, signedDocs]) => {
+    ]).then(([pendingTxs, usersCount, signedTxs]) => {
       setPendingTxCount((pendingTxs || []).length);
       setTotalUsersCount(usersCount);
       setPendingContractsCount((signedTxs || []).filter((t) => (t.contract_status || "pending") === "pending").length);
-      setPendingDocumentsCount((signedDocs || []).length);
     });
   };
 
@@ -65,7 +58,6 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
     // Subscribe thẳng vào bảng users để đếm đúng ngay khi có người đăng ký
     // mới.
     const unsubUsers = base44.entities.User.subscribe(() => fetchHubStats());
-    const unsubDocs = base44.entities.CustomDocument.subscribe(() => fetchHubStats());
 
     const handleBalUpdate = () => fetchHubStats();
     window.addEventListener("vinclub:balance_updated", handleBalUpdate);
@@ -73,7 +65,6 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
     return () => {
       if (typeof unsubTx === "function") unsubTx();
       if (typeof unsubUsers === "function") unsubUsers();
-      if (typeof unsubDocs === "function") unsubDocs();
       window.removeEventListener("vinclub:balance_updated", handleBalUpdate);
     };
   }, []);
@@ -87,7 +78,7 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
     <div className="space-y-3.5">
       {/* ── Sub-Navigation Master Hub Switcher ── */}
       <div className="bg-white rounded-2xl p-1.5 border border-gray-200/90 shadow-xs">
-        <div className="grid grid-cols-4 gap-1 sm:gap-1.5">
+        <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
           {/* SubTab 1: Hội viên */}
           <button
             onClick={() => { setSubTab("users"); }}
@@ -173,32 +164,6 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
             </span>
           </button>
 
-          {/* SubTab 4: Soạn giấy tờ - hợp đồng/giấy tờ TÙY Ý (không gắn giao
-              dịch đầu tư nào) Admin tự soạn gửi cho 1 khách, khách ký chữ ký
-              điện tử ngay trong app (xem DocumentsTab.jsx). */}
-          <button
-            onClick={() => { setSubTab("documents"); }}
-            className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 rounded-xl text-[12px] font-bold transition-all cursor-pointer relative ${
-              subTab === "documents" ? "text-white" : "text-gray-600 hover:bg-gray-100 hover:text-black"
-            }`}
-          >
-            {subTab === "documents" && (
-              <motion.span
-                layoutId="member-hub-subtab-active-bg"
-                className="absolute inset-0 bg-[#948154] rounded-xl shadow-xs"
-                transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2">
-              <FileText className="w-4 h-4 shrink-0" />
-              <span className="truncate">Soạn giấy tờ</span>
-              {pendingDocumentsCount > 0 && (
-                <span className="min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center shrink-0">
-                  {pendingDocumentsCount}
-                </span>
-              )}
-            </span>
-          </button>
         </div>
       </div>
 
@@ -231,10 +196,6 @@ export default function MemberHubTab({ initialSubTab = "users", onNavigateToChat
 
         <AnimatedTabPanel active={subTab === "contracts"}>
           <AdminErrorBoundary><ContractsTab /></AdminErrorBoundary>
-        </AnimatedTabPanel>
-
-        <AnimatedTabPanel active={subTab === "documents"}>
-          <AdminErrorBoundary><DocumentsTab /></AdminErrorBoundary>
         </AnimatedTabPanel>
       </div>
     </div>

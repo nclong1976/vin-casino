@@ -77,7 +77,7 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
   const [tier, setTier] = useState("Member");
   const [vipLevel, setVipLevel] = useState("VIP 0");
   const [balance, setBalance] = useState(0);
-  const [totalDeposited, setTotalDeposited] = useState(0);
+  const [totalDeposited, setTotalDeposited] = useState(0); // chỉ hiển thị - Postgres tự tính
   const [isLocked, setIsLocked] = useState(false);
   const [dailyInterestEnabled, setDailyInterestEnabled] = useState(false);
   // is_super_admin: cấp quyền CAO NHẤT hệ thống (xoá vĩnh viễn user, xoá tin
@@ -706,11 +706,15 @@ export default function UserDetailModal({ user, open, onClose, onRefresh }) {
 
                     <div>
                       <label className="text-[10px] font-bold text-gray-600 block mb-1">Tổng tiền đã nạp (VNĐ)</label>
+                      {/* Chỉ đọc: Postgres tự tính = nạp được duyệt + Admin cộng
+                          trực tiếp (migration total_deposited_from_ledger), sửa
+                          tay ở đây cũng bị thay bằng giá trị tính từ lịch sử ví. */}
                       <input
                         type="number"
                         value={totalDeposited}
-                        onChange={(e) => setTotalDeposited(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded-xl bg-white border border-gray-200 text-[12px] font-bold text-gray-800 focus:outline-none focus:border-[#948154]"
+                        readOnly
+                        title="Tự tính từ lịch sử ví: nạp được duyệt + Admin cộng trực tiếp"
+                        className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-[12px] font-bold text-gray-800 focus:outline-none cursor-not-allowed"
                       />
                     </div>
                   </div>
