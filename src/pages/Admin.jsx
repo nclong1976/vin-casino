@@ -9,7 +9,6 @@ import {
   Bell,
   TrendingUp,
   LogOut,
-  Newspaper,
   MessageSquare,
   FileSignature,
 } from "lucide-react";
@@ -23,9 +22,8 @@ import OverviewTab from "@/components/admin/OverviewTab";
 import MemberHubTab from "@/components/admin/MemberHubTab";
 import MessagesTab from "@/components/admin/MessagesTab";
 import ProjectsTab from "@/components/admin/ProjectsTab";
-import NotificationsTab from "@/components/admin/NotificationsTab";
+import NewsNotificationsTab from "@/components/admin/NewsNotificationsTab";
 import InvestmentCasinoTab from "@/components/admin/InvestmentCasinoTab";
-import NewsTab from "@/components/admin/NewsTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 import ESignTab from "@/components/admin/ESignTab";
 
@@ -56,8 +54,7 @@ const TABS = [
   { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
   { id: "investment_casino", label: "Đầu tư CK & Casino", icon: TrendingUp },
   { id: "projects", label: "Dự án", icon: FolderOpen },
-  { id: "news", label: "Tin tức", icon: Newspaper },
-  { id: "notifications", label: "Thông báo", icon: Bell },
+  { id: "news_notifications", label: "Tin tức & Thông báo", icon: Bell },
   { id: "esign", label: "Văn bản", icon: FileSignature },
 ];
 
@@ -335,11 +332,8 @@ export default function Admin() {
         <AnimatedTabPanel active={tab === "projects"}>
           <AdminErrorBoundary><ProjectsTab filterRequest={projectsFilterRequest} /></AdminErrorBoundary>
         </AnimatedTabPanel>
-        <AnimatedTabPanel active={tab === "news"}>
-          <AdminErrorBoundary><NewsTab /></AdminErrorBoundary>
-        </AnimatedTabPanel>
-        <AnimatedTabPanel active={tab === "notifications"}>
-          <AdminErrorBoundary><NotificationsTab /></AdminErrorBoundary>
+        <AnimatedTabPanel active={tab === "news_notifications"}>
+          <NewsNotificationsTab />
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "esign"}>
           <AdminErrorBoundary><ESignTab /></AdminErrorBoundary>
