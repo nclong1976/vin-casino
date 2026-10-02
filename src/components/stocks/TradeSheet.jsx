@@ -53,7 +53,7 @@ export default function TradeSheet({ stock, onClose }) {
       // chỉ .catch im lặng), nếu ghi thất bại lệnh vẫn được báo "thành
       // công" và tạo Transaction dù tiền chưa hề bị trừ.
       if (user?.id) {
-        const result = await adjustUserBalanceStrict(user.id, -totalNum, 0);
+        const result = await adjustUserBalanceStrict(user.id, -totalNum, 0, `MUA CO PHIEU ${stock.symbol} SL ${qty}`);
         if (!result) {
           toast.error("Không thể trừ tiền để đặt lệnh, vui lòng thử lại!");
           setLoading(false);

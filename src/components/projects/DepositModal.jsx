@@ -203,7 +203,7 @@ export default function DepositModal({ project, onClose }) {
       // chối ghi, khiến hợp đồng vẫn được lập và báo thành công dù tiền
       // chưa hề bị trừ.
       if (user?.id) {
-        const result = await adjustUserBalanceStrict(user.id, -amount);
+        const result = await adjustUserBalanceStrict(user.id, -amount, 0, `DAU TU DU AN ${project.title || ""}`);
         if (!result) {
           toast.error("Không thể trừ tiền để đầu tư, vui lòng thử lại!");
           return;

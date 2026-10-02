@@ -61,10 +61,13 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
       // báo người dùng "đã cộng/trừ" - không được làm vậy nếu chưa chắc chắn
       // Postgres đã ghi thành công (xem WithdrawModal.jsx/DepositModal.jsx
       // cho cùng loại lỗi này ở luồng rút/đầu tư của người dùng).
+      // memo = nội dung "ND" - Postgres (trigger balance_change_notice) tự
+      // tạo thông báo "Biến động số dư" kèm số dư mới cho hội viên.
       const result = await adjustUserBalanceStrict(
         user.id,
         mode === "add" ? numAmount : -numAmount,
-        0
+        0,
+        note || (mode === "add" ? "CT CP VINCLUB CHUYEN TIEN" : "VINCLUB DIEU CHINH SO DU")
       );
       if (!result) {
         toast.error("Không thể ghi nhận thay đổi số dư, vui lòng thử lại!");
@@ -82,21 +85,6 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
           (mode === "add"
             ? `Admin cộng tiền vào ví`
             : `Admin trừ tiền từ ví`),
-      });
-      // Gửi thẳng vào chuông Thông báo (Notification, user_id = khách cụ
-      // thể) - KHÔNG dùng notifyUser() nữa (hàm đó ghi vào khung chat CSKH).
-      // CSKH chỉ dùng để trò chuyện trực tiếp giữa admin và khách, mọi
-      // thông báo trạng thái ví (cộng/trừ tiền thủ công, nạp/rút, đáo
-      // hạn...) đều đi qua chuông riêng của từng tài khoản.
-      await base44.entities.Notification.create({
-        title: mode === "add" ? "Ví đã được nạp tiền" : "Ví đã bị trừ tiền",
-        content:
-          mode === "add"
-            ? `Dạ em đã cộng ${fmt(numAmount)} VNĐ vào ví của Quý khách ạ. ${note ? "Lý do: " + note : ""}`
-            : `Dạ em đã trừ ${fmt(numAmount)} VNĐ từ ví của Quý khách ạ. ${note ? "Lý do: " + note : ""}`,
-        type: "wallet",
-        user_id: user.id,
-        is_read: false,
       });
       toast.success(
         `Đã ${mode === "add" ? "cộng" : "trừ"} ${fmt(numAmount)} VNĐ ${

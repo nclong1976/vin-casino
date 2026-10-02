@@ -184,7 +184,7 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       // ghi, khiến lệnh rút "pending" vẫn được tạo và Admin vẫn thấy để
       // duyệt dù tiền chưa hề bị trừ khỏi số dư thật (xem DepositModal.jsx,
       // nơi lỗi tương tự đã được vá cho luồng đầu tư).
-      const balanceResult = await adjustUserBalanceStrict(user?.id, -numAmount);
+      const balanceResult = await adjustUserBalanceStrict(user?.id, -numAmount, 0, `RUT TIEN VE ${selectedBank.bank_name} ${code}`);
       if (!balanceResult) {
         toast.error("Không thể trừ tiền để tạo lệnh rút, vui lòng thử lại!");
         return;
