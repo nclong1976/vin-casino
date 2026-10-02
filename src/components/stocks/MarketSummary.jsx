@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Clock } from "lucide-react";
-import { SESSION_LABELS, changePct } from "@/lib/stockMarket";
+import { SESSION_LABELS, changePct, sessionHint } from "@/lib/stockMarket";
 
 const compact = (n) => {
   const v = Number(n) || 0;
@@ -11,7 +11,7 @@ const compact = (n) => {
 };
 
 /** Tổng quan thị trường từ bảng giá thật (stock_quotes) - thay số liệu cố định trước đây. */
-export default function MarketSummary({ quotes, session }) {
+export default function MarketSummary({ quotes, session, calendar }) {
   const list = Object.values(quotes || {});
   const avg = list.length ? list.reduce((s, q) => s + changePct(q), 0) / list.length : 0;
   const up = list.filter((q) => changePct(q) > 0).length;
@@ -64,7 +64,8 @@ export default function MarketSummary({ quotes, session }) {
             </p>
           </div>
         </div>
-        <p className="text-[9px] text-gray-500 mt-2">Giờ giao dịch: 09:00–11:30 · 13:00–14:45 (thứ Hai – thứ Sáu)</p>
+        <p className="text-[10.5px] text-amber-200/90 mt-2">{sessionHint(session, new Date(), calendar)}</p>
+        <p className="text-[9px] text-gray-500 mt-0.5">Giờ giao dịch: 09:00–11:30 · 13:00–14:45 (thứ Hai – thứ Sáu)</p>
       </div>
     </motion.div>
   );

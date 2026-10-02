@@ -139,18 +139,14 @@ export default function StockReport() {
   const unrealized = rep ? Number(rep.market_value) - Number(rep.total_cost) : 0;
   const kpis = rep
     ? [
-        ["Nhà đầu tư nắm giữ", `${fmt(rep.investors)} người`],
-        ["Giá trị thị trường", `${fmt(rep.market_value)} ₫`],
-        ["Lãi/lỗ chưa chốt", `${unrealized >= 0 ? "+" : ""}${fmt(unrealized)} ₫`, unrealized >= 0 ? "text-emerald-600" : "text-red-600"],
-        ["Lãi/lỗ đã chốt", `${Number(rep.realized_pnl) >= 0 ? "+" : ""}${fmt(rep.realized_pnl)} ₫`, Number(rep.realized_pnl) >= 0 ? "text-emerald-600" : "text-red-600"],
-        ["Tổng giá trị mua", `${fmt(rep.buy_value)} ₫`],
-        ["Tổng giá trị bán", `${fmt(rep.sell_value)} ₫`],
-        ["Phí thu", `${fmt(rep.fees)} ₫`],
-        ["Thuế bán (0,1%)", `${fmt(rep.sell_tax)} ₫`],
-        ["Tiền đang phong toả", `${fmt(rep.held_cash)} ₫ · ${fmt(rep.pending_orders)} lệnh chờ`],
-        ["Tiền bán chờ về", `${fmt(rep.pending_sale_cash)} ₫`],
-        ["Cổ tức đã trả", `${fmt(rep.dividends_paid)} ₫ · ${fmt(rep.dividend_shares)} CP`],
-        ["Thuế cổ tức", `${fmt(rep.dividend_tax)} ₫ · ${fmt(rep.drip_users)} mã bật DRIP`],
+        ["Khách đang nắm giữ", `${fmt(rep.investors)} người`],
+        ["Giá trị cổ phiếu khách giữ", `${fmt(rep.market_value)} ₫`],
+        ["Lãi/lỗ chưa chốt của khách", `${unrealized >= 0 ? "+" : ""}${fmt(unrealized)} ₫`, unrealized >= 0 ? "text-emerald-600" : "text-red-600"],
+        ["Lãi/lỗ khách đã chốt", `${Number(rep.realized_pnl) >= 0 ? "+" : ""}${fmt(rep.realized_pnl)} ₫`, Number(rep.realized_pnl) >= 0 ? "text-emerald-600" : "text-red-600"],
+        ["Tiền đang tạm giữ (lệnh chờ)", `${fmt(rep.held_cash)} ₫ · ${fmt(rep.pending_orders)} lệnh`],
+        ["Tiền bán chờ về ví khách", `${fmt(rep.pending_sale_cash)} ₫`],
+        ["Phí + thuế đã thu", `${fmt(Number(rep.fees) + Number(rep.sell_tax) + Number(rep.dividend_tax))} ₫`],
+        ["Cổ tức đã trả", `${fmt(rep.dividends_paid)} ₫${Number(rep.dividend_shares) ? ` · ${fmt(rep.dividend_shares)} CP` : ""}`],
       ]
     : [];
 
@@ -158,7 +154,7 @@ export default function StockReport() {
     <div className="bg-white rounded-2xl border border-gray-200 p-3.5 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-          <BarChart3 className="w-4 h-4 text-indigo-600" /> Báo cáo
+          <BarChart3 className="w-4 h-4 text-indigo-600" /> Tổng quan
         </h3>
         <button onClick={load} disabled={loading} className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 cursor-pointer disabled:opacity-50" title="Làm mới">
           <RefreshCw className={`w-3.5 h-3.5 text-gray-600 ${loading ? "animate-spin" : ""}`} />
@@ -185,7 +181,6 @@ export default function StockReport() {
                   <th className="px-1 py-1 text-right">Cổ đông</th>
                   <th className="px-1 py-1 text-right">CP nắm giữ</th>
                   <th className="px-1 py-1 text-right">Giá vốn</th>
-                  <th className="px-1 py-1 text-right">KL đã khớp</th>
                   <th className="px-1 py-1 text-right">Theo dõi</th>
                 </tr>
               </thead>
@@ -197,7 +192,6 @@ export default function StockReport() {
                     <td className="px-1 py-1.5 text-right font-mono">{fmt(r.holders)}</td>
                     <td className="px-1 py-1.5 text-right font-mono">{fmt(r.shares)}</td>
                     <td className="px-1 py-1.5 text-right font-mono">{fmt(r.cost)}</td>
-                    <td className="px-1 py-1.5 text-right font-mono">{fmt(r.traded_qty)}</td>
                     <td className="px-1 py-1.5 text-right font-mono">{fmt(r.watchers)}</td>
                   </tr>
                 ))}

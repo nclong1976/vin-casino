@@ -13,7 +13,7 @@ const tone = (n) => (n > 0 ? "#10b981" : n < 0 ? "#ef4444" : "#d4af37");
  * giá theo bảng giá realtime. CP mua chưa tới T+2 hiện "chờ về".
  * compact = thẻ tóm tắt trên tab Thị trường (ẩn khi chưa có cổ phần).
  */
-export default function MyHoldings({ quotes, compact = false, onBuy, onSell }) {
+export default function MyHoldings({ quotes, compact = false, onBuy, onSell, onStart, onHelp }) {
   const { user } = useAuth();
   const [positions, setPositions] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -77,9 +77,25 @@ export default function MyHoldings({ quotes, compact = false, onBuy, onSell }) {
   if (summary.rows.length === 0 && !(sales.pending > 0)) {
     if (compact || !loaded) return null;
     return (
-      <p className="text-center text-[12px] text-gray-500 py-10 rounded-2xl bg-[#151b24]">
-        Bạn chưa nắm giữ cổ phiếu nào. Chọn một mã ở tab Thị trường để đặt lệnh mua.
-      </p>
+      <div className="text-center py-8 px-4 rounded-2xl bg-[#151b24] space-y-3">
+        <Briefcase className="w-8 h-8 text-[#d4af37] mx-auto" />
+        <p className="text-[13px] font-semibold text-white">Bạn chưa có cổ phiếu nào</p>
+        <p className="text-[11px] text-gray-400 leading-relaxed">
+          Cổ phiếu bạn mua sẽ hiện ở đây cùng lãi/lỗ theo giá thị trường. Bắt đầu chỉ với vài triệu đồng.
+        </p>
+        <div className="flex gap-2 justify-center">
+          {onStart && (
+            <button onClick={onStart} className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-[12px] font-bold cursor-pointer">
+              Chọn cổ phiếu để mua
+            </button>
+          )}
+          {onHelp && (
+            <button onClick={onHelp} className="px-4 py-2 rounded-lg border border-[#222c38] text-gray-300 text-[12px] cursor-pointer">
+              Xem hướng dẫn
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -99,7 +115,7 @@ export default function MyHoldings({ quotes, compact = false, onBuy, onSell }) {
           <p className="text-[10px] text-gray-500 font-mono">Vốn {fmt(summary.totalCost)} đ</p>
         </div>
         <div className="rounded-xl bg-[#0d1117] p-2.5">
-          <p className="text-[10px] text-gray-400">Lãi/Lỗ tạm tính</p>
+          <p className="text-[10px] text-gray-400">Lãi/Lỗ tạm tính (nếu bán ngay)</p>
           <p className="text-[15px] font-bold font-mono" style={{ color: tone(summary.pnl) }}>
             {summary.pnl >= 0 ? "+" : ""}
             {fmt(summary.pnl)} đ
@@ -134,7 +150,7 @@ export default function MyHoldings({ quotes, compact = false, onBuy, onSell }) {
               <p className="text-[12px] text-white font-semibold">{r.qty.toLocaleString("vi-VN")} CP</p>
               <p className="text-[10px] text-gray-400">
                 Giá vốn {fmt(r.avgCost)} đ
-                {r.qtyPending > 0 && <span className="text-amber-300"> · {r.qtyPending.toLocaleString("vi-VN")} chờ về T+2</span>}
+                {r.qtyPending > 0 && <span className="text-amber-300"> · {r.qtyPending.toLocaleString("vi-VN")} đang về tài khoản (T+2)</span>}
                 {r.qtyHold > 0 && <span className="text-red-300"> · {r.qtyHold.toLocaleString("vi-VN")} đang chờ bán</span>}
               </p>
             </div>

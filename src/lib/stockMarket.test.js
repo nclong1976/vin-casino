@@ -12,6 +12,12 @@ import {
   changePct,
   estimateSell,
   sellQtyFraction,
+  addTradingDays,
+  orderTradeDate,
+  friendlyDate,
+  simpleOrderType,
+  sessionHint,
+  qtyForAmount,
 } from "./stockMarket";
 
 // 2026-10-05 là thứ Hai. Giờ VN = UTC+7.
@@ -116,5 +122,31 @@ describe("bán", () => {
   it("không bán quá số khả dụng", () => {
     expect(validateOrder({ orderType: "MP", qty: 200, quote, session: "CONT", side: "SELL", sellable: 100 })).toBe("INSUFFICIENT_SHARES");
     expect(validateOrder({ orderType: "MP", qty: 100, quote, session: "CONT", side: "SELL", sellable: 100 })).toBeNull();
+  });
+});
+
+describe("chế độ đơn giản", () => {
+  it("T+2 bỏ qua cuối tuần và ngày nghỉ", () => {
+    expect(addTradingDays("2026-10-02", 2)).toBe("2026-10-06"); // thứ Sáu + 2 = thứ Ba
+    expect(addTradingDays("2026-10-05", 2, { "2026-10-06": false })).toBe("2026-10-08");
+  });
+
+  it("lệnh ngoài giờ thuộc phiên kế tiếp", () => {
+    expect(orderTradeDate(vn("10:00", "2026-10-03"))).toBe("2026-10-05"); // thứ Bảy => thứ Hai
+    expect(orderTradeDate(vn("15:00", "2026-10-05"))).toBe("2026-10-06");
+    expect(orderTradeDate(vn("08:00", "2026-10-05"))).toBe("2026-10-05");
+    expect(friendlyDate("2026-10-05")).toBe("Thứ Hai 05/10");
+  });
+
+  it("tự chọn loại lệnh và giải thích phiên", () => {
+    expect(simpleOrderType("CONT")).toBe("MP");
+    expect(simpleOrderType("CLOSED")).toBe("LO");
+    expect(sessionHint("CONT")).toContain("khớp ngay");
+    expect(sessionHint("CLOSED", vn("10:00", "2026-10-03"))).toContain("Thứ Hai 05/10");
+  });
+
+  it("số CP mua được theo số tiền", () => {
+    expect(qtyForAmount({ amount: 10000000, orderType: "LO", limitPrice: 18350, quote, feeRate: 0.0015 })).toBe(500);
+    expect(qtyForAmount({ amount: 1000000, orderType: "LO", limitPrice: 18350, quote, feeRate: 0.0015 })).toBe(0);
   });
 });
