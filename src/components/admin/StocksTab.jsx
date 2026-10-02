@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import { TrendingUp, Plus, Search, Check, X, RefreshCw, ArrowRight } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/lib/supabase";
-import { adminCreateStockOrder, stockErrorMessage } from "@/lib/stockOrders";
+import { adminCreateStockOrder, cancelStockOrder, stockErrorMessage } from "@/lib/stockOrders";
+import { STATUS_LABELS } from "@/lib/stockMarket";
+import StockQuotesBoard from "@/components/admin/stocks/StockQuotesBoard";
 import { toast } from "sonner";
 
 const DEFAULT_STOCKS = [
@@ -70,6 +72,7 @@ export default function StocksTab({ onNavigateToProjects }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState(null);
 
   // Modal
   const [showCreateOrder, setShowCreateOrder] = useState(false);
@@ -134,13 +137,28 @@ export default function StocksTab({ onNavigateToProjects }) {
     };
   }, []);
 
-  const totalStockVolume = stockOrders.reduce((s, o) => s + (Number(o.amount) || 0), 0);
+  const totalStockVolume = stockOrders.filter((o) => o.status === "filled").reduce((s, o) => s + (Number(o.amount) || 0), 0);
   const totalCompletedOrders = stockOrders.filter((o) => o.status === "filled").length;
   const investorCount = new Set(stockOrders.map((o) => o.user_id)).size;
   const tradableProjects = projects.filter((p) => p.id && !String(p.id).startsWith("stock_"));
   const formProject = tradableProjects.find((p) => p.id === orderForm.projectId) || tradableProjects[0];
   const formQty = Math.floor(Number(orderForm.shares) || 0);
   const formAmount = Math.round(Number(formProject?.price_per_m2) || 0) * formQty;
+
+  const handleCancelOrder = async (order) => {
+    if (cancellingId) return;
+    if (!window.confirm(`Huỷ lệnh ${order.order_type} mua ${order.qty} CP ${order.symbol} và hoàn ${Number(order.hold_amount || 0).toLocaleString("vi-VN")} ₫ cho khách?`)) return;
+    setCancellingId(order.id);
+    try {
+      await cancelStockOrder(order.id);
+      toast.success("Đã huỷ lệnh và hoàn tiền phong toả");
+      fetchData();
+    } catch (e) {
+      toast.error(stockErrorMessage(e, "Không huỷ được lệnh"));
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const handleCreateOrderSubmit = async () => {
     if (submitting) return;
@@ -244,7 +262,7 @@ export default function StocksTab({ onNavigateToProjects }) {
           dịch của người dùng - không còn 2 nơi cùng sửa 1 dữ liệu. */}
       <div className="flex items-center justify-between gap-3 bg-white rounded-2xl p-3.5 border border-indigo-100">
         <p className="text-[11px] text-gray-500">
-          Sửa giá, tỉ giá, mô tả, trạng thái của <b>{projects.length} mã cổ phiếu</b> đã niêm yết trong tab <b>"Dự án"</b> (mục Đầu tư chứng khoán) để tránh 2 nơi cùng sửa 1 dữ liệu.
+          Sửa tên, mô tả, trạng thái mở/khoá của <b>{projects.length} mã cổ phiếu</b> trong tab <b>"Dự án"</b> (mục Đầu tư chứng khoán). Giá giao dịch đặt ở Bảng giá bên dưới (sửa giá ở tab Dự án cũng đồng bộ vào bảng giá).
         </p>
         <button
           onClick={onNavigateToProjects}
@@ -253,6 +271,8 @@ export default function StocksTab({ onNavigateToProjects }) {
           Đi tới Dự án <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      <StockQuotesBoard />
 
       {/* Danh mục & Lệnh giao dịch chứng khoán của Người dùng */}
       <div className="space-y-3">
@@ -322,19 +342,39 @@ export default function StocksTab({ onNavigateToProjects }) {
                       <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-0 pt-2 sm:pt-0 border-gray-100">
                         <div className="text-right">
                           <span className="text-xs font-bold text-emerald-600 font-mono block">
-                            {new Intl.NumberFormat("vi-VN").format(order.amount || 0)} ₫
+                            {new Intl.NumberFormat("vi-VN").format(
+                              order.status === "filled" ? Number(order.amount || 0) + Number(order.fee || 0) : order.hold_amount || 0
+                            )}{" "}
+                            ₫
                           </span>
                           <span className="text-[10px] text-gray-400">
-                            {Number(order.qty || 0).toLocaleString("vi-VN")} CP × {Number(order.price || 0).toLocaleString("vi-VN")} ₫
+                            {order.order_type} · {Number(order.qty || 0).toLocaleString("vi-VN")} CP
+                            {(order.status === "filled" ? order.price : order.limit_price)
+                              ? ` × ${Number(order.status === "filled" ? order.price : order.limit_price).toLocaleString("vi-VN")} ₫`
+                              : ""}
+                            {order.status === "filled" && Number(order.fee) > 0 ? ` · phí ${Number(order.fee).toLocaleString("vi-VN")}` : ""}
+                            {order.status === "pending" ? " · phong toả" : ""}
                           </span>
                         </div>
                         {order.status === "filled" ? (
                           <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
                             <Check className="w-3 h-3" /> Đã khớp
                           </span>
+                        ) : order.status === "pending" ? (
+                          <div className="flex items-center gap-1">
+                            <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">Chờ khớp</span>
+                            <button
+                              onClick={() => handleCancelOrder(order)}
+                              disabled={cancellingId === order.id}
+                              className="px-2 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                            >
+                              Huỷ
+                            </button>
+                          </div>
                         ) : (
-                          <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold flex items-center gap-1">
-                            <X className="w-3 h-3" /> {order.status}
+                          <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold flex items-center gap-1">
+                            <X className="w-3 h-3" /> {STATUS_LABELS[order.status] || order.status}
+                            {order.cancel_reason ? ` · ${order.cancel_reason}` : ""}
                           </span>
                         )}
                       </div>

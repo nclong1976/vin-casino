@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import PageHeader from "@/components/shared/PageHeader";
 import MarketSummary from "@/components/stocks/MarketSummary";
@@ -8,6 +8,16 @@ import BottomNav from "@/components/BottomNav";
 import MarketSearchBar from "@/components/shared/MarketSearchBar";
 import { base44 } from "@/api/base44Client";
 import MyHoldings from "@/components/stocks/MyHoldings";
+import MyOrders from "@/components/stocks/MyOrders";
+import { useStockMarket } from "@/hooks/useStockMarket";
+import { changePct } from "@/lib/stockMarket";
+import { toast } from "sonner";
+
+const TABS = [
+  ["market", "Thị trường"],
+  ["portfolio", "Danh mục"],
+  ["orders", "Lệnh"],
+];
 
 // Chỉ dùng khi bảng investment_projects chưa có mã cổ phiếu nào (vd lần
 // khởi tạo đầu tiên/mất kết nối) - KHÔNG còn là nguồn dữ liệu chính. Trước
@@ -61,12 +71,44 @@ function mapStockList(allProjects) {
   return stockProjects.length > 0 ? stockProjects.map(mapProjectToStock) : FALLBACK_STOCKS;
 }
 
+/** Ghép giá realtime (stock_quotes) vào thẻ cổ phiếu. */
+function withQuote(stock, quote) {
+  if (!quote) return stock;
+  const price = Math.round(Number(quote.last_price) || 0);
+  const change = changePct(quote);
+  return {
+    ...stock,
+    price: price.toLocaleString("vi-VN"),
+    priceNum: price,
+    change,
+    spark: synthesizeSpark(price, change),
+    quote,
+  };
+}
+
 export default function Stocks() {
   const [selected, setSelected] = useState(null);
   const [stocks, setStocks] = useState(FALLBACK_STOCKS);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
   const [highlightActive, setHighlightActive] = useState(!!highlightId);
+  const tab = TABS.some(([k]) => k === searchParams.get("tab")) ? searchParams.get("tab") : "market";
+  const { quotes, config, session } = useStockMarket();
+  const liveStocks = useMemo(() => stocks.map((s) => withQuote(s, quotes[s.symbol])), [stocks, quotes]);
+
+  const setTab = (k) => {
+    const next = new URLSearchParams(searchParams);
+    if (k === "market") next.delete("tab");
+    else next.set("tab", k);
+    next.delete("highlight");
+    setSearchParams(next, { replace: true });
+  };
+
+  const buySymbol = (symbol) => {
+    const s = liveStocks.find((x) => x.symbol === symbol);
+    if (s?.id && s.is_active) setSelected(s);
+    else toast.error("Mã này đang tạm khoá giao dịch.");
+  };
 
   // Đọc trực tiếp danh sách cổ phiếu admin cấu hình trong StocksTab.jsx qua
   // Supabase Realtime (giống hệt Projects.jsx/LandInvestment.jsx/Resort.jsx)
@@ -111,36 +153,67 @@ export default function Stocks() {
       />
 
       <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
-        <MarketSummary />
-
-        <MyHoldings stocks={stocks} />
-
-        {/* Live Market & Stock Search Grounding */}
-        <div className="pt-1 pb-1">
-          <MarketSearchBar darkTheme={true} placeholder="Tra cứu thông tin cổ phiếu, tin chứng khoán mới nhất..." />
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-[#151b24] border border-[#222c38]">
+          {TABS.map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className={`py-2 rounded-lg text-[12.5px] font-semibold transition-colors cursor-pointer ${
+                tab === k ? "bg-[#d4af37] text-black" : "text-gray-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        <div className="flex items-center justify-between pt-1">
-          <h2 className="text-[13px] font-semibold text-white">Cổ phiếu Vingroup</h2>
-          <span className="text-[10px] text-gray-500">Cập nhật trực tiếp</span>
-        </div>
+        {tab === "market" && (
+          <>
+            <MarketSummary quotes={quotes} session={session} />
 
-        {stocks.map((stock, index) => (
-          <div
-            key={stock.id || stock.symbol}
-            id={stock.id ? `project-${stock.id}` : undefined}
-            className={highlightActive && highlightId === String(stock.id) ? "ring-2 ring-amber-400 rounded-2xl" : ""}
-          >
-            <StockCard stock={stock} index={index} onTrade={setSelected} />
-          </div>
-        ))}
+            <MyHoldings quotes={quotes} compact />
+
+            {/* Live Market & Stock Search Grounding */}
+            <div className="pt-1 pb-1">
+              <MarketSearchBar darkTheme={true} placeholder="Tra cứu thông tin cổ phiếu, tin chứng khoán mới nhất..." />
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <h2 className="text-[13px] font-semibold text-white">Cổ phiếu Vingroup</h2>
+              <span className="text-[10px] text-gray-500">Cập nhật trực tiếp</span>
+            </div>
+
+            {liveStocks.map((stock, index) => (
+              <div
+                key={stock.id || stock.symbol}
+                id={stock.id ? `project-${stock.id}` : undefined}
+                className={highlightActive && highlightId === String(stock.id) ? "ring-2 ring-amber-400 rounded-2xl" : ""}
+              >
+                <StockCard stock={stock} index={index} onTrade={setSelected} />
+              </div>
+            ))}
+          </>
+        )}
+
+        {tab === "portfolio" && <MyHoldings quotes={quotes} onBuy={buySymbol} />}
+
+        {tab === "orders" && <MyOrders />}
 
         <p className="text-[9px] text-gray-600 text-center pt-2 leading-relaxed">
-          Dữ liệu mang tính tham khảo. Đầu tư chứng khoán có rủi ro, vui lòng cân nhắc kỹ.
+          Giao dịch khớp nội bộ trên VinClub theo giá do VinClub công bố, mô phỏng quy tắc sàn HOSE; không phải lệnh trên Sở Giao dịch Chứng khoán. Đầu tư có rủi ro, vui lòng cân nhắc kỹ.
         </p>
       </div>
 
-      {selected && <TradeSheet stock={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <TradeSheet
+          stock={selected}
+          quote={quotes[selected.symbol]}
+          config={config}
+          session={session}
+          onClose={() => setSelected(null)}
+          onPlaced={(o) => o?.status === "pending" && setTab("orders")}
+        />
+      )}
 
       <BottomNav />
     </main>

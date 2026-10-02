@@ -16,6 +16,7 @@ const TYPE_LABELS = {
   wallet: { label: "Ví", color: "text-blue-500", bg: "bg-blue-50" },
   admin: { label: "Thông báo", color: "text-orange-500", bg: "bg-orange-50" },
   project: { label: "Dự án", color: "text-blue-500", bg: "bg-blue-50" },
+  stock: { label: "Chứng khoán", color: "text-emerald-600", bg: "bg-emerald-50" },
 };
 
 // Khớp đúng route từng category trong src/App.jsx - xác nhận qua filter
@@ -143,6 +144,11 @@ export default function NotificationBell() {
     if (n.type === "document" && n.extra?.document_id) {
       setOpen(false);
       navigate(`/document/${n.extra.document_id}`);
+      return;
+    }
+    if (n.type === "stock") {
+      setOpen(false);
+      navigate("/stocks?tab=orders");
       return;
     }
     // Thông báo thường (title/content) trước đây bấm vào không có tác dụng

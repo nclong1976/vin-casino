@@ -1,56 +1,82 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Wallet, AlertTriangle } from "lucide-react";
+import { X, Wallet, AlertTriangle, Minus, Plus, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { placeStockOrder, newIdempotencyKey, stockErrorCode, stockErrorMessage } from "@/lib/stockOrders";
+import { placeStockOrder, newIdempotencyKey, stockErrorCode, stockErrorMessage, STOCK_ERROR_MESSAGES } from "@/lib/stockOrders";
+import {
+  ORDER_TYPE_LABELS,
+  SESSION_LABELS,
+  allowedOrderTypes,
+  estimateCost,
+  holdAmount,
+  maxQty,
+  priceColor,
+  roundToTick,
+  stepPrice,
+  validateOrder,
+} from "@/lib/stockMarket";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
-export default function TradeSheet({ stock, onClose }) {
+const fmt = (n) => Math.round(Number(n) || 0).toLocaleString("vi-VN");
+const BUY = "#10b981";
+
+/**
+ * Bottom sheet đặt lệnh mua (spec §2.2): loại lệnh theo phiên, giá LO theo
+ * bước giá trong [Sàn, Trần], khối lượng theo lô, sức mua, phí, tiền phong toả.
+ * Server (place_stock_order) kiểm tra lại toàn bộ.
+ */
+export default function TradeSheet({ stock, quote, config, session, onClose, onPlaced }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const types = allowedOrderTypes(session);
+  const [orderType, setOrderType] = useState(types.includes("MP") ? "MP" : "LO");
+  const [limitPrice, setLimitPrice] = useState(() => roundToTick(quote?.last_price || 0));
   const [qty, setQty] = useState(100);
   const [loading, setLoading] = useState(false);
-  const [userBalance, setUserBalance] = useState(0);
+  const [userBalance, setUserBalance] = useState(Number(user?.balance || 0));
   // Cùng 1 khoá cho mọi lần bấm của 1 lệnh => bấm đúp/gửi lại không khớp 2 lần.
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
-  const { user } = useAuth();
 
   useEffect(() => {
-    async function fetchBal() {
-      try {
-        const me = user || (await base44.auth.me().catch(() => null));
-        if (me) {
-          setUserBalance(Number(me.balance || 0));
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    fetchBal();
+    let alive = true;
+    (async () => {
+      const me = user || (await base44.auth.me().catch(() => null));
+      if (alive && me) setUserBalance(Number(me.balance || 0));
+    })();
+    return () => {
+      alive = false;
+    };
   }, [user]);
 
-  if (!stock) return null;
+  // Phiên đổi khi đang mở sheet: bỏ loại lệnh không còn hợp lệ.
+  useEffect(() => {
+    if (!types.includes(orderType)) setOrderType(types[0]);
+  }, [session]);
 
-  const unit = Number(String(stock.price).replace(/[.,]/g, "")) || 0;
-  const totalNum = unit * qty;
-  const total = totalNum.toLocaleString("vi-VN");
-  const up = stock.change >= 0;
-  const BUY = "#10b981";
+  const feeRate = Number(config?.fee_rate) || 0;
+  const lotSize = Number(config?.lot_size) || 100;
+  const params = { orderType, qty, limitPrice, quote, feeRate };
+  const hold = holdAmount(params);
+  const est = estimateCost(params);
+  const maxBuy = maxQty({ balance: userBalance, orderType, limitPrice, quote, feeRate, lotSize });
+  const invalid = quote ? validateOrder({ orderType, qty, limitPrice, quote, session, lotSize }) : "PRICE_UNAVAILABLE";
+  const short = userBalance < hold;
+
+  if (!stock) return null;
 
   const handleOrder = async () => {
     if (!stock.id) {
       toast.error("Mã này chưa mở giao dịch.");
       return;
     }
-    if (!Number.isInteger(qty) || qty <= 0) {
-      toast.error("Khối lượng không hợp lệ.");
+    if (invalid) {
+      toast.error(STOCK_ERROR_MESSAGES[invalid] || "Lệnh không hợp lệ.");
       return;
     }
-    if (userBalance < totalNum) {
-      toast.warning(
-        `Số dư ví (${userBalance.toLocaleString("vi-VN")} VNĐ) không đủ ${total} VNĐ. Đang chuyển hướng đến trang Nạp tiền...`
-      );
+    if (short) {
+      toast.warning(`Sức mua ${fmt(userBalance)} đ không đủ ${fmt(hold)} đ. Đang chuyển đến trang Nạp tiền...`);
       onClose?.();
       navigate("/profile?deposit=true");
       return;
@@ -58,29 +84,31 @@ export default function TradeSheet({ stock, onClose }) {
 
     setLoading(true);
     try {
-      // Trừ ví + ghi lệnh + cộng cổ phần trong MỘT giao dịch Postgres
-      // (RPC place_stock_order). Luồng cũ trừ tiền ở trình duyệt rồi ghi
-      // transactions với project_id sai => tiền mất mà không có cổ phần.
-      const result = await placeStockOrder({ projectId: stock.id, qty, idempotencyKey });
+      const result = await placeStockOrder({ projectId: stock.id, orderType, qty, limitPrice, idempotencyKey });
       if (result?.balance != null) setUserBalance(Number(result.balance));
       setIdempotencyKey(newIdempotencyKey());
       window.dispatchEvent(new Event("vinclub:balance_updated"));
-      const filled = result?.order;
-      toast.success(
-        `Đã khớp lệnh mua ${Number(filled?.qty || qty).toLocaleString("vi-VN")} CP ${filled?.symbol || stock.symbol}` +
-          (filled?.price ? ` giá ${Number(filled.price).toLocaleString("vi-VN")} đ` : "")
-      );
+      const o = result?.order || {};
+      if (o.status === "filled") {
+        toast.success(`Đã khớp mua ${fmt(o.qty)} CP ${o.symbol} giá ${fmt(o.price)} đ. Cổ phiếu về tài khoản sau T+2.`);
+      } else {
+        toast.success(
+          `Đã đặt lệnh ${o.order_type} mua ${fmt(o.qty)} CP ${o.symbol}` +
+            (o.limit_price ? ` giá ${fmt(o.limit_price)} đ` : "") +
+            ` - đang chờ khớp. Đã phong toả ${fmt(o.hold_amount)} đ.`
+        );
+      }
+      onPlaced?.(o);
       onClose();
     } catch (e) {
-      if (stockErrorCode(e) === "INSUFFICIENT_BUYING_POWER") {
-        toast.warning(stockErrorMessage(e));
-      } else {
-        toast.error(stockErrorMessage(e));
-      }
+      if (stockErrorCode(e) === "INSUFFICIENT_BUYING_POWER") toast.warning(stockErrorMessage(e));
+      else toast.error(stockErrorMessage(e));
     } finally {
       setLoading(false);
     }
   };
+
+  const last = Number(quote?.last_price) || 0;
 
   return (
     <AnimatePresence>
@@ -97,11 +125,16 @@ export default function TradeSheet({ stock, onClose }) {
           exit={{ y: "100%" }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-[480px] bg-[#151b24] rounded-t-3xl p-5 pb-8 border-t border-[#d4af37]/30"
+          className="w-full max-w-[480px] max-h-[92vh] overflow-y-auto bg-[#151b24] rounded-t-3xl p-5 pb-8 border-t border-[#d4af37]/30"
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-start justify-between mb-3">
             <div>
-              <p className="text-[15px] font-bold text-white">{stock.symbol}</p>
+              <p className="text-[15px] font-bold text-white">
+                Mua {stock.symbol}{" "}
+                <span className="font-mono" style={{ color: priceColor(last, quote) }}>
+                  {fmt(last)}
+                </span>
+              </p>
               <p className="text-[11px] text-gray-400">{stock.name}</p>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-full bg-white/5 cursor-pointer">
@@ -109,63 +142,165 @@ export default function TradeSheet({ stock, onClose }) {
             </button>
           </div>
 
-          {/* User balance indicator */}
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 text-xs mb-3 text-gray-300 border border-white/10">
-            <span className="flex items-center gap-1.5 text-amber-300 font-medium">
-              <Wallet className="w-3.5 h-3.5" />
-              <span>Số dư khả dụng:</span>
-            </span>
-            <span className="font-mono font-bold text-white">{userBalance.toLocaleString("vi-VN")} đ</span>
+          {quote && (
+            <div className="grid grid-cols-3 gap-1.5 mb-3 text-center">
+              {[
+                ["Trần", quote.ceiling_price, "#a855f7"],
+                ["TC", quote.reference_price, "#d4af37"],
+                ["Sàn", quote.floor_price, "#22d3ee"],
+              ].map(([label, v, c]) => (
+                <div key={label} className="rounded-lg bg-[#0d1117] py-1.5">
+                  <p className="text-[9px] text-gray-500">{label}</p>
+                  <p className="text-[12px] font-bold font-mono" style={{ color: c }}>
+                    {fmt(v)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 text-[10.5px] text-gray-400 mb-3">
+            <Clock className="w-3 h-3" /> {SESSION_LABELS[session] || session}
+            {session === "CLOSED" || session === "PRE_OPEN" ? " · lệnh sẽ vào phiên giao dịch kế tiếp" : ""}
           </div>
 
-          <div className="flex items-baseline justify-between p-3 rounded-xl bg-[#0d1117] mb-4">
-            <span className="text-[11px] text-gray-400">Giá khớp lệnh (thị trường)</span>
-            <span className="text-[18px] font-bold font-mono" style={{ color: up ? "#10b981" : "#ef4444" }}>
-              {stock.price} đ
-            </span>
+          {/* Loại lệnh */}
+          <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-[#0d1117] mb-1.5">
+            {["LO", "MP", "ATO", "ATC"].map((t) => {
+              const ok = types.includes(t);
+              return (
+                <button
+                  key={t}
+                  disabled={!ok}
+                  onClick={() => setOrderType(t)}
+                  className={`py-1.5 rounded-lg text-[12px] font-bold transition-colors ${
+                    orderType === t ? "bg-emerald-500 text-white" : ok ? "text-gray-300 cursor-pointer" : "text-gray-600 cursor-not-allowed"
+                  }`}
+                >
+                  {t}
+                </button>
+              );
+            })}
           </div>
+          <p className="text-[10px] text-gray-500 mb-3">{ORDER_TYPE_LABELS[orderType]}</p>
 
-          {/* Quantity */}
-          <p className="text-[11px] text-gray-400 mb-2">Khối lượng (cổ phiếu)</p>
-          <div className="flex items-center gap-2 mb-2">
+          {/* Giá (LO) */}
+          {orderType === "LO" ? (
+            <>
+              <p className="text-[11px] text-gray-400 mb-1.5">Giá đặt (đ)</p>
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  onClick={() => setLimitPrice((p) => stepPrice(p, -1, quote))}
+                  className="w-10 h-10 rounded-lg bg-[#1f2937] text-gray-200 flex items-center justify-center cursor-pointer"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={limitPrice}
+                  onChange={(e) => setLimitPrice(Number(e.target.value) || 0)}
+                  onBlur={() => setLimitPrice((p) => roundToTick(p))}
+                  className="flex-1 px-3 py-2.5 rounded-lg bg-[#0d1117] border border-[#222c38] text-white text-[14px] text-center outline-none focus:border-emerald-500 font-mono"
+                />
+                <button
+                  onClick={() => setLimitPrice((p) => stepPrice(p, 1, quote))}
+                  className="w-10 h-10 rounded-lg bg-[#1f2937] text-gray-200 flex items-center justify-center cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-baseline justify-between p-3 rounded-xl bg-[#0d1117] mb-3">
+              <span className="text-[11px] text-gray-400">
+                {orderType === "MP" ? "Khớp ngay theo giá thị trường" : orderType === "ATO" ? "Khớp lúc 09:15 theo giá mở cửa" : "Khớp lúc 14:45 theo giá đóng cửa"}
+              </span>
+              <span className="text-[13px] font-bold font-mono text-white">≈ {fmt(last)}</span>
+            </div>
+          )}
+
+          {/* Khối lượng */}
+          <p className="text-[11px] text-gray-400 mb-1.5">Khối lượng (cổ phiếu)</p>
+          <div className="flex items-center gap-1.5 mb-2">
             {[100, 500, 1000].map((n) => (
               <button
                 key={n}
                 onClick={() => setQty(n)}
-                className={`flex-1 py-2 rounded-lg text-[12px] font-medium transition-colors cursor-pointer ${
+                className={`flex-1 py-2 rounded-lg text-[12px] font-medium cursor-pointer ${
                   qty === n ? "bg-emerald-500 text-white font-bold" : "bg-[#1f2937] text-gray-300"
                 }`}
               >
-                {n}
+                {fmt(n)}
               </button>
             ))}
+            <button
+              disabled={maxBuy <= 0}
+              onClick={() => setQty(maxBuy)}
+              className={`flex-1 py-2 rounded-lg text-[12px] font-medium cursor-pointer disabled:opacity-40 ${
+                qty === maxBuy && maxBuy > 0 ? "bg-emerald-500 text-white font-bold" : "bg-[#1f2937] text-gray-300"
+              }`}
+            >
+              Tối đa
+            </button>
           </div>
           <input
             type="number"
+            inputMode="numeric"
             value={qty}
-            onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+            onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
             className="w-full px-3 py-2.5 rounded-lg bg-[#0d1117] border border-[#222c38] text-white text-[13px] outline-none focus:border-emerald-500 font-mono"
           />
 
-          <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
-            <span className="text-[12px] text-gray-400">Tổng giá trị</span>
-            <span className="text-[16px] font-bold text-white font-mono">{total} đ</span>
+          {/* Sức mua & tổng */}
+          <div className="mt-3 rounded-xl bg-white/5 border border-white/10 p-3 space-y-1.5 text-[11.5px]">
+            <div className="flex justify-between text-gray-300">
+              <span className="flex items-center gap-1.5 text-amber-300">
+                <Wallet className="w-3.5 h-3.5" /> Sức mua
+              </span>
+              <span className="font-mono font-bold text-white">
+                {fmt(userBalance)} đ · tối đa {fmt(maxBuy)} CP
+              </span>
+            </div>
+            <div className="flex justify-between text-gray-400">
+              <span>Giá trị lệnh{orderType === "LO" ? "" : " (ước tính)"}</span>
+              <span className="font-mono">{fmt(est.value)} đ</span>
+            </div>
+            <div className="flex justify-between text-gray-400">
+              <span>Phí giao dịch ({(feeRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}%)</span>
+              <span className="font-mono">{fmt(est.fee)} đ</span>
+            </div>
+            <div className="flex justify-between pt-1.5 border-t border-white/10">
+              <span className="text-gray-300">Tiền phong toả</span>
+              <span className="font-mono font-bold text-white text-[14px]">{fmt(hold)} đ</span>
+            </div>
+            {orderType !== "LO" && (
+              <p className="text-[9.5px] text-gray-500">
+                Lệnh {orderType} phong toả theo giá trần; phần chênh được hoàn ngay khi khớp.
+              </p>
+            )}
           </div>
 
-          {userBalance < totalNum && (
-            <div className="mt-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300 flex items-center gap-1.5">
+          {invalid && invalid !== "PRICE_UNAVAILABLE" && (
+            <div className="mt-3 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-[10.5px] text-red-300 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>{STOCK_ERROR_MESSAGES[invalid]}</span>
+            </div>
+          )}
+          {!invalid && short && (
+            <div className="mt-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10.5px] text-amber-300 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-              <span>Số dư ví không đủ. Khi bấm đặt lệnh sẽ chuyển đến Nạp tiền.</span>
+              <span>Sức mua không đủ. Khi bấm đặt lệnh sẽ chuyển đến Nạp tiền.</span>
             </div>
           )}
 
           <button
-            disabled={loading}
+            disabled={loading || (!!invalid && !short)}
             onClick={handleOrder}
-            className="w-full mt-4 py-3 rounded-xl text-[14px] font-extrabold text-white active:scale-[0.98] transition-transform cursor-pointer shadow-lg uppercase tracking-wider"
-            style={{ backgroundColor: userBalance < totalNum ? "#d4af37" : BUY }}
+            className="w-full mt-4 py-3 rounded-xl text-[14px] font-extrabold text-white active:scale-[0.98] transition-transform cursor-pointer shadow-lg uppercase tracking-wider disabled:opacity-50"
+            style={{ backgroundColor: short && !invalid ? "#d4af37" : BUY }}
           >
-            {loading ? "Đang xử lý lệnh..." : userBalance < totalNum ? "NẠP TIỀN ĐỂ ĐẶT LỆNH" : "Đặt lệnh mua ngay"}
+            {loading ? "Đang xử lý lệnh..." : short && !invalid ? "Nạp tiền để đặt lệnh" : `Xác nhận mua ${orderType}`}
           </button>
         </motion.div>
       </motion.div>

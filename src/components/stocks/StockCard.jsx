@@ -59,6 +59,15 @@ export default function StockCard({ stock, index, onTrade }) {
         </div>
       </div>
 
+      {stock.quote && (
+        <div className="flex items-center justify-between mt-2 text-[10px] font-mono">
+          <span className="text-[#a855f7]">Trần {Number(stock.quote.ceiling_price).toLocaleString("vi-VN")}</span>
+          <span className="text-[#d4af37]">TC {Number(stock.quote.reference_price).toLocaleString("vi-VN")}</span>
+          <span className="text-[#22d3ee]">Sàn {Number(stock.quote.floor_price).toLocaleString("vi-VN")}</span>
+          <span className="text-gray-500">KL {Number(stock.quote.volume || 0).toLocaleString("vi-VN")}</span>
+        </div>
+      )}
+
       {stock.description && (
         <p className="text-[10.5px] text-gray-400 leading-tight mt-2.5 pt-2.5 border-t border-[#222c38]">{stock.description}</p>
       )}

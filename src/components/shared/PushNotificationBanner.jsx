@@ -47,6 +47,12 @@ const TYPE_STYLES = {
     badge: "bg-blue-500/20 text-blue-300 border-blue-500/30",
     label: "Biến động ví",
   },
+  stock: {
+    icon: TrendingUp,
+    iconBg: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+    badge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    label: "Chứng khoán",
+  },
   default: {
     icon: Bell,
     iconBg: "bg-[#948154]/20 text-[#e8c87a] border-[#948154]/40",
