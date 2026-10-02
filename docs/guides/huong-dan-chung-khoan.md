@@ -44,6 +44,7 @@
 | Từ | Nghĩa |
 |---|---|
 | Giá tham chiếu (TC) | Giá đóng cửa hôm trước — mốc tính tăng/giảm trong ngày |
+| Biểu đồ giá | Bấm vào mã để xem (Hôm nay / 1 tuần / 1 tháng / 3 tháng / 1 năm). Đường vàng đứt = giá tham chiếu hoặc giá đầu kỳ; đường giá ở trên là tăng (xanh), ở dưới là giảm (đỏ). Thanh “Tăng / giảm hôm nay”: dài sang phải là tăng, sang trái là giảm, chạm mép là chạm trần/sàn |
 | Trần / Sàn | Giá cao nhất / thấp nhất được giao dịch trong ngày (TC ± 7%) |
 | Lô 100 | Mua bán theo bội số 100 cổ phiếu; dưới 100 là lô lẻ |
 | T+2 | Cổ phiếu mua / tiền bán về lúc 13:00 ngày làm việc thứ 2 sau ngày khớp |

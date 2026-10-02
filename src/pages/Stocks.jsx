@@ -18,6 +18,8 @@ import { useWatchlist } from "@/hooks/useWatchlist";
 import { useAuth } from "@/lib/AuthContext";
 import { useStockMarket } from "@/hooks/useStockMarket";
 import { changePct } from "@/lib/stockMarket";
+import { intradaySeries } from "@/lib/stockChart";
+import { useIntradayTicks } from "@/hooks/useIntradayTicks";
 import { toast } from "sonner";
 
 const TABS = [
@@ -33,23 +35,9 @@ const TABS = [
 // bên Admin chỉnh sửa gì cũng không ảnh hưởng người dùng thật.
 const FALLBACK_STOCKS = [
   // Không có id dự án thật => không đặt lệnh được, hiện "Tạm khóa giao dịch".
-  { symbol: "VIC", name: "Tập đoàn Vingroup", price: "45.200", change: 3.1, is_active: false, spark: [42, 42.5, 41.8, 43, 44, 43.5, 44.8, 45.2] },
-  { symbol: "VHM", name: "Vinhomes", price: "42.800", change: 2.4, is_active: false, spark: [41, 41.2, 40.8, 41.5, 42, 41.8, 42.5, 42.8] },
+  { symbol: "VIC", name: "Tập đoàn Vingroup", price: "45.200", change: 3.1, is_active: false },
+  { symbol: "VHM", name: "Vinhomes", price: "42.800", change: 2.4, is_active: false },
 ];
-
-/** Sinh dãy điểm cho mini-chart (spark) ổn định theo giá+biến động hiện tại - không có cột lưu từng điểm biểu đồ trong DB. */
-function synthesizeSpark(price, changePercent) {
-  const end = Number(price) || 0;
-  const start = end / (1 + (Number(changePercent) || 0) / 100);
-  const points = [];
-  for (let i = 0; i < 8; i++) {
-    const t = i / 7;
-    const wobble = Math.sin(i * 1.7) * (end - start) * 0.08;
-    points.push(Number((start + (end - start) * t + wobble).toFixed(2)));
-  }
-  points[7] = end;
-  return points;
-}
 
 function mapProjectToStock(p) {
   const symbolFallback = (p.title || p.name || "").match(/\(([^)]+)\)/)?.[1] || "CP";
@@ -62,7 +50,6 @@ function mapProjectToStock(p) {
     name: p.name || p.title || symbol,
     price: price.toLocaleString("vi-VN"),
     change,
-    spark: synthesizeSpark(price, change),
     // Theo đúng trạng thái Admin đặt ở tab Dự án: mã đang khoá thì không mua
     // được (server place_stock_order cũng từ chối SYMBOL_HALTED).
     is_active: p.is_active !== false,
@@ -89,7 +76,6 @@ function withQuote(stock, quote) {
     price: price.toLocaleString("vi-VN"),
     priceNum: price,
     change,
-    spark: synthesizeSpark(price, change),
     quote,
   };
 }
@@ -110,6 +96,7 @@ export default function Stocks() {
   const [highlightActive, setHighlightActive] = useState(!!highlightId);
   const tab = TABS.some(([k]) => k === searchParams.get("tab")) ? searchParams.get("tab") : "market";
   const { quotes, config, session, calendar } = useStockMarket();
+  const { ticks: dayTicks, dateStr } = useIntradayTicks();
 
   const openGuide = () => {
     setShowGuide(true);
@@ -205,7 +192,16 @@ export default function Stocks() {
 
         {tab === "market" && (
           <>
-            <MarketSummary quotes={quotes} session={session} calendar={calendar} />
+            <MarketSummary
+              quotes={quotes}
+              session={session}
+              calendar={calendar}
+              band={config.price_band_pct}
+              onSelect={(sym) => {
+                const s = liveStocks.find((x) => x.symbol === sym);
+                if (s) setDetail(s);
+              }}
+            />
 
             <MyHoldings quotes={quotes} compact />
 
@@ -253,6 +249,7 @@ export default function Stocks() {
               >
                 <StockCard
                   stock={stock}
+                  series={stock.quote ? intradaySeries({ ticks: dayTicks[stock.symbol], quote: stock.quote, dateStr }) : []}
                   index={index}
                   onTrade={(s) => openTrade(s, "BUY")}
                   onDetail={setDetail}

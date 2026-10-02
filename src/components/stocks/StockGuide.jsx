@@ -34,6 +34,10 @@ export const GUIDE_STEPS = [
 /** Thuật ngữ thường gặp. */
 export const GLOSSARY = [
   ["Giá tham chiếu (TC)", "Giá đóng cửa của ngày hôm trước — mốc để tính tăng/giảm trong ngày (màu vàng)."],
+  [
+    "Biểu đồ giá",
+    "Bấm vào một mã để xem. Đường vàng đứt là giá tham chiếu (hoặc giá đầu kỳ khi xem tuần / tháng / năm). Đường giá trên đường vàng là đang tăng (xanh), dưới là đang giảm (đỏ). Thanh “Tăng / giảm hôm nay” ở đầu trang: dài sang phải là tăng, sang trái là giảm; chạm mép là chạm trần / sàn.",
+  ],
   ["Giá trần / giá sàn", "Giá cao nhất / thấp nhất được giao dịch trong ngày: TC ± 7%. Trần màu tím, sàn màu xanh lơ."],
   ["Lô 100", "Mua bán theo bội số 100 cổ phiếu. Dưới 100 cổ phiếu (lô lẻ) chỉ đặt được bằng lệnh “đặt giá mong muốn” (LO)."],
   ["T+2", "Cổ phiếu mua (hoặc tiền bán) về tài khoản lúc 13:00 của ngày làm việc thứ 2 sau ngày khớp lệnh."],
