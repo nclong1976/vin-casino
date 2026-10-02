@@ -238,12 +238,11 @@ export default function ProjectsTab({ filterRequest }) {
         </div>
       ) : (
         filtered.map((p) => {
-          // "Đầu tư chứng khoán" LUÔN mở giao dịch cho người chơi (Stocks.jsx
-          // cố định is_active=true phía hiển thị, không đọc field thật nữa) -
-          // phản ánh đúng ở đây để không hiện nhầm trạng thái "Tạm khóa" cho
-          // 1 danh mục mà khách hàng sẽ không bao giờ thấy bị khóa thật.
+          // Với "Đầu tư chứng khoán", is_active là trạng thái giao dịch của
+          // mã: tắt thì khách không mua / bán được (Stocks.jsx và
+          // stock_place_order_core đều đọc field này).
           const isStockCategory = p.category === "Đầu tư chứng khoán";
-          const isActive = isStockCategory ? true : p.is_active ?? true;
+          const isActive = p.is_active ?? true;
           return (
             <div
               key={p.id}
@@ -340,27 +339,22 @@ export default function ProjectsTab({ filterRequest }) {
                   </button>
                 </div>
 
-                {/* Toggle Switch - vô hiệu hóa riêng cho "Đầu tư chứng khoán":
-                    danh mục này luôn mở giao dịch cho người chơi (Stocks.jsx
-                    không đọc is_active thật nữa), nút bật/tắt ở đây không còn
-                    tác dụng gì nếu bấm nên khóa lại để không gây hiểu nhầm. */}
+                {/* Toggle Switch - với mã cổ phiếu là mở / tạm khoá giao dịch. */}
                 <div className="flex items-center gap-2">
                   <span className={`text-[9.5px] font-bold ${isActive ? "text-green-700" : "text-amber-800"}`}>
-                    {isStockCategory
-                      ? "Luôn mở giao dịch"
-                      : togglingId === p.id
+                    {togglingId === p.id
                       ? "Đang cập nhật..."
                       : isActive
-                      ? "Mở đầu tư (Bật)"
-                      : "Tạm khóa (Tắt)"}
+                      ? isStockCategory ? "Đang giao dịch (Bật)" : "Mở đầu tư (Bật)"
+                      : isStockCategory ? "Tạm khoá giao dịch (Tắt)" : "Tạm khóa (Tắt)"}
                   </span>
                   <button
                     onClick={() => toggleActive(p)}
-                    disabled={togglingId === p.id || isStockCategory}
-                    title={isStockCategory ? "Cổ phiếu luôn mở giao dịch, không thể khóa" : isActive ? "Khóa nhận vốn đầu tư" : "Mở nhận vốn đầu tư"}
+                    disabled={togglingId === p.id}
+                    title={isStockCategory ? (isActive ? "Tạm khoá giao dịch mã này" : "Mở lại giao dịch mã này") : isActive ? "Khóa nhận vốn đầu tư" : "Mở nhận vốn đầu tư"}
                     className={`relative inline-flex h-6 w-11 items-center justify-center rounded-full transition-colors focus:outline-none disabled:cursor-wait ${
                       isActive ? "bg-green-600" : "bg-gray-300"
-                    } ${isStockCategory ? "opacity-70 cursor-not-allowed" : ""}`}
+                    }`}
                   >
                     {togglingId === p.id ? (
                       <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
