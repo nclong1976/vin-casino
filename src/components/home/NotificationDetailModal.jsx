@@ -10,6 +10,7 @@ const TYPE_LABELS = {
   wallet: { label: "Ví", color: "text-blue-500", bg: "bg-blue-50" },
   admin: { label: "Thông báo", color: "text-orange-500", bg: "bg-orange-50" },
   project: { label: "Dự án", color: "text-blue-500", bg: "bg-blue-50" },
+  stock: { label: "Chứng khoán", color: "text-emerald-600", bg: "bg-emerald-50" },
 };
 
 function formatFullDate(dateStr) {

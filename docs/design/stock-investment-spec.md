@@ -485,6 +485,14 @@ stateDiagram-v2
 | 3 — Cổ tức | Admin tạo quyền, lịch cổ tức, snapshot ĐKCC, phân bổ tiền/CP, điều chỉnh giá TC, thông báo | 1 tuần |
 | 4 — DRIP & hoàn thiện | Cài đặt DRIP, lệnh tái đầu tư, watchlist, báo cáo Admin, CSV | 3–4 ngày |
 
+### Trạng thái triển khai
+
+- **Giai đoạn 0** — xong (`20261007090000_stock_phase0.sql`).
+- **Giai đoạn 1** — xong (`20261008090000_stock_phase1.sql`). Khác bản thiết kế:
+  - Tiền phong toả lưu ngay trên `stock_orders.hold_amount` thay vì bảng `stock_cash_holds` riêng (mỗi lệnh 1 lần phong toả, chưa cần bảng riêng).
+  - T+2 theo dõi bằng `stock_trades.settle_date / settled_at` và `stock_positions.qty_pending` thay cho `stock_settlements` (chưa có lệnh bán nên chưa có tiền chờ về).
+  - Giá vẫn sửa được ở tab Dự án; trigger kẹp trong Trần/Sàn và đồng bộ vào `stock_quotes`.
+
 ## 7. Tiêu chí nghiệm thu chính
 
 - Đặt lệnh khi thiếu sức mua ⇒ server trả `INSUFFICIENT_BUYING_POWER`, số dư không đổi; gọi lặp cùng `idempotency_key` ⇒ chỉ 1 lệnh.
