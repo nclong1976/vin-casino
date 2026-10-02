@@ -54,7 +54,7 @@ export default function MyOrders() {
     try {
       await cancelStockOrder(o.id);
       window.dispatchEvent(new Event("vinclub:balance_updated"));
-      toast.success(`Đã huỷ lệnh, hoàn ${fmt(o.hold_amount)} đ tiền phong toả`);
+      toast.success(o.side === "SELL" ? "Đã huỷ lệnh bán, cổ phiếu trở lại danh mục" : `Đã huỷ lệnh, hoàn ${fmt(o.hold_amount)} đ tiền phong toả`);
     } catch (e) {
       toast.error(stockErrorMessage(e, "Không huỷ được lệnh"));
     } finally {
@@ -98,7 +98,11 @@ export default function MyOrders() {
           <div key={o.id} className="rounded-2xl p-3 bg-[#151b24] border border-[#222c38]">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-bold">MUA</span>
+                {o.side === "SELL" ? (
+                  <span className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 text-[10px] font-bold">BÁN</span>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-bold">MUA</span>
+                )}
                 <span className="text-[13px] font-bold text-white">{o.symbol}</span>
                 <span className="text-[10px] text-gray-400 font-mono">{o.order_type}</span>
               </div>
@@ -116,9 +120,23 @@ export default function MyOrders() {
                 <p className="text-white font-mono">{o.status === "filled" ? fmt(o.price) : o.limit_price ? fmt(o.limit_price) : o.order_type}</p>
               </div>
               <div className="text-right">
-                <p className="text-gray-500 text-[9.5px]">{o.status === "filled" ? "Giá trị + phí" : "Phong toả"}</p>
+                <p className="text-gray-500 text-[9.5px]">
+                  {o.side === "SELL"
+                    ? o.status === "filled"
+                      ? "Tiền về (sau phí, thuế)"
+                      : "Giữ cổ phiếu"
+                    : o.status === "filled"
+                      ? "Giá trị + phí"
+                      : "Phong toả"}
+                </p>
                 <p className="text-white font-mono">
-                  {o.status === "filled" ? fmt(Number(o.amount) + Number(o.fee || 0)) : fmt(o.hold_amount)}
+                  {o.side === "SELL"
+                    ? o.status === "filled"
+                      ? fmt(Number(o.amount) - Number(o.fee || 0) - Number(o.tax || 0))
+                      : `${fmt(o.qty)} CP`
+                    : o.status === "filled"
+                      ? fmt(Number(o.amount) + Number(o.fee || 0))
+                      : fmt(o.hold_amount)}
                 </p>
               </div>
             </div>

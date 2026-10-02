@@ -3,16 +3,25 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Wallet, AlertTriangle, Minus, Plus, Clock } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { placeStockOrder, newIdempotencyKey, stockErrorCode, stockErrorMessage, STOCK_ERROR_MESSAGES } from "@/lib/stockOrders";
+import {
+  placeStockOrder,
+  placeStockSellOrder,
+  newIdempotencyKey,
+  stockErrorCode,
+  stockErrorMessage,
+  STOCK_ERROR_MESSAGES,
+} from "@/lib/stockOrders";
 import {
   ORDER_TYPE_LABELS,
   SESSION_LABELS,
   allowedOrderTypes,
   estimateCost,
+  estimateSell,
   holdAmount,
   maxQty,
   priceColor,
   roundToTick,
+  sellQtyFraction,
   stepPrice,
   validateOrder,
 } from "@/lib/stockMarket";
@@ -21,19 +30,24 @@ import { toast } from "sonner";
 
 const fmt = (n) => Math.round(Number(n) || 0).toLocaleString("vi-VN");
 const BUY = "#10b981";
+const SELL = "#ef4444";
 
 /**
- * Bottom sheet đặt lệnh mua (spec §2.2): loại lệnh theo phiên, giá LO theo
- * bước giá trong [Sàn, Trần], khối lượng theo lô, sức mua, phí, tiền phong toả.
- * Server (place_stock_order) kiểm tra lại toàn bộ.
+ * Bottom sheet đặt lệnh (spec §2.2, §2.5): loại lệnh theo phiên, giá LO theo
+ * bước giá trong [Sàn, Trần], khối lượng theo lô.
+ *   side = BUY : sức mua, phí, tiền phong toả (place_stock_order).
+ *   side = SELL: CP khả dụng (sellable), phí + thuế 0,1%, tiền ròng về ví T+2
+ *                (place_stock_sell_order).
+ * Server kiểm tra lại toàn bộ.
  */
-export default function TradeSheet({ stock, quote, config, session, onClose, onPlaced }) {
+export default function TradeSheet({ stock, quote, config, session, side = "BUY", sellable = 0, onClose, onPlaced }) {
+  const isSell = side === "SELL";
   const navigate = useNavigate();
   const { user } = useAuth();
   const types = allowedOrderTypes(session);
   const [orderType, setOrderType] = useState(types.includes("MP") ? "MP" : "LO");
   const [limitPrice, setLimitPrice] = useState(() => roundToTick(quote?.last_price || 0));
-  const [qty, setQty] = useState(100);
+  const [qty, setQty] = useState(() => (isSell ? sellQtyFraction(sellable, 1) || 0 : 100));
   const [loading, setLoading] = useState(false);
   const [userBalance, setUserBalance] = useState(Number(user?.balance || 0));
   // Cùng 1 khoá cho mọi lần bấm của 1 lệnh => bấm đúp/gửi lại không khớp 2 lần.
@@ -57,12 +71,17 @@ export default function TradeSheet({ stock, quote, config, session, onClose, onP
 
   const feeRate = Number(config?.fee_rate) || 0;
   const lotSize = Number(config?.lot_size) || 100;
+  const taxRate = Number(config?.sell_tax_rate) || 0;
   const params = { orderType, qty, limitPrice, quote, feeRate };
-  const hold = holdAmount(params);
+  const hold = isSell ? 0 : holdAmount(params);
   const est = estimateCost(params);
+  const sellEst = estimateSell({ ...params, taxRate });
   const maxBuy = maxQty({ balance: userBalance, orderType, limitPrice, quote, feeRate, lotSize });
-  const invalid = quote ? validateOrder({ orderType, qty, limitPrice, quote, session, lotSize }) : "PRICE_UNAVAILABLE";
-  const short = userBalance < hold;
+  const invalid = quote
+    ? validateOrder({ orderType, qty, limitPrice, quote, session, lotSize, side, sellable })
+    : "PRICE_UNAVAILABLE";
+  const short = !isSell && userBalance < hold;
+  const accent = isSell ? SELL : BUY;
 
   if (!stock) return null;
 
@@ -84,18 +103,24 @@ export default function TradeSheet({ stock, quote, config, session, onClose, onP
 
     setLoading(true);
     try {
-      const result = await placeStockOrder({ projectId: stock.id, orderType, qty, limitPrice, idempotencyKey });
+      const place = isSell ? placeStockSellOrder : placeStockOrder;
+      const result = await place({ projectId: stock.id, orderType, qty, limitPrice, idempotencyKey });
       if (result?.balance != null) setUserBalance(Number(result.balance));
       setIdempotencyKey(newIdempotencyKey());
       window.dispatchEvent(new Event("vinclub:balance_updated"));
       const o = result?.order || {};
+      const verb = isSell ? "bán" : "mua";
       if (o.status === "filled") {
-        toast.success(`Đã khớp mua ${fmt(o.qty)} CP ${o.symbol} giá ${fmt(o.price)} đ. Cổ phiếu về tài khoản sau T+2.`);
+        toast.success(
+          `Đã khớp ${verb} ${fmt(o.qty)} CP ${o.symbol} giá ${fmt(o.price)} đ. ` +
+            (isSell ? "Tiền bán về ví sau T+2." : "Cổ phiếu về tài khoản sau T+2.")
+        );
       } else {
         toast.success(
-          `Đã đặt lệnh ${o.order_type} mua ${fmt(o.qty)} CP ${o.symbol}` +
+          `Đã đặt lệnh ${o.order_type} ${verb} ${fmt(o.qty)} CP ${o.symbol}` +
             (o.limit_price ? ` giá ${fmt(o.limit_price)} đ` : "") +
-            ` - đang chờ khớp. Đã phong toả ${fmt(o.hold_amount)} đ.`
+            " - đang chờ khớp." +
+            (isSell ? "" : ` Đã phong toả ${fmt(o.hold_amount)} đ.`)
         );
       }
       onPlaced?.(o);
@@ -130,7 +155,7 @@ export default function TradeSheet({ stock, quote, config, session, onClose, onP
           <div className="flex items-start justify-between mb-3">
             <div>
               <p className="text-[15px] font-bold text-white">
-                Mua {stock.symbol}{" "}
+                {isSell ? "Bán" : "Mua"} {stock.symbol}{" "}
                 <span className="font-mono" style={{ color: priceColor(last, quote) }}>
                   {fmt(last)}
                 </span>
@@ -174,8 +199,9 @@ export default function TradeSheet({ stock, quote, config, session, onClose, onP
                   disabled={!ok}
                   onClick={() => setOrderType(t)}
                   className={`py-1.5 rounded-lg text-[12px] font-bold transition-colors ${
-                    orderType === t ? "bg-emerald-500 text-white" : ok ? "text-gray-300 cursor-pointer" : "text-gray-600 cursor-not-allowed"
+                    orderType === t ? "text-white" : ok ? "text-gray-300 cursor-pointer" : "text-gray-600 cursor-not-allowed"
                   }`}
+                  style={orderType === t ? { backgroundColor: accent } : undefined}
                 >
                   {t}
                 </button>
@@ -223,63 +249,94 @@ export default function TradeSheet({ stock, quote, config, session, onClose, onP
           {/* Khối lượng */}
           <p className="text-[11px] text-gray-400 mb-1.5">Khối lượng (cổ phiếu)</p>
           <div className="flex items-center gap-1.5 mb-2">
-            {[100, 500, 1000].map((n) => (
+            {(isSell
+              ? [
+                  ["25%", sellQtyFraction(sellable, 0.25, lotSize)],
+                  ["50%", sellQtyFraction(sellable, 0.5, lotSize)],
+                  ["Tất cả", sellQtyFraction(sellable, 1, lotSize)],
+                ]
+              : [
+                  ["100", 100],
+                  ["500", 500],
+                  ["1.000", 1000],
+                  ["Tối đa", maxBuy],
+                ]
+            ).map(([label, n]) => (
               <button
-                key={n}
+                key={label}
+                disabled={!(n > 0)}
                 onClick={() => setQty(n)}
-                className={`flex-1 py-2 rounded-lg text-[12px] font-medium cursor-pointer ${
-                  qty === n ? "bg-emerald-500 text-white font-bold" : "bg-[#1f2937] text-gray-300"
+                className={`flex-1 py-2 rounded-lg text-[12px] font-medium cursor-pointer disabled:opacity-40 ${
+                  qty === n && n > 0 ? "text-white font-bold" : "bg-[#1f2937] text-gray-300"
                 }`}
+                style={qty === n && n > 0 ? { backgroundColor: accent } : undefined}
               >
-                {fmt(n)}
+                {label}
               </button>
             ))}
-            <button
-              disabled={maxBuy <= 0}
-              onClick={() => setQty(maxBuy)}
-              className={`flex-1 py-2 rounded-lg text-[12px] font-medium cursor-pointer disabled:opacity-40 ${
-                qty === maxBuy && maxBuy > 0 ? "bg-emerald-500 text-white font-bold" : "bg-[#1f2937] text-gray-300"
-              }`}
-            >
-              Tối đa
-            </button>
           </div>
           <input
             type="number"
             inputMode="numeric"
             value={qty}
             onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-            className="w-full px-3 py-2.5 rounded-lg bg-[#0d1117] border border-[#222c38] text-white text-[13px] outline-none focus:border-emerald-500 font-mono"
+            className="w-full px-3 py-2.5 rounded-lg bg-[#0d1117] border border-[#222c38] text-white text-[13px] outline-none focus:border-[#d4af37] font-mono"
           />
 
-          {/* Sức mua & tổng */}
-          <div className="mt-3 rounded-xl bg-white/5 border border-white/10 p-3 space-y-1.5 text-[11.5px]">
-            <div className="flex justify-between text-gray-300">
-              <span className="flex items-center gap-1.5 text-amber-300">
-                <Wallet className="w-3.5 h-3.5" /> Sức mua
-              </span>
-              <span className="font-mono font-bold text-white">
-                {fmt(userBalance)} đ · tối đa {fmt(maxBuy)} CP
-              </span>
+          {/* Sức mua / cổ phiếu khả dụng & tổng */}
+          {isSell ? (
+            <div className="mt-3 rounded-xl bg-white/5 border border-white/10 p-3 space-y-1.5 text-[11.5px]">
+              <div className="flex justify-between text-gray-300">
+                <span className="text-amber-300">CP khả dụng để bán</span>
+                <span className="font-mono font-bold text-white">{fmt(sellable)} CP</span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Giá trị bán{orderType === "LO" ? "" : " (ước tính)"}</span>
+                <span className="font-mono">{fmt(sellEst.value)} đ</span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Phí giao dịch ({(feeRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}%)</span>
+                <span className="font-mono">-{fmt(sellEst.fee)} đ</span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Thuế TNCN ({(taxRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}%)</span>
+                <span className="font-mono">-{fmt(sellEst.tax)} đ</span>
+              </div>
+              <div className="flex justify-between pt-1.5 border-t border-white/10">
+                <span className="text-gray-300">Tiền về ví (T+2)</span>
+                <span className="font-mono font-bold text-white text-[14px]">{fmt(sellEst.net)} đ</span>
+              </div>
+              <p className="text-[9.5px] text-gray-500">Cổ phiếu được giữ cho lệnh đến khi khớp, huỷ hoặc hết phiên.</p>
             </div>
-            <div className="flex justify-between text-gray-400">
-              <span>Giá trị lệnh{orderType === "LO" ? "" : " (ước tính)"}</span>
-              <span className="font-mono">{fmt(est.value)} đ</span>
+          ) : (
+            <div className="mt-3 rounded-xl bg-white/5 border border-white/10 p-3 space-y-1.5 text-[11.5px]">
+              <div className="flex justify-between text-gray-300">
+                <span className="flex items-center gap-1.5 text-amber-300">
+                  <Wallet className="w-3.5 h-3.5" /> Sức mua
+                </span>
+                <span className="font-mono font-bold text-white">
+                  {fmt(userBalance)} đ · tối đa {fmt(maxBuy)} CP
+                </span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Giá trị lệnh{orderType === "LO" ? "" : " (ước tính)"}</span>
+                <span className="font-mono">{fmt(est.value)} đ</span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Phí giao dịch ({(feeRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}%)</span>
+                <span className="font-mono">{fmt(est.fee)} đ</span>
+              </div>
+              <div className="flex justify-between pt-1.5 border-t border-white/10">
+                <span className="text-gray-300">Tiền phong toả</span>
+                <span className="font-mono font-bold text-white text-[14px]">{fmt(hold)} đ</span>
+              </div>
+              {orderType !== "LO" && (
+                <p className="text-[9.5px] text-gray-500">
+                  Lệnh {orderType} phong toả theo giá trần; phần chênh được hoàn ngay khi khớp.
+                </p>
+              )}
             </div>
-            <div className="flex justify-between text-gray-400">
-              <span>Phí giao dịch ({(feeRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}%)</span>
-              <span className="font-mono">{fmt(est.fee)} đ</span>
-            </div>
-            <div className="flex justify-between pt-1.5 border-t border-white/10">
-              <span className="text-gray-300">Tiền phong toả</span>
-              <span className="font-mono font-bold text-white text-[14px]">{fmt(hold)} đ</span>
-            </div>
-            {orderType !== "LO" && (
-              <p className="text-[9.5px] text-gray-500">
-                Lệnh {orderType} phong toả theo giá trần; phần chênh được hoàn ngay khi khớp.
-              </p>
-            )}
-          </div>
+          )}
 
           {invalid && invalid !== "PRICE_UNAVAILABLE" && (
             <div className="mt-3 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-[10.5px] text-red-300 flex items-center gap-1.5">
@@ -298,9 +355,13 @@ export default function TradeSheet({ stock, quote, config, session, onClose, onP
             disabled={loading || (!!invalid && !short)}
             onClick={handleOrder}
             className="w-full mt-4 py-3 rounded-xl text-[14px] font-extrabold text-white active:scale-[0.98] transition-transform cursor-pointer shadow-lg uppercase tracking-wider disabled:opacity-50"
-            style={{ backgroundColor: short && !invalid ? "#d4af37" : BUY }}
+            style={{ backgroundColor: short && !invalid ? "#d4af37" : accent }}
           >
-            {loading ? "Đang xử lý lệnh..." : short && !invalid ? "Nạp tiền để đặt lệnh" : `Xác nhận mua ${orderType}`}
+            {loading
+              ? "Đang xử lý lệnh..."
+              : short && !invalid
+                ? "Nạp tiền để đặt lệnh"
+                : `Xác nhận ${isSell ? "bán" : "mua"} ${orderType}`}
           </button>
         </motion.div>
       </motion.div>

@@ -127,6 +127,26 @@ export function estimateCost({ orderType, qty, limitPrice, quote, feeRate }) {
   return { price, value, fee, total: value + fee };
 }
 
+/** Bán: giá trị, phí, thuế TNCN, tiền ròng về ví (T+2). */
+export function estimateSell({ orderType, qty, limitPrice, quote, feeRate, taxRate }) {
+  const price = orderType === "LO" ? Number(limitPrice) || 0 : Number(quote?.last_price) || 0;
+  const value = Math.round(price * (Number(qty) || 0));
+  const fee = Math.round(value * (Number(feeRate) || 0));
+  const tax = Math.round(value * (Number(taxRate) || 0));
+  return { price, value, fee, tax, net: value - fee - tax };
+}
+
+/**
+ * Khối lượng bán theo tỉ lệ (25/50/100%) - làm tròn xuống lô 100. Khi không
+ * còn đủ 1 lô, 100% trả về phần lẻ (< 100 CP, chỉ bán được bằng lệnh LO).
+ */
+export function sellQtyFraction(sellable, fraction, lotSize = 100) {
+  const s = Math.floor(Number(sellable) || 0);
+  const lots = Math.floor((s * fraction) / lotSize) * lotSize;
+  if (lots > 0) return lots;
+  return fraction >= 1 ? s % lotSize : 0;
+}
+
 export function maxQty({ balance, orderType, limitPrice, quote, feeRate, lotSize = 100 }) {
   const unit = holdUnitPrice(orderType, limitPrice, quote) * (1 + (Number(feeRate) || 0));
   if (!(unit > 0)) return 0;
@@ -135,11 +155,12 @@ export function maxQty({ balance, orderType, limitPrice, quote, feeRate, lotSize
 }
 
 /** Trả mã lỗi (giống server) hoặc null nếu hợp lệ. */
-export function validateOrder({ orderType, qty, limitPrice, quote, session, lotSize = 100 }) {
+export function validateOrder({ orderType, qty, limitPrice, quote, session, lotSize = 100, side = "BUY", sellable }) {
   if (!allowedOrderTypes(session).includes(orderType)) return "ORDER_TYPE_NOT_ALLOWED_IN_SESSION";
   const q = Number(qty);
   if (!Number.isInteger(q) || q <= 0 || q > 10000000) return "INVALID_LOT";
   if (q % lotSize !== 0 && !(orderType === "LO" && q < lotSize)) return "INVALID_LOT";
+  if (side === "SELL" && q > (Number(sellable) || 0)) return "INSUFFICIENT_SHARES";
   if (orderType === "LO") {
     const p = Number(limitPrice);
     if (!(p >= Number(quote?.floor_price)) || !(p <= Number(quote?.ceiling_price))) return "PRICE_OUT_OF_BAND";

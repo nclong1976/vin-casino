@@ -137,7 +137,7 @@ export default function StocksTab({ onNavigateToProjects }) {
     };
   }, []);
 
-  const totalStockVolume = stockOrders.filter((o) => o.status === "filled").reduce((s, o) => s + (Number(o.amount) || 0), 0);
+  const totalStockVolume = stockOrders.filter((o) => o.status === "filled" && o.side !== "SELL").reduce((s, o) => s + (Number(o.amount) || 0), 0);
   const totalCompletedOrders = stockOrders.filter((o) => o.status === "filled").length;
   const investorCount = new Set(stockOrders.map((o) => o.user_id)).size;
   const tradableProjects = projects.filter((p) => p.id && !String(p.id).startsWith("stock_"));
@@ -147,7 +147,11 @@ export default function StocksTab({ onNavigateToProjects }) {
 
   const handleCancelOrder = async (order) => {
     if (cancellingId) return;
-    if (!window.confirm(`Huỷ lệnh ${order.order_type} mua ${order.qty} CP ${order.symbol} và hoàn ${Number(order.hold_amount || 0).toLocaleString("vi-VN")} ₫ cho khách?`)) return;
+    const what =
+      order.side === "SELL"
+        ? `Huỷ lệnh ${order.order_type} bán ${order.qty} CP ${order.symbol} và trả cổ phiếu cho khách?`
+        : `Huỷ lệnh ${order.order_type} mua ${order.qty} CP ${order.symbol} và hoàn ${Number(order.hold_amount || 0).toLocaleString("vi-VN")} ₫ cho khách?`;
+    if (!window.confirm(what)) return;
     setCancellingId(order.id);
     try {
       await cancelStockOrder(order.id);
@@ -324,7 +328,7 @@ export default function StocksTab({ onNavigateToProjects }) {
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold font-mono">
-                            MUA {order.symbol}
+                            {order.side === "SELL" ? "BÁN" : "MUA"} {order.symbol}
                           </span>
                           <span className="text-xs font-bold text-black">{order.user_name || order.user_email || order.user_id}</span>
                         </div>
@@ -343,7 +347,11 @@ export default function StocksTab({ onNavigateToProjects }) {
                         <div className="text-right">
                           <span className="text-xs font-bold text-emerald-600 font-mono block">
                             {new Intl.NumberFormat("vi-VN").format(
-                              order.status === "filled" ? Number(order.amount || 0) + Number(order.fee || 0) : order.hold_amount || 0
+                              order.status === "filled"
+                                ? order.side === "SELL"
+                                  ? Number(order.amount || 0) - Number(order.fee || 0) - Number(order.tax || 0)
+                                  : Number(order.amount || 0) + Number(order.fee || 0)
+                                : order.hold_amount || 0
                             )}{" "}
                             ₫
                           </span>
@@ -353,7 +361,8 @@ export default function StocksTab({ onNavigateToProjects }) {
                               ? ` × ${Number(order.status === "filled" ? order.price : order.limit_price).toLocaleString("vi-VN")} ₫`
                               : ""}
                             {order.status === "filled" && Number(order.fee) > 0 ? ` · phí ${Number(order.fee).toLocaleString("vi-VN")}` : ""}
-                            {order.status === "pending" ? " · phong toả" : ""}
+                            {order.status === "filled" && Number(order.tax) > 0 ? ` · thuế ${Number(order.tax).toLocaleString("vi-VN")}` : ""}
+                            {order.status === "pending" ? (order.side === "SELL" ? " · giữ CP" : " · phong toả") : ""}
                           </span>
                         </div>
                         {order.status === "filled" ? (

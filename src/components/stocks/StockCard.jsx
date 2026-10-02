@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { ResponsiveContainer, AreaChart, Area } from "recharts";
 import { ArrowUpRight, ArrowDownRight, Lock } from "lucide-react";
 
-export default function StockCard({ stock, index, onTrade }) {
+export default function StockCard({ stock, index, onTrade, onDetail }) {
   const up = stock.change >= 0;
   const isActive = stock.is_active ?? true;
   const color = up ? "#10b981" : "#ef4444";
@@ -23,7 +23,11 @@ export default function StockCard({ stock, index, onTrade }) {
           <Lock className="w-2.5 h-2.5" /> Tạm khóa giao dịch
         </div>
       )}
-      <div className="flex items-center gap-3">
+      <div
+        className={`flex items-center gap-3 ${onDetail ? "cursor-pointer" : ""}`}
+        onClick={onDetail ? () => onDetail(stock) : undefined}
+        title={onDetail ? "Xem biểu đồ & chi tiết" : undefined}
+      >
         {/* Logo + Symbol */}
         <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#1f2937] shrink-0">
           <span className="text-[13px] font-bold text-white">{stock.symbol}</span>

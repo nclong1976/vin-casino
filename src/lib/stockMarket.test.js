@@ -10,6 +10,8 @@ import {
   maxQty,
   validateOrder,
   changePct,
+  estimateSell,
+  sellQtyFraction,
 } from "./stockMarket";
 
 // 2026-10-05 là thứ Hai. Giờ VN = UTC+7.
@@ -90,5 +92,29 @@ describe("validateOrder", () => {
 
   it("% thay đổi so với tham chiếu", () => {
     expect(changePct({ reference_price: 18350, last_price: 18000 })).toBe(-1.91);
+  });
+});
+
+describe("bán", () => {
+  it("tiền ròng = giá trị - phí 0,15% - thuế 0,1% (giống server)", () => {
+    expect(estimateSell({ orderType: "MP", qty: 100, quote, feeRate: 0.0015, taxRate: 0.001 })).toEqual({
+      price: 18350,
+      value: 1835000,
+      fee: 2753,
+      tax: 1835,
+      net: 1830412,
+    });
+  });
+
+  it("khối lượng theo tỉ lệ, làm tròn lô", () => {
+    expect(sellQtyFraction(1050, 0.5)).toBe(500);
+    expect(sellQtyFraction(1050, 1)).toBe(1000);
+    expect(sellQtyFraction(50, 1)).toBe(50);
+    expect(sellQtyFraction(50, 0.5)).toBe(0);
+  });
+
+  it("không bán quá số khả dụng", () => {
+    expect(validateOrder({ orderType: "MP", qty: 200, quote, session: "CONT", side: "SELL", sellable: 100 })).toBe("INSUFFICIENT_SHARES");
+    expect(validateOrder({ orderType: "MP", qty: 100, quote, session: "CONT", side: "SELL", sellable: 100 })).toBeNull();
   });
 });

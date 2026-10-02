@@ -25,6 +25,7 @@ export const STOCK_ERROR_MESSAGES = {
   ORDER_NOT_CANCELLABLE: "Lệnh không còn ở trạng thái chờ khớp.",
   CANCEL_NOT_ALLOWED_IN_SESSION: "Không được huỷ lệnh trong phiên ATO / ATC.",
   INVALID_PRICE: "Giá không hợp lệ.",
+  INSUFFICIENT_SHARES: "Không đủ cổ phiếu khả dụng để bán (cổ phiếu chờ về T+2 chưa bán được).",
 };
 
 export function stockErrorCode(error) {
@@ -62,7 +63,21 @@ export function placeStockOrder({ projectId, orderType = "MP", qty, limitPrice, 
   });
 }
 
-/** Huỷ lệnh chờ khớp - hoàn đủ tiền phong toả. */
+/**
+ * Đặt lệnh bán. Server giữ cổ phiếu (qty_hold); khớp => tiền ròng (sau phí +
+ * thuế) về ví ngày T+2. Trả { order, balance, duplicate, session }.
+ */
+export function placeStockSellOrder({ projectId, orderType = "MP", qty, limitPrice, idempotencyKey }) {
+  return rpc("place_stock_sell_order", {
+    p_project_id: projectId,
+    p_order_type: orderType,
+    p_qty: qty,
+    p_limit_price: orderType === "LO" ? limitPrice : null,
+    p_idempotency_key: idempotencyKey || null,
+  });
+}
+
+/** Huỷ lệnh chờ khớp - lệnh mua hoàn tiền phong toả, lệnh bán trả cổ phiếu. */
 export function cancelStockOrder(orderId) {
   return rpc("cancel_stock_order", { p_order_id: orderId });
 }
@@ -75,8 +90,12 @@ export function adminResetStockReference(symbol, price) {
   return rpc("admin_reset_stock_reference", { p_symbol: symbol, p_price: price });
 }
 
-export function adminSetStockConfig({ feeRate, priceBandPct }) {
-  return rpc("admin_set_stock_config", { p_fee_rate: feeRate ?? null, p_price_band_pct: priceBandPct ?? null });
+export function adminSetStockConfig({ feeRate, sellTaxRate, priceBandPct }) {
+  return rpc("admin_set_stock_fees", {
+    p_fee_rate: feeRate ?? null,
+    p_sell_tax_rate: sellTaxRate ?? null,
+    p_price_band_pct: priceBandPct ?? null,
+  });
 }
 
 /** Admin cấp lệnh cho khách (có thể trừ ví hoặc chỉ ghi nhận cổ phần). */
@@ -100,6 +119,7 @@ export function summarizePositions(positions, prices) {
     .map((p) => {
       const qty = Number(p.qty) || 0;
       const pending = Math.min(qty, Number(p.qty_pending) || 0);
+      const hold = Math.min(qty - pending, Number(p.qty_hold) || 0);
       const cost = Number(p.total_cost) || 0;
       const price = Number(prices?.[p.symbol]);
       const hasPrice = Number.isFinite(price) && price > 0;
@@ -110,6 +130,8 @@ export function summarizePositions(positions, prices) {
         qty,
         qtyPending: pending,
         qtyAvailable: qty - pending,
+        qtyHold: hold,
+        qtySellable: qty - pending - hold,
         avgCost: qty > 0 ? cost / qty : 0,
         cost,
         price: hasPrice ? price : null,
