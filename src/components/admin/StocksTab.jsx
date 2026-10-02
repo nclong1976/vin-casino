@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { TrendingUp, Plus, Search, Check, X, RefreshCw, ArrowRight } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/lib/supabase";
+import { adminCreateStockOrder, stockErrorMessage } from "@/lib/stockOrders";
 import { toast } from "sonner";
 
 const DEFAULT_STOCKS = [
@@ -67,7 +69,7 @@ export default function StocksTab({ onNavigateToProjects }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [processingOrderId, setProcessingOrderId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // Modal
   const [showCreateOrder, setShowCreateOrder] = useState(false);
@@ -75,19 +77,18 @@ export default function StocksTab({ onNavigateToProjects }) {
   // Form for Manual Stock Order Assignment
   const [orderForm, setOrderForm] = useState({
     userId: "",
-    symbol: "VIC",
-    amount: "10000000",
-    shares: "220",
-    status: "completed",
+    projectId: "",
+    shares: "100",
+    chargeWallet: false,
     note: "Admin cấp lệnh giao dịch chứng khoán",
   });
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [allProjects, allTxs, allUsers] = await Promise.all([
+      const [allProjects, ordersRes, allUsers] = await Promise.all([
         base44.entities.Project.list().catch(() => []),
-        base44.entities.Transaction.list("-created_date", 200).catch(() => []),
+        supabase.from("stock_orders").select("*").order("created_at", { ascending: false }).limit(300),
         base44.entities.User.list().catch(() => []),
       ]);
 
@@ -99,14 +100,15 @@ export default function StocksTab({ onNavigateToProjects }) {
       setProjects(stockProjs.length > 0 ? stockProjs : DEFAULT_STOCKS);
       setUsers(allUsers);
 
-      // Filter stock orders/transactions
-      const sOrders = allTxs.filter((t) => {
-        const cat = (t.category || t.type || "").toLowerCase();
-        const pname = (t.project_name || t.title || "").toLowerCase();
-        return cat.includes("chứng khoán") || cat.includes("stock") || pname.includes("cổ phiếu") || pname.includes("vic") || pname.includes("vhm");
-      });
-
-      setStockOrders(sOrders);
+      // Lệnh cổ phiếu nằm ở bảng stock_orders (Giai đoạn 0) - không còn
+      // dùng bảng transactions của Dự án.
+      const byId = new Map(allUsers.map((u) => [u.id, u]));
+      setStockOrders(
+        (ordersRes?.data || []).map((o) => {
+          const u = byId.get(o.user_id);
+          return { ...o, user_name: u?.full_name || u?.name || "", user_email: u?.email || "", user_identifier: u?.identifier || "" };
+        })
+      );
     } catch (e) {
       console.error(e);
     } finally {
@@ -117,87 +119,60 @@ export default function StocksTab({ onNavigateToProjects }) {
   useEffect(() => {
     fetchData();
 
-    // Đăng ký realtime: trước đây tab này chỉ tải 1 lần lúc mount, không có
-    // subscribe nào nên lệnh giao dịch cổ phiếu mới hoặc thay đổi dự án từ
-    // thiết bị khác không hiện ra cho tới khi Admin tự tải lại trang - đúng
-    // mẫu lỗi đã sửa ở ContractsTab.jsx.
+    // Realtime: lệnh mới / đổi mã / đổi người dùng từ thiết bị khác hiện ngay.
     const unsubProject = base44.entities.Project.subscribe(() => fetchData());
-    const unsubTx = base44.entities.Transaction.subscribe(() => fetchData());
     const unsubUser = base44.entities.User.subscribe(() => fetchData());
+    const channel = supabase
+      .channel("admin_stock_orders")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_orders" }, () => fetchData())
+      .subscribe();
 
     return () => {
       if (typeof unsubProject === "function") unsubProject();
-      if (typeof unsubTx === "function") unsubTx();
       if (typeof unsubUser === "function") unsubUser();
+      supabase.removeChannel(channel);
     };
   }, []);
 
   const totalStockVolume = stockOrders.reduce((s, o) => s + (Number(o.amount) || 0), 0);
-  const totalCompletedOrders = stockOrders.filter((o) => (o.status || o.contract_status) === "approved" || o.status === "completed").length;
+  const totalCompletedOrders = stockOrders.filter((o) => o.status === "filled").length;
+  const investorCount = new Set(stockOrders.map((o) => o.user_id)).size;
+  const tradableProjects = projects.filter((p) => p.id && !String(p.id).startsWith("stock_"));
+  const formProject = tradableProjects.find((p) => p.id === orderForm.projectId) || tradableProjects[0];
+  const formQty = Math.floor(Number(orderForm.shares) || 0);
+  const formAmount = Math.round(Number(formProject?.price_per_m2) || 0) * formQty;
 
   const handleCreateOrderSubmit = async () => {
+    if (submitting) return;
     if (!orderForm.userId) {
       toast.error("Vui lòng chọn người dùng");
       return;
     }
-    const selectedUser = users.find((u) => u.id === orderForm.userId);
-    const amountNum = Number(orderForm.amount) || 0;
+    if (!formProject?.id) {
+      toast.error("Vui lòng chọn mã cổ phiếu");
+      return;
+    }
+    if (formQty <= 0) {
+      toast.error("Số lượng cổ phiếu không hợp lệ");
+      return;
+    }
 
+    setSubmitting(true);
     try {
-      const result = await base44.entities.Transaction.create({
-        user_id: orderForm.userId,
-        user_email: selectedUser?.email || "User",
-        user_name: selectedUser?.name || "Khách hàng",
-        project_id: `stock_${orderForm.symbol}`,
-        project_name: `Giao dịch Cổ phiếu ${orderForm.symbol}`,
-        category: "Đầu tư chứng khoán",
-        amount: amountNum,
-        shares: Number(orderForm.shares) || 100,
-        status: orderForm.status,
-        contract_status: orderForm.status === "completed" ? "approved" : "pending",
+      const res = await adminCreateStockOrder({
+        userId: orderForm.userId,
+        projectId: formProject.id,
+        qty: formQty,
+        chargeWallet: orderForm.chargeWallet,
         note: orderForm.note,
-        // Không gửi created_date - trigger compute_transaction_interest()
-        // ở Postgres LUÔN tự gán bằng now() của máy chủ.
       });
-      if (result?.__supabaseSynced === false) {
-        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
-        return;
-      }
-
-      toast.success("Đã cấp lệnh giao dịch chứng khoán thành công!");
+      toast.success(`Đã ghi nhận ${formQty.toLocaleString("vi-VN")} CP ${res?.order?.symbol || ""} cho khách hàng`);
       setShowCreateOrder(false);
       fetchData();
     } catch (e) {
-      toast.error("Lỗi khi tạo lệnh chứng khoán");
-    }
-  };
-
-  const handleUpdateOrderStatus = async (order, newStatus) => {
-    // Idempotency: chặn double-click / 2 tab admin duyệt trùng cùng 1 lệnh.
-    if (processingOrderId) return;
-    const currentStatus = order.status === "completed" || order.contract_status === "approved"
-      ? "completed"
-      : order.status === "rejected" || order.contract_status === "rejected"
-      ? "rejected"
-      : "pending";
-    if (currentStatus !== "pending") return;
-
-    setProcessingOrderId(order.id);
-    try {
-      const result = await base44.entities.Transaction.update(order.id, {
-        status: newStatus,
-        contract_status: newStatus === "completed" ? "approved" : newStatus === "rejected" ? "rejected" : "pending",
-      });
-      if (result?.__supabaseSynced === false) {
-        toast.error("Ghi lên máy chủ thất bại, vui lòng thử lại.");
-        return;
-      }
-      toast.success(`Đã chuyển trạng thái lệnh sang: ${newStatus}`);
-      fetchData();
-    } catch (e) {
-      toast.error("Lỗi khi duyệt lệnh");
+      toast.error(stockErrorMessage(e, "Lỗi khi tạo lệnh chứng khoán"));
     } finally {
-      setProcessingOrderId(null);
+      setSubmitting(false);
     }
   };
 
@@ -211,7 +186,7 @@ export default function StocksTab({ onNavigateToProjects }) {
             Quản Lý Danh Mục & Đầu Tư Chứng Khoán
           </h2>
           <p className="text-[11px] text-gray-300 mt-0.5">
-            Theo dõi danh mục cổ phiếu Vingroup, duyệt lệnh mua/bán & quản lý tài khoản đầu tư của người dùng
+            Theo dõi lệnh mua cổ phiếu của người dùng & cấp cổ phần cho khách hàng
           </p>
         </div>
 
@@ -241,7 +216,7 @@ export default function StocksTab({ onNavigateToProjects }) {
           </span>
         </div>
         <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-xs">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block">Tổng lệnh đã duyệt</span>
+          <span className="text-[10px] text-gray-400 uppercase font-bold block">Tổng lệnh đã khớp</span>
           <span className="text-sm font-black text-indigo-600 font-mono">
             {totalCompletedOrders} / {stockOrders.length} lệnh
           </span>
@@ -255,7 +230,7 @@ export default function StocksTab({ onNavigateToProjects }) {
         <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-xs">
           <span className="text-[10px] text-gray-400 uppercase font-bold block">Nhà đầu tư chứng khoán</span>
           <span className="text-sm font-black text-gray-800 font-mono">
-            {users.length} Khách hàng
+            {investorCount} Khách hàng
           </span>
         </div>
       </div>
@@ -313,12 +288,13 @@ export default function StocksTab({ onNavigateToProjects }) {
                   return (
                     (o.user_name || "").toLowerCase().includes(q) ||
                     (o.user_email || "").toLowerCase().includes(q) ||
-                    (o.project_name || "").toLowerCase().includes(q)
+                    (o.user_identifier || "").toLowerCase().includes(q) ||
+                    (o.symbol || "").toLowerCase().includes(q)
                   );
                 })
                 .map((order) => {
-                  const isApproved = order.status === "completed" || order.contract_status === "approved";
-                  const isRejected = order.status === "rejected" || order.contract_status === "rejected";
+                  const sourceLabel =
+                    order.source === "backfill" ? "Ghi nhận lại" : order.source === "admin" ? "Admin cấp" : "Khách đặt";
 
                   return (
                     <div
@@ -327,56 +303,40 @@ export default function StocksTab({ onNavigateToProjects }) {
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold">
-                            {order.project_name || "Cổ phiếu VIC"}
+                          <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold font-mono">
+                            MUA {order.symbol}
                           </span>
-                          <span className="text-xs font-bold text-black">{order.user_name || order.user_email || "Khách hàng"}</span>
+                          <span className="text-xs font-bold text-black">{order.user_name || order.user_email || order.user_id}</span>
                         </div>
-                        <p className="text-[11px] text-gray-500">Email: {order.user_email || "N/A"}</p>
-                        <p className="text-[10px] text-gray-400">
-                          Thời gian: {order.created_date ? new Date(order.created_date).toLocaleString("vi-VN") : "Gần đây"}
+                        <p className="text-[11px] text-gray-500">
+                          {order.user_identifier ? `TK ${order.user_identifier} · ` : ""}
+                          {order.user_email || "N/A"}
                         </p>
+                        <p className="text-[10px] text-gray-400">
+                          {order.created_at ? new Date(order.created_at).toLocaleString("vi-VN") : ""} · {sourceLabel}
+                          {order.charged ? "" : " · không trừ ví"}
+                        </p>
+                        {order.note && <p className="text-[10px] text-gray-400 italic">{order.note}</p>}
                       </div>
 
                       <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-0 pt-2 sm:pt-0 border-gray-100">
                         <div className="text-right">
                           <span className="text-xs font-bold text-emerald-600 font-mono block">
-                            +{new Intl.NumberFormat("vi-VN").format(order.amount || 0)} ₫
+                            {new Intl.NumberFormat("vi-VN").format(order.amount || 0)} ₫
                           </span>
                           <span className="text-[10px] text-gray-400">
-                            Khối lượng: {order.shares || "1.000"} CP
+                            {Number(order.qty || 0).toLocaleString("vi-VN")} CP × {Number(order.price || 0).toLocaleString("vi-VN")} ₫
                           </span>
                         </div>
-
-                        {/* Status badge & Action buttons */}
-                        <div className="flex items-center gap-1.5">
-                          {isApproved ? (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
-                              <Check className="w-3 h-3" /> Đã duyệt
-                            </span>
-                          ) : isRejected ? (
-                            <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold flex items-center gap-1">
-                              <X className="w-3 h-3" /> Đã hủy
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => handleUpdateOrderStatus(order, "completed")}
-                                disabled={processingOrderId === order.id}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-xs cursor-pointer disabled:opacity-50"
-                              >
-                                Duyệt lệnh
-                              </button>
-                              <button
-                                onClick={() => handleUpdateOrderStatus(order, "rejected")}
-                                disabled={processingOrderId === order.id}
-                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-xs cursor-pointer disabled:opacity-50"
-                              >
-                                Hủy
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        {order.status === "filled" ? (
+                          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Đã khớp
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold flex items-center gap-1">
+                            <X className="w-3 h-3" /> {order.status}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -416,57 +376,62 @@ export default function StocksTab({ onNavigateToProjects }) {
               <div>
                 <label className="font-bold text-gray-700 block mb-1">Mã Cổ Phiếu:</label>
                 <select
-                  value={orderForm.symbol}
-                  onChange={(e) => setOrderForm({ ...orderForm, symbol: e.target.value })}
+                  value={formProject?.id || ""}
+                  onChange={(e) => setOrderForm({ ...orderForm, projectId: e.target.value })}
                   className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-mono font-bold"
                 >
-                  <option value="VIC">VIC - Tập đoàn Vingroup</option>
-                  <option value="VHM">VHM - Vinhomes</option>
-                  <option value="VRE">VRE - Vincom Retail</option>
-                  <option value="VPL">VPL - Vinpearl</option>
-                  <option value="VFS">VFS - VinFast Auto</option>
+                  {tradableProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.stock_symbol || p.symbol} - {p.name || p.title} ({Math.round(Number(p.price_per_m2) || 0).toLocaleString("vi-VN")} ₫)
+                      {p.is_active === false ? " · đang khoá" : ""}
+                    </option>
+                  ))}
                 </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="font-bold text-gray-700 block mb-1">Giá trị giao dịch (₫):</label>
-                  <input
-                    type="number"
-                    value={orderForm.amount}
-                    onChange={(e) => setOrderForm({ ...orderForm, amount: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 font-mono font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-gray-700 block mb-1">Số lượng CP:</label>
-                  <input
-                    type="number"
-                    value={orderForm.shares}
-                    onChange={(e) => setOrderForm({ ...orderForm, shares: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 font-mono"
-                  />
-                </div>
               </div>
 
               <div>
-                <label className="font-bold text-gray-700 block mb-1">Trạng thái lệnh:</label>
-                <select
-                  value={orderForm.status}
-                  onChange={(e) => setOrderForm({ ...orderForm, status: e.target.value })}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white"
-                >
-                  <option value="completed">Đã duyệt (Khớp lệnh ngay)</option>
-                  <option value="pending">Chờ duyệt</option>
-                </select>
+                <label className="font-bold text-gray-700 block mb-1">Số lượng CP:</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={orderForm.shares}
+                  onChange={(e) => setOrderForm({ ...orderForm, shares: e.target.value })}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 font-mono"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Giá trị theo giá hiện tại: <b className="font-mono">{formAmount.toLocaleString("vi-VN")} ₫</b>
+                </p>
+              </div>
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={orderForm.chargeWallet}
+                  onChange={(e) => setOrderForm({ ...orderForm, chargeWallet: e.target.checked })}
+                  className="mt-0.5"
+                />
+                <span className="text-gray-700">
+                  Trừ tiền ví khách hàng
+                  <span className="block text-[10px] text-gray-500">Bỏ chọn: chỉ ghi nhận cổ phần, không trừ ví.</span>
+                </span>
+              </label>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Ghi chú:</label>
+                <input
+                  value={orderForm.note}
+                  onChange={(e) => setOrderForm({ ...orderForm, note: e.target.value })}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200"
+                />
               </div>
             </div>
 
             <button
               onClick={handleCreateOrderSubmit}
+              disabled={submitting}
               className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all mt-2"
             >
-              Xác Nhận Tạo Lệnh Giao Dịch
+              {submitting ? "Đang ghi nhận..." : "Xác Nhận Tạo Lệnh Giao Dịch"}
             </button>
           </div>
         </div>

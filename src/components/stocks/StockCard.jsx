@@ -72,9 +72,9 @@ export default function StockCard({ stock, index, onTrade }) {
         className={`w-full mt-3 py-2 rounded-lg text-[12px] font-semibold transition-all flex items-center justify-center gap-1.5 ${
           isActive ? "text-white active:scale-[0.98]" : "bg-gray-700 text-gray-400 cursor-not-allowed"
         }`}
-        style={isActive ? { backgroundColor: up ? "#10b981" : "#ef4444" } : undefined}
+        style={isActive ? { backgroundColor: "#10b981" } : undefined}
       >
-        {isActive ? (up ? "Mua ngay" : "Bán ngay") : (<>Tạm khóa giao dịch <Lock className="w-3 h-3" /></>)}
+        {isActive ? "Mua ngay" : (<>Tạm khóa giao dịch <Lock className="w-3 h-3" /></>)}
       </button>
     </motion.div>
   );
