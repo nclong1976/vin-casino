@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { sessionAt } from "@/lib/stockMarket";
 
-const DEFAULT_CONFIG = { fee_rate: 0.0015, price_band_pct: 7, lot_size: 100 };
+const DEFAULT_CONFIG = { fee_rate: 0.0015, sell_tax_rate: 0.001, price_band_pct: 7, lot_size: 100 };
 
 /**
  * Bảng giá (stock_quotes, realtime), cấu hình phí/biên độ và phiên giao dịch
@@ -31,7 +31,7 @@ export function useStockMarket() {
     loadQuotes();
     supabase
       .from("stock_config")
-      .select("fee_rate, price_band_pct, lot_size")
+      .select("fee_rate, sell_tax_rate, price_band_pct, lot_size")
       .eq("id", 1)
       .maybeSingle()
       .then(({ data }) => alive && data && setConfig({ ...DEFAULT_CONFIG, ...data }));

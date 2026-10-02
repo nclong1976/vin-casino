@@ -16,11 +16,15 @@ export default function StockQuotesBoard() {
   const { quotes, config, session } = useStockMarket();
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState(null);
-  const [cfg, setCfg] = useState({ fee: "", band: "" });
+  const [cfg, setCfg] = useState({ fee: "", tax: "", band: "" });
 
   useEffect(() => {
-    setCfg({ fee: String(+(Number(config.fee_rate) * 100).toFixed(4)), band: String(Number(config.price_band_pct)) });
-  }, [config.fee_rate, config.price_band_pct]);
+    setCfg({
+      fee: String(+(Number(config.fee_rate) * 100).toFixed(4)),
+      tax: String(+(Number(config.sell_tax_rate ?? 0.001) * 100).toFixed(4)),
+      band: String(Number(config.price_band_pct)),
+    });
+  }, [config.fee_rate, config.sell_tax_rate, config.price_band_pct]);
 
   const rows = Object.values(quotes).sort((a, b) => a.symbol.localeCompare(b.symbol));
 
@@ -55,10 +59,12 @@ export default function StockQuotesBoard() {
 
   const saveConfig = () => {
     const fee = Number(cfg.fee);
+    const tax = Number(cfg.tax);
     const band = Number(cfg.band);
     if (!(fee >= 0 && fee < 5)) return toast.error("Phí phải từ 0% đến dưới 5%");
+    if (!(tax >= 0 && tax < 5)) return toast.error("Thuế bán phải từ 0% đến dưới 5%");
     if (!(band > 0 && band <= 50)) return toast.error("Biên độ phải từ 0% đến 50%");
-    run("cfg", () => adminSetStockConfig({ feeRate: fee / 100, priceBandPct: band }), "Đã lưu cấu hình giao dịch");
+    run("cfg", () => adminSetStockConfig({ feeRate: fee / 100, sellTaxRate: tax / 100, priceBandPct: band }), "Đã lưu cấu hình giao dịch");
   };
 
   return (
@@ -70,13 +76,22 @@ export default function StockQuotesBoard() {
             {SESSION_LABELS[session] || session}
           </span>
         </h3>
-        <div className="flex items-center gap-1.5 text-[11px]">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           <label className="flex items-center gap-1 text-gray-600">
             Phí
             <input
               value={cfg.fee}
               onChange={(e) => setCfg({ ...cfg, fee: e.target.value })}
               className="w-16 px-1.5 py-1 rounded-md border border-gray-200 font-mono text-right"
+            />
+            %
+          </label>
+          <label className="flex items-center gap-1 text-gray-600">
+            Thuế bán
+            <input
+              value={cfg.tax}
+              onChange={(e) => setCfg({ ...cfg, tax: e.target.value })}
+              className="w-14 px-1.5 py-1 rounded-md border border-gray-200 font-mono text-right"
             />
             %
           </label>

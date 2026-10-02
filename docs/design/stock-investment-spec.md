@@ -492,6 +492,7 @@ stateDiagram-v2
   - Tiền phong toả lưu ngay trên `stock_orders.hold_amount` thay vì bảng `stock_cash_holds` riêng (mỗi lệnh 1 lần phong toả, chưa cần bảng riêng).
   - T+2 theo dõi bằng `stock_trades.settle_date / settled_at` và `stock_positions.qty_pending` thay cho `stock_settlements` (chưa có lệnh bán nên chưa có tiền chờ về).
   - Giá vẫn sửa được ở tab Dự án; trigger kẹp trong Trần/Sàn và đồng bộ vào `stock_quotes`.
+- **Giai đoạn 2** — xong (`20261009090000_stock_phase2.sql`): lệnh bán LO/MP/ATO/ATC (`place_stock_sell_order`), giữ cổ phiếu bằng `stock_positions.qty_hold`, thuế bán 0,1% (`stock_config.sell_tax_rate`), lãi/lỗ đã thực hiện trên `stock_trades.realized_pnl`, tiền bán về ví T+2 qua thủ tục `stock_settle_due` (cron mỗi phút, COMMIT từng khoản ⇒ mỗi khoản 1 thông báo "Biến động số dư … ND: TIEN BAN VRE 100 CP"), ghi `wallet_transactions.type = 'stock_sale'` (không tính vào tổng nạp). Biểu đồ giá từ `stock_price_ticks`. Tiền chờ về lấy từ các dòng `stock_trades` bán chưa thanh toán thay cho bảng `stock_settlements`. Mã đang khoá (`is_active = false`) không bán được — giống sàn tạm ngừng giao dịch.
 
 ## 7. Tiêu chí nghiệm thu chính
 

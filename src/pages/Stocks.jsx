@@ -9,6 +9,9 @@ import MarketSearchBar from "@/components/shared/MarketSearchBar";
 import { base44 } from "@/api/base44Client";
 import MyHoldings from "@/components/stocks/MyHoldings";
 import MyOrders from "@/components/stocks/MyOrders";
+import StockDetailSheet from "@/components/stocks/StockDetailSheet";
+import { useMyPositions, sellableOf } from "@/hooks/useMyPositions";
+import { useAuth } from "@/lib/AuthContext";
 import { useStockMarket } from "@/hooks/useStockMarket";
 import { changePct } from "@/lib/stockMarket";
 import { toast } from "sonner";
@@ -87,7 +90,11 @@ function withQuote(stock, quote) {
 }
 
 export default function Stocks() {
-  const [selected, setSelected] = useState(null);
+  // trade = { stock, side: 'BUY' | 'SELL' } - sheet đặt lệnh; detail = mã đang xem biểu đồ.
+  const [trade, setTrade] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const { user } = useAuth();
+  const positions = useMyPositions(user?.id);
   const [stocks, setStocks] = useState(FALLBACK_STOCKS);
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
@@ -104,10 +111,14 @@ export default function Stocks() {
     setSearchParams(next, { replace: true });
   };
 
-  const buySymbol = (symbol) => {
-    const s = liveStocks.find((x) => x.symbol === symbol);
-    if (s?.id && s.is_active) setSelected(s);
-    else toast.error("Mã này đang tạm khoá giao dịch.");
+  const openTrade = (stockOrSymbol, side = "BUY") => {
+    const s = typeof stockOrSymbol === "string" ? liveStocks.find((x) => x.symbol === stockOrSymbol) : stockOrSymbol;
+    if (!s?.id || !s.is_active) {
+      toast.error("Mã này đang tạm khoá giao dịch.");
+      return;
+    }
+    setDetail(null);
+    setTrade({ stock: s, side });
   };
 
   // Đọc trực tiếp danh sách cổ phiếu admin cấu hình trong StocksTab.jsx qua
@@ -189,13 +200,15 @@ export default function Stocks() {
                 id={stock.id ? `project-${stock.id}` : undefined}
                 className={highlightActive && highlightId === String(stock.id) ? "ring-2 ring-amber-400 rounded-2xl" : ""}
               >
-                <StockCard stock={stock} index={index} onTrade={setSelected} />
+                <StockCard stock={stock} index={index} onTrade={(s) => openTrade(s, "BUY")} onDetail={setDetail} />
               </div>
             ))}
           </>
         )}
 
-        {tab === "portfolio" && <MyHoldings quotes={quotes} onBuy={buySymbol} />}
+        {tab === "portfolio" && (
+          <MyHoldings quotes={quotes} onBuy={(sym) => openTrade(sym, "BUY")} onSell={(sym) => openTrade(sym, "SELL")} />
+        )}
 
         {tab === "orders" && <MyOrders />}
 
@@ -204,13 +217,27 @@ export default function Stocks() {
         </p>
       </div>
 
-      {selected && (
+      {detail && (
+        <StockDetailSheet
+          stock={liveStocks.find((x) => x.symbol === detail.symbol) || detail}
+          quote={quotes[detail.symbol]}
+          sellable={sellableOf(positions[detail.symbol])}
+          onClose={() => setDetail(null)}
+          onBuy={() => openTrade(detail.symbol, "BUY")}
+          onSell={() => openTrade(detail.symbol, "SELL")}
+        />
+      )}
+
+      {trade && (
         <TradeSheet
-          stock={selected}
-          quote={quotes[selected.symbol]}
+          key={`${trade.stock.symbol}-${trade.side}`}
+          stock={trade.stock}
+          side={trade.side}
+          sellable={sellableOf(positions[trade.stock.symbol])}
+          quote={quotes[trade.stock.symbol]}
           config={config}
           session={session}
-          onClose={() => setSelected(null)}
+          onClose={() => setTrade(null)}
           onPlaced={(o) => o?.status === "pending" && setTab("orders")}
         />
       )}

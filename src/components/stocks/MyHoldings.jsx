@@ -13,10 +13,11 @@ const tone = (n) => (n > 0 ? "#10b981" : n < 0 ? "#ef4444" : "#d4af37");
  * giá theo bảng giá realtime. CP mua chưa tới T+2 hiện "chờ về".
  * compact = thẻ tóm tắt trên tab Thị trường (ẩn khi chưa có cổ phần).
  */
-export default function MyHoldings({ quotes, compact = false, onBuy }) {
+export default function MyHoldings({ quotes, compact = false, onBuy, onSell }) {
   const { user } = useAuth();
   const [positions, setPositions] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [sales, setSales] = useState({ pending: 0, realized: 0 });
 
   useEffect(() => {
     const uid = user?.id;
@@ -28,17 +29,36 @@ export default function MyHoldings({ quotes, compact = false, onBuy }) {
     const load = () =>
       supabase
         .from("stock_positions")
-        .select("symbol, project_id, qty, qty_pending, total_cost")
+        .select("symbol, project_id, qty, qty_pending, qty_hold, total_cost")
         .eq("user_id", uid)
         .then(({ data }) => {
           if (!alive) return;
           setPositions(data || []);
           setLoaded(true);
         });
+    // Tiền bán chờ về (T+2) và lãi/lỗ đã chốt từ các lệnh bán đã khớp.
+    const loadSales = () =>
+      supabase
+        .from("stock_trades")
+        .select("net_amount, realized_pnl, settled_at")
+        .eq("user_id", uid)
+        .eq("side", "SELL")
+        .then(({ data }) => {
+          if (!alive || !data) return;
+          setSales({
+            pending: data.filter((t) => !t.settled_at).reduce((s, t) => s + (Number(t.net_amount) || 0), 0),
+            realized: data.reduce((s, t) => s + (Number(t.realized_pnl) || 0), 0),
+          });
+        });
     load();
+    loadSales();
     const channel = supabase
       .channel(`stock_positions_${uid}${compact ? "_c" : ""}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_positions", filter: `user_id=eq.${uid}` }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_positions", filter: `user_id=eq.${uid}` }, () => {
+        load();
+        loadSales();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_trades", filter: `user_id=eq.${uid}` }, () => loadSales())
       .subscribe();
     return () => {
       alive = false;
@@ -54,7 +74,7 @@ export default function MyHoldings({ quotes, compact = false, onBuy }) {
     return summarizePositions(positions, prices);
   }, [positions, quotes]);
 
-  if (summary.rows.length === 0) {
+  if (summary.rows.length === 0 && !(sales.pending > 0)) {
     if (compact || !loaded) return null;
     return (
       <p className="text-center text-[12px] text-gray-500 py-10 rounded-2xl bg-[#151b24]">
@@ -88,6 +108,22 @@ export default function MyHoldings({ quotes, compact = false, onBuy }) {
         </div>
       </div>
 
+      {(sales.pending > 0 || (!compact && sales.realized !== 0)) && (
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div className="rounded-xl bg-[#0d1117] p-2.5">
+            <p className="text-[10px] text-gray-400">Tiền bán chờ về (T+2)</p>
+            <p className="text-[13px] font-bold text-amber-300 font-mono">{fmt(sales.pending)} đ</p>
+          </div>
+          <div className="rounded-xl bg-[#0d1117] p-2.5">
+            <p className="text-[10px] text-gray-400">Lãi/Lỗ đã chốt</p>
+            <p className="text-[13px] font-bold font-mono" style={{ color: tone(sales.realized) }}>
+              {sales.realized >= 0 ? "+" : ""}
+              {fmt(sales.realized)} đ
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="divide-y divide-[#222c38]">
         {summary.rows.map((r) => (
           <div key={r.symbol} className="flex items-center gap-3 py-2">
@@ -99,6 +135,7 @@ export default function MyHoldings({ quotes, compact = false, onBuy }) {
               <p className="text-[10px] text-gray-400">
                 Giá vốn {fmt(r.avgCost)} đ
                 {r.qtyPending > 0 && <span className="text-amber-300"> · {r.qtyPending.toLocaleString("vi-VN")} chờ về T+2</span>}
+                {r.qtyHold > 0 && <span className="text-red-300"> · {r.qtyHold.toLocaleString("vi-VN")} đang chờ bán</span>}
               </p>
             </div>
             <div className="text-right shrink-0">
@@ -107,13 +144,26 @@ export default function MyHoldings({ quotes, compact = false, onBuy }) {
                 {r.price != null ? pct(r.pnlPct) : "Chưa có giá"}
               </p>
             </div>
-            {!compact && onBuy && (
-              <button
-                onClick={() => onBuy(r.symbol)}
-                className="ml-1 px-2.5 py-1.5 rounded-lg bg-emerald-500 text-white text-[10.5px] font-bold cursor-pointer"
-              >
-                Mua thêm
-              </button>
+            {!compact && (onBuy || onSell) && (
+              <div className="ml-1 flex flex-col gap-1">
+                {onBuy && (
+                  <button
+                    onClick={() => onBuy(r.symbol)}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500 text-white text-[10.5px] font-bold cursor-pointer"
+                  >
+                    Mua
+                  </button>
+                )}
+                {onSell && (
+                  <button
+                    disabled={r.qtySellable <= 0}
+                    onClick={() => onSell(r.symbol, r.qtySellable)}
+                    className="px-2.5 py-1 rounded-lg bg-red-500 text-white text-[10.5px] font-bold cursor-pointer disabled:opacity-40"
+                  >
+                    Bán
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ))}

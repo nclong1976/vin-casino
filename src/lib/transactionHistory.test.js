@@ -48,3 +48,15 @@ describe("computeWalletNet — tính số dư ground truth từ lịch sử Wall
     expect(computeWalletNet(raw).netCalculated).toBe(0);
   });
 });
+
+describe("tiền bán cổ phiếu (type='stock_sale')", () => {
+  it("là tiền VÀO, hiển thị 'Bán cổ phiếu' với dấu +", async () => {
+    const { normalizeWalletTransaction, TRANSACTION_KINDS } = await import("@/lib/transactionHistory.js");
+    const { depSum } = computeWalletNet([{ type: "stock_sale", amount: 1_830_412, status: "completed" }]);
+    expect(depSum).toBe(1_830_412);
+    const n = normalizeWalletTransaction({ type: "stock_sale", amount: 1_830_412, status: "completed" });
+    expect(n.kind).toBe(TRANSACTION_KINDS.STOCK_SALE);
+    expect(n.kindLabel).toBe("Bán cổ phiếu");
+    expect(n.signedAmount).toBe(1_830_412);
+  });
+});
