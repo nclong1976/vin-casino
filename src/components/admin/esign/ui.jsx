@@ -20,6 +20,38 @@ export function Section({ title, description, children, actions }) {
   );
 }
 
+/** Khối thu gọn cho tuỳ chọn ít dùng - mặc định đóng, hiện tóm tắt bên phải tiêu đề. */
+export function Collapsible({ title, summary, defaultOpen = false, children }) {
+  return (
+    <details open={defaultOpen} className="group bg-white rounded-xl border border-gray-200">
+      <summary className="flex items-center gap-2 px-3 py-2.5 cursor-pointer list-none select-none">
+        <span className="text-gray-400 text-[10px] transition-transform group-open:rotate-90">▶</span>
+        <span className="text-[12px] font-bold text-gray-800">{title}</span>
+        {summary && <span className="ml-auto text-[10.5px] text-gray-500 truncate">{summary}</span>}
+      </summary>
+      <div className="px-3 pb-3 space-y-3">{children}</div>
+    </details>
+  );
+}
+
+/** Nút chọn dạng "viên thuốc" (segmented control). */
+export function Segmented({ value, onChange, options }) {
+  return (
+    <div className="inline-flex gap-1 bg-gray-100 rounded-lg p-1">
+      {options.map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onChange(k)}
+          className={`px-3 py-1 rounded-md text-[11px] font-semibold ${value === k ? "bg-white shadow text-[#7d6c45]" : "text-gray-500"}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Field({ label, hint, children, error }) {
   return (
     <label className="block">
