@@ -26,6 +26,11 @@ export const STOCK_ERROR_MESSAGES = {
   CANCEL_NOT_ALLOWED_IN_SESSION: "Không được huỷ lệnh trong phiên ATO / ATC.",
   INVALID_PRICE: "Giá không hợp lệ.",
   INSUFFICIENT_SHARES: "Không đủ cổ phiếu khả dụng để bán (cổ phiếu chờ về T+2 chưa bán được).",
+  INVALID_ACTION: "Thông tin cổ tức không hợp lệ (số tiền / tỉ lệ).",
+  INVALID_EX_DATE: "Ngày GDKHQ phải là một ngày giao dịch sau hôm nay.",
+  INVALID_DATES: "Ngày ĐKCC phải từ ngày GDKHQ trở đi, ngày thực hiện từ ngày ĐKCC trở đi.",
+  ACTION_NOT_FOUND: "Không tìm thấy đợt cổ tức.",
+  ACTION_NOT_CANCELLABLE: "Chỉ huỷ được đợt cổ tức trước ngày GDKHQ.",
 };
 
 export function stockErrorCode(error) {
@@ -96,6 +101,26 @@ export function adminSetStockConfig({ feeRate, sellTaxRate, priceBandPct }) {
     p_sell_tax_rate: sellTaxRate ?? null,
     p_price_band_pct: priceBandPct ?? null,
   });
+}
+
+/** Admin công bố quyền cổ tức (tiền mặt / cổ phiếu). */
+export function adminCreateCorporateAction({ projectId, actionType, cashPerShare, ratioFrom, ratioTo, exDate, recordDate, paymentDate, taxRate, note }) {
+  return rpc("admin_create_corporate_action", {
+    p_project_id: projectId,
+    p_action_type: actionType,
+    p_cash_per_share: actionType === "CASH" ? cashPerShare : null,
+    p_ratio_from: actionType === "STOCK" ? ratioFrom : null,
+    p_ratio_to: actionType === "STOCK" ? ratioTo : null,
+    p_ex_date: exDate,
+    p_record_date: recordDate || null,
+    p_payment_date: paymentDate || null,
+    p_tax_rate: actionType === "CASH" ? taxRate ?? null : null,
+    p_note: note || null,
+  });
+}
+
+export function adminCancelCorporateAction(actionId) {
+  return rpc("admin_cancel_corporate_action", { p_action_id: actionId });
 }
 
 /** Admin cấp lệnh cho khách (có thể trừ ví hoặc chỉ ghi nhận cổ phần). */

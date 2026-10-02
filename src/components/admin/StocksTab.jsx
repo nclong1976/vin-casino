@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { adminCreateStockOrder, cancelStockOrder, stockErrorMessage } from "@/lib/stockOrders";
 import { STATUS_LABELS } from "@/lib/stockMarket";
 import StockQuotesBoard from "@/components/admin/stocks/StockQuotesBoard";
+import DividendManager from "@/components/admin/stocks/DividendManager";
 import { toast } from "sonner";
 
 const DEFAULT_STOCKS = [
@@ -277,6 +278,8 @@ export default function StocksTab({ onNavigateToProjects }) {
       </div>
 
       <StockQuotesBoard />
+
+      <DividendManager projects={projects} />
 
       {/* Danh mục & Lệnh giao dịch chứng khoán của Người dùng */}
       <div className="space-y-3">

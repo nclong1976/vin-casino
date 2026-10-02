@@ -36,6 +36,7 @@ export const TRANSACTION_KINDS = /** @type {const} */ ({
   INVESTMENT: "investment",
   BONUS: "bonus",
   STOCK_SALE: "stock_sale",
+  DIVIDEND: "dividend",
 });
 
 const KIND_META = {
@@ -44,6 +45,7 @@ const KIND_META = {
   [TRANSACTION_KINDS.INVESTMENT]: { label: "Đầu tư / Đặt cược", sign: -1 },
   [TRANSACTION_KINDS.BONUS]: { label: "Thưởng / Lãi", sign: 1 },
   [TRANSACTION_KINDS.STOCK_SALE]: { label: "Bán cổ phiếu", sign: 1 },
+  [TRANSACTION_KINDS.DIVIDEND]: { label: "Cổ tức", sign: 1 },
 };
 
 /**
@@ -66,6 +68,8 @@ export function resolveTransactionKind(raw) {
   // Tiền bán cổ phiếu về ví sau T+2 (stock_settle_trade) - tiền VÀO nhưng
   // không phải nạp tiền, không tính vào tổng nạp.
   if (type === "stock_sale") return TRANSACTION_KINDS.STOCK_SALE;
+  // Cổ tức tiền mặt (stock_pay_entitlement) - tiền VÀO, không tính tổng nạp.
+  if (type === "dividend") return TRANSACTION_KINDS.DIVIDEND;
   if (type === "deposit" && BONUS_CATEGORIES.has(raw?.category)) return TRANSACTION_KINDS.BONUS;
   return TRANSACTION_KINDS.DEPOSIT;
 }
@@ -89,7 +93,7 @@ export function resolveTransactionStatus(raw) {
 /**
  * @typedef {Object} NormalizedTransaction
  * @property {string} id
- * @property {"deposit"|"withdraw"|"investment"|"bonus"|"stock_sale"} kind
+ * @property {"deposit"|"withdraw"|"investment"|"bonus"|"stock_sale"|"dividend"} kind
  * @property {string} kindLabel Nhãn tiếng Việt: "Nạp tiền" | "Rút tiền" | "Đầu tư / Đặt cược" | "Thưởng / Lãi"
  * @property {number} amount Luôn dương (giá trị tuyệt đối)
  * @property {number} signedAmount Dấu +/- đã áp đúng theo kind; 0 nếu status khác "success" (tiền chưa/không di chuyển)
@@ -180,7 +184,7 @@ export function buildTransactionHistory(rawList, currentBalance) {
  */
 const SETTLED_WALLET_STATUSES = new Set(["completed", "approved"]);
 const OUTGOING_WALLET_TYPES = new Set(["withdraw", "investment", "withdrawal"]);
-const INCOMING_WALLET_TYPES = new Set(["deposit", "bonus", "stock_sale"]);
+const INCOMING_WALLET_TYPES = new Set(["deposit", "bonus", "stock_sale", "dividend"]);
 
 export function computeWalletNet(rawList) {
   const depSum = (rawList || [])

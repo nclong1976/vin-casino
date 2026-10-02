@@ -60,3 +60,14 @@ describe("tiền bán cổ phiếu (type='stock_sale')", () => {
     expect(n.signedAmount).toBe(1_830_412);
   });
 });
+
+describe("cổ tức tiền mặt (type='dividend')", () => {
+  it("là tiền VÀO, hiển thị 'Cổ tức'", async () => {
+    const { normalizeWalletTransaction, TRANSACTION_KINDS } = await import("@/lib/transactionHistory.js");
+    expect(computeWalletNet([{ type: "dividend", amount: 1_425_000, status: "completed" }]).depSum).toBe(1_425_000);
+    const n = normalizeWalletTransaction({ type: "dividend", amount: 1_425_000, status: "completed" });
+    expect(n.kind).toBe(TRANSACTION_KINDS.DIVIDEND);
+    expect(n.kindLabel).toBe("Cổ tức");
+    expect(n.signedAmount).toBe(1_425_000);
+  });
+});
