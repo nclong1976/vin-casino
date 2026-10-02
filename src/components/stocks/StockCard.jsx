@@ -1,9 +1,9 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { ResponsiveContainer, AreaChart, Area } from "recharts";
-import { ArrowUpRight, ArrowDownRight, Lock } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Lock, Star } from "lucide-react";
 
-export default function StockCard({ stock, index, onTrade, onDetail }) {
+export default function StockCard({ stock, index, onTrade, onDetail, watched = false, onToggleWatch }) {
   const up = stock.change >= 0;
   const isActive = stock.is_active ?? true;
   const color = up ? "#10b981" : "#ef4444";
@@ -34,7 +34,22 @@ export default function StockCard({ stock, index, onTrade, onDetail }) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-white truncate">{stock.symbol}</p>
+          <p className="text-[13px] font-semibold text-white truncate flex items-center gap-1">
+            {stock.symbol}
+            {onToggleWatch && (
+              <button
+                type="button"
+                aria-label={watched ? "Bỏ theo dõi" : "Theo dõi"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleWatch(stock.symbol);
+                }}
+                className="p-0.5 -m-0.5 cursor-pointer"
+              >
+                <Star className={`w-3.5 h-3.5 ${watched ? "fill-[#d4af37] text-[#d4af37]" : "text-gray-500"}`} />
+              </button>
+            )}
+          </p>
           <p className="text-[10px] text-gray-400 truncate">{stock.name}</p>
         </div>
 

@@ -12,6 +12,7 @@ import MyOrders from "@/components/stocks/MyOrders";
 import StockDetailSheet from "@/components/stocks/StockDetailSheet";
 import DividendCalendar from "@/components/stocks/DividendCalendar";
 import { useMyPositions, sellableOf } from "@/hooks/useMyPositions";
+import { useWatchlist } from "@/hooks/useWatchlist";
 import { useAuth } from "@/lib/AuthContext";
 import { useStockMarket } from "@/hooks/useStockMarket";
 import { changePct } from "@/lib/stockMarket";
@@ -97,6 +98,8 @@ export default function Stocks() {
   const [detail, setDetail] = useState(null);
   const { user } = useAuth();
   const positions = useMyPositions(user?.id);
+  const { watched, toggle: toggleWatch } = useWatchlist(user?.id);
+  const [onlyWatched, setOnlyWatched] = useState(false);
   const [stocks, setStocks] = useState(FALLBACK_STOCKS);
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
@@ -193,16 +196,56 @@ export default function Stocks() {
 
             <div className="flex items-center justify-between pt-1">
               <h2 className="text-[13px] font-semibold text-white">Cổ phiếu Vingroup</h2>
-              <span className="text-[10px] text-gray-500">Cập nhật trực tiếp</span>
+              {user?.id ? (
+                <div className="flex gap-1 p-0.5 rounded-lg bg-[#151b24]">
+                  {[
+                    [false, "Tất cả"],
+                    [true, `★ Theo dõi (${watched.size})`],
+                  ].map(([v, label]) => (
+                    <button
+                      key={label}
+                      onClick={() => setOnlyWatched(v)}
+                      className={`px-2.5 py-1 rounded-md text-[10.5px] cursor-pointer ${onlyWatched === v ? "bg-[#d4af37] text-black font-bold" : "text-gray-400"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-500">Cập nhật trực tiếp</span>
+              )}
             </div>
 
-            {liveStocks.map((stock, index) => (
+            {onlyWatched && !liveStocks.some((s) => watched.has(s.symbol)) && (
+              <p className="text-center text-[12px] text-gray-500 py-8 rounded-2xl bg-[#151b24]">
+                Chưa theo dõi mã nào. Bấm ☆ cạnh mã cổ phiếu để thêm vào danh sách theo dõi.
+              </p>
+            )}
+
+            {liveStocks
+              .filter((s) => !onlyWatched || watched.has(s.symbol))
+              .sort((a, b) => Number(watched.has(b.symbol)) - Number(watched.has(a.symbol)))
+              .map((stock, index) => (
               <div
                 key={stock.id || stock.symbol}
                 id={stock.id ? `project-${stock.id}` : undefined}
                 className={highlightActive && highlightId === String(stock.id) ? "ring-2 ring-amber-400 rounded-2xl" : ""}
               >
-                <StockCard stock={stock} index={index} onTrade={(s) => openTrade(s, "BUY")} onDetail={setDetail} />
+                <StockCard
+                  stock={stock}
+                  index={index}
+                  onTrade={(s) => openTrade(s, "BUY")}
+                  onDetail={setDetail}
+                  watched={watched.has(stock.symbol)}
+                  onToggleWatch={
+                    user?.id
+                      ? async (sym) => {
+                          const r = await toggleWatch(sym);
+                          if (r === null) toast.error("Không cập nhật được danh sách theo dõi");
+                        }
+                      : undefined
+                  }
+                />
               </div>
             ))}
           </>

@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Banknote, Gift } from "lucide-react";
+import { CalendarDays, Banknote, Gift, Repeat } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthContext";
 import { ACTION_STATUS_LABELS, actionLabel, estimateEntitlement, fmtDate, groupByMonth } from "@/lib/dividends";
 import { vnClock } from "@/lib/stockMarket";
+import { setStockDrip, stockErrorMessage } from "@/lib/stockOrders";
 
 const fmt = (n) => Math.round(Number(n) || 0).toLocaleString("vi-VN");
 
@@ -17,6 +19,8 @@ export default function DividendCalendar({ positions }) {
   const [actions, setActions] = useState([]);
   const [ents, setEnts] = useState([]);
   const [view, setView] = useState("upcoming");
+  const [drip, setDrip] = useState({});
+  const [dripBusy, setDripBusy] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -34,6 +38,11 @@ export default function DividendCalendar({ positions }) {
           .select("*")
           .eq("user_id", user.id)
           .then(({ data }) => alive && setEnts(data || []));
+        supabase
+          .from("stock_drip_settings")
+          .select("symbol, enabled")
+          .eq("user_id", user.id)
+          .then(({ data }) => alive && setDrip(Object.fromEntries((data || []).map((d) => [d.symbol, d.enabled]))));
       }
     };
     load();
@@ -58,6 +67,25 @@ export default function DividendCalendar({ positions }) {
     .sort((a, b) => String(b.paid_at).localeCompare(String(a.paid_at)));
 
   const totalReceived = received.reduce((s, e) => s + (Number(e.net) || 0), 0);
+  const heldSymbols = Object.values(positions || {})
+    .filter((p) => Number(p.qty) > 0)
+    .map((p) => p.symbol)
+    .sort();
+
+  const toggleDrip = async (symbol) => {
+    if (dripBusy) return;
+    const next = !drip[symbol];
+    setDripBusy(symbol);
+    try {
+      await setStockDrip(symbol, next);
+      setDrip((d) => ({ ...d, [symbol]: next }));
+      toast.success(next ? `Đã bật tái đầu tư cổ tức ${symbol}` : `Đã tắt tái đầu tư cổ tức ${symbol}`);
+    } catch (e) {
+      toast.error(stockErrorMessage(e, "Không lưu được cài đặt"));
+    } finally {
+      setDripBusy(null);
+    }
+  };
 
   return (
     <section className="space-y-3">
@@ -80,6 +108,32 @@ export default function DividendCalendar({ positions }) {
           ))}
         </div>
       </div>
+
+      {user?.id && heldSymbols.length > 0 && (
+        <div className="rounded-2xl p-3 bg-[#151b24] border border-[#d4af37]/30">
+          <p className="text-[12px] font-semibold text-white flex items-center gap-1.5">
+            <Repeat className="w-3.5 h-3.5 text-[#d4af37]" /> Tái đầu tư cổ tức tự động (DRIP)
+          </p>
+          <p className="text-[10px] text-gray-500 mt-0.5 mb-2 leading-relaxed">
+            Khi cổ tức tiền mặt về ví, hệ thống tự đặt lệnh LO mua lại đúng mã đó theo giá hiện tại (KL = tiền cổ tức ÷ giá, tính cả phí;
+            không đủ 1 CP thì tiền ở lại ví).
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {heldSymbols.map((sym) => (
+              <button
+                key={sym}
+                disabled={dripBusy === sym}
+                onClick={() => toggleDrip(sym)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 ${
+                  drip[sym] ? "bg-[#d4af37] text-black" : "bg-[#0d1117] text-gray-400 border border-[#222c38]"
+                }`}
+              >
+                {sym} · {drip[sym] ? "Bật" : "Tắt"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {view === "upcoming" &&
         (upcoming.length === 0 ? (
@@ -166,6 +220,7 @@ export default function DividendCalendar({ positions }) {
                   <p className="text-[10px] text-gray-500">
                     {fmt(e.qty_eligible)} CP hưởng quyền · {e.paid_at ? new Date(e.paid_at).toLocaleDateString("vi-VN") : ""}
                   </p>
+                  {e.drip_note && e.drip_note !== "off" && <p className="text-[10px] text-amber-300 mt-0.5">DRIP: {e.drip_note}</p>}
                 </div>
                 <p className="text-[13px] font-bold font-mono text-emerald-300">
                   {Number(e.shares) > 0 ? `+${fmt(e.shares)} CP` : `+${fmt(e.net)} đ`}

@@ -6,6 +6,7 @@ import { adminCreateStockOrder, cancelStockOrder, stockErrorMessage } from "@/li
 import { STATUS_LABELS } from "@/lib/stockMarket";
 import StockQuotesBoard from "@/components/admin/stocks/StockQuotesBoard";
 import DividendManager from "@/components/admin/stocks/DividendManager";
+import StockReport from "@/components/admin/stocks/StockReport";
 import { toast } from "sonner";
 
 const DEFAULT_STOCKS = [
@@ -276,6 +277,8 @@ export default function StocksTab({ onNavigateToProjects }) {
           Đi tới Dự án <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      <StockReport />
 
       <StockQuotesBoard />
 

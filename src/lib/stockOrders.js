@@ -123,6 +123,16 @@ export function adminCancelCorporateAction(actionId) {
   return rpc("admin_cancel_corporate_action", { p_action_id: actionId });
 }
 
+/** Bật / tắt tái đầu tư cổ tức (DRIP) cho 1 mã. */
+export function setStockDrip(symbol, enabled) {
+  return rpc("set_stock_drip", { p_symbol: symbol, p_enabled: !!enabled });
+}
+
+/** Số liệu tổng hợp chứng khoán cho Admin. */
+export function adminStockReport() {
+  return rpc("admin_stock_report", {});
+}
+
 /** Admin cấp lệnh cho khách (có thể trừ ví hoặc chỉ ghi nhận cổ phần). */
 export function adminCreateStockOrder({ userId, projectId, qty, chargeWallet, note }) {
   return rpc("admin_create_stock_order", {
