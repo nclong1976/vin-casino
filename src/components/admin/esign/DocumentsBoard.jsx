@@ -19,6 +19,13 @@ import { formatVnDateTime } from "@/shared/docLayout";
 import { Button, DocStatusBadge, EmptyState, Field, Select, TextInput } from "./ui";
 
 const PAGE_SIZE = 50;
+const QUICK_STATUS = [
+  ["", "Tất cả"],
+  ["open", "Đang chờ ký"],
+  ["signed", "Đã ký"],
+  ["expired", "Hết hạn"],
+  ["revoked", "Đã thu hồi"],
+];
 const fmt = (iso) => (iso ? formatVnDateTime(iso).replace(" (GMT+7)", "") : "—");
 const userLabel = (u) => u?.full_name || u?.name || u?.email || "";
 
@@ -233,6 +240,7 @@ export default function DocumentsBoard({ initialFilter }) {
   const [drawerDoc, setDrawerDoc] = useState(null);
   const [dialog, setDialog] = useState(null); // { action, docs }
   const [busy, setBusy] = useState(false);
+  const [moreFilters, setMoreFilters] = useState(false);
   const reloadTimer = useRef(null);
 
   useEffect(() => {
@@ -432,6 +440,7 @@ export default function DocumentsBoard({ initialFilter }) {
     }
   };
 
+  const extraFilterCount = [filters.templateId, filters.campaignId, filters.from, filters.to].filter(Boolean).length;
   const hasFilter = filters.status || filters.templateId || filters.campaignId || filters.from || filters.to || filters.search || filters.dueSoon;
 
   return (
@@ -441,35 +450,52 @@ export default function DocumentsBoard({ initialFilter }) {
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <TextInput value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Tìm số văn bản, tiêu đề, tên/email người nhận" className="pl-8" />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-          <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value, dueSoon: false })} aria-label="Trạng thái">
-            <option value="">Mọi trạng thái</option>
-            <option value="open">Chưa ký (còn mở)</option>
-            {STATUS_ORDER.map((k) => (
-              <option key={k} value={k}>
-                {DOC_STATUS[k].label}
-              </option>
-            ))}
-          </Select>
-          <Select value={filters.templateId} onChange={(e) => setFilter({ templateId: e.target.value })} aria-label="Mẫu">
-            <option value="">Mọi mẫu</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
-          <Select value={filters.campaignId} onChange={(e) => setFilter({ campaignId: e.target.value })} aria-label="Đợt phát hành">
-            <option value="">Mọi đợt</option>
-            {campaigns.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title || c.id}
-              </option>
-            ))}
-          </Select>
-          <TextInput type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} aria-label="Gửi từ ngày" title="Gửi từ ngày" />
-          <TextInput type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} aria-label="Gửi đến ngày" title="Gửi đến ngày" />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {QUICK_STATUS.map(([value, label]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setFilter({ status: value, dueSoon: false })}
+              className={`px-2.5 py-1 rounded-full text-[11px] border ${filters.status === value && !filters.dueSoon ? "bg-[#948154] text-white border-[#948154]" : "border-gray-300 text-gray-600"}`}
+            >
+              {label}
+            </button>
+          ))}
+          <button type="button" onClick={() => setMoreFilters((v) => !v)} className="ml-auto text-[11px] text-[#7d6c45] font-semibold hover:underline">
+            {moreFilters ? "Ẩn bớt bộ lọc" : `Lọc thêm${extraFilterCount ? ` (${extraFilterCount})` : ""}`}
+          </button>
         </div>
+        {moreFilters && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value, dueSoon: false })} aria-label="Trạng thái">
+              <option value="">Mọi trạng thái</option>
+              <option value="open">Chưa ký (còn mở)</option>
+              {STATUS_ORDER.map((k) => (
+                <option key={k} value={k}>
+                  {DOC_STATUS[k].label}
+                </option>
+              ))}
+            </Select>
+            <Select value={filters.templateId} onChange={(e) => setFilter({ templateId: e.target.value })} aria-label="Mẫu">
+              <option value="">Mọi mẫu</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+            <Select value={filters.campaignId} onChange={(e) => setFilter({ campaignId: e.target.value })} aria-label="Đợt phát hành">
+              <option value="">Mọi đợt</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title || c.id}
+                </option>
+              ))}
+            </Select>
+            <TextInput type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} aria-label="Gửi từ ngày" title="Gửi từ ngày" />
+            <TextInput type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} aria-label="Gửi đến ngày" title="Gửi đến ngày" />
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-[11px] text-gray-500">
             {loading ? "Đang tải…" : `${data.total} văn bản`}

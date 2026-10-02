@@ -10,10 +10,10 @@ import LetterheadRenderer from "@/components/documents/LetterheadRenderer";
 import QuillBodyEditor from "./QuillBodyEditor";
 import RetentionSelect, { retentionLabel } from "./RetentionSelect";
 import { usePublishedPreview } from "./preview";
-import { Badge, Button, EmptyState, Field, Section, TextInput, Toggle } from "./ui";
+import { Badge, Button, Collapsible, EmptyState, Field, Section, TextInput, Toggle } from "./ui";
 import AudienceFilters, { EMPTY_FILTERS, cleanFilters, describeFilters } from "./AudienceFilters";
 
-const STEPS = ["Chọn mẫu", "Nội dung", "Người nhận", "Xem lại & gửi"];
+const STEPS = ["Chọn mẫu", "Điền nội dung", "Chọn người nhận", "Kiểm tra & gửi"];
 const CONFIRM_THRESHOLD = 50;
 const REMINDER_DAY_OPTIONS = [7, 3, 1, 0];
 
@@ -361,7 +361,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
 
       {step === 0 &&
         (templates.length === 0 ? (
-          <EmptyState icon={FileText} title="Chưa có mẫu đã xuất bản" description="Tạo và xuất bản mẫu ở mục Mẫu trước." />
+          <EmptyState icon={FileText} title="Chưa có mẫu đã xuất bản" description="Tạo và xuất bản mẫu ở mục Mẫu văn bản trước." />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {templates.map((t) => (
@@ -584,7 +584,28 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
                 <dd>{letterhead?.name || "—"}</dd>
               </dl>
             </Section>
-            <Section title="Nhắc ký & quyền người nhận" description="Nhắc ký gửi thông báo trong ứng dụng lúc 09:00 (giờ VN) tới người chưa ký.">
+            <Section title="Thời điểm gửi">
+              <div className="flex gap-2">
+                {[
+                  ["now", "Gửi ngay"],
+                  ["later", "Hẹn giờ"],
+                ].map(([k, label]) => (
+                  <label key={k} className="flex items-center gap-1.5 text-[11.5px]">
+                    <input type="radio" checked={scheduleMode === k} onChange={() => setScheduleMode(k)} /> {label}
+                  </label>
+                ))}
+              </div>
+              {scheduleMode === "later" && <TextInput type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />}
+            </Section>
+            <Collapsible
+              title="Tuỳ chọn nâng cao"
+              summary={[
+                remindersOn && dueDate && reminderDays.length ? "Có nhắc ký" : "Không nhắc",
+                allowDownload ? "Cho tải PDF" : "Không cho tải PDF",
+                retention === null || retention === undefined ? "Lưu PDF theo mặc định" : `Lưu PDF ${retentionLabel(retention)}`,
+              ].join(" · ")}
+            >
+              <p className="text-[10.5px] text-gray-500">Đã đặt sẵn mặc định phù hợp - chỉ đổi khi cần. Nhắc ký gửi lúc 09:00 (giờ VN) tới người chưa ký.</p>
               <Toggle checked={remindersOn && !!dueDate} disabled={!dueDate} onChange={setRemindersOn} label={dueDate ? "Tự động nhắc ký" : "Tự động nhắc ký (cần đặt hạn ký ở bước Nội dung)"} />
               {remindersOn && dueDate && (
                 <div className="flex flex-wrap gap-1.5">
@@ -606,28 +627,15 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
               <Toggle checked={autoExpire} onChange={setAutoExpire} label="Tự chuyển 'Hết hạn' khi quá hạn ký" />
               <Toggle checked={allowDownload} onChange={setAllowDownload} label="Người nhận được tải PDF" />
               <Toggle checked={pushOn} onChange={setPushOn} label="Gửi thông báo đẩy (Web Push) tới thiết bị đã bật" />
-            </Section>
-            <Section title="Lưu trữ PDF">
-              <RetentionSelect
-                value={retention}
-                onChange={setRetention}
-                inheritLabel={template.retention_days === null || template.retention_days === undefined ? "Theo mặc định trong Cài đặt" : `Theo mẫu (${retentionLabel(template.retention_days)})`}
-              />
-            </Section>
-            <Section title="Thời điểm phát hành">
-              <div className="flex gap-2">
-                {[
-                  ["now", "Phát hành ngay"],
-                  ["later", "Hẹn giờ"],
-                ].map(([k, label]) => (
-                  <label key={k} className="flex items-center gap-1.5 text-[11.5px]">
-                    <input type="radio" checked={scheduleMode === k} onChange={() => setScheduleMode(k)} /> {label}
-                  </label>
-                ))}
-              </div>
-              {scheduleMode === "later" && <TextInput type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />}
-              {scheduleMode === "later" && <p className="text-[10px] text-gray-400">Cần cấu hình pg_cron + Vault (xem supabase/functions/README.md) để đợt hẹn giờ tự chạy.</p>}
-            </Section>
+              <Field label="Lưu trữ PDF đã ký">
+                <RetentionSelect
+                  value={retention}
+                  onChange={setRetention}
+                  inheritLabel={template.retention_days === null || template.retention_days === undefined ? "Theo mặc định trong Cài đặt" : `Theo mẫu (${retentionLabel(template.retention_days)})`}
+                />
+              </Field>
+            </Collapsible>
+
             {count > CONFIRM_THRESHOLD && (
               <Section title="Xác nhận">
                 <Field label={`Gõ ${count} để xác nhận gửi tới ${count} người`}>
@@ -665,7 +673,7 @@ export default function DispatchWizard({ initialTemplateId, onDispatched }) {
         ) : (
           <Button onClick={submit} disabled={sending || !count || (count > CONFIRM_THRESHOLD && confirmText.trim() !== String(count))}>
             {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {scheduleMode === "later" ? "Hẹn giờ phát hành" : `Phát hành tới ${count ?? 0} người`}
+            {scheduleMode === "later" ? "Hẹn giờ gửi" : `Gửi tới ${count ?? 0} người`}
           </Button>
         )}
       </div>

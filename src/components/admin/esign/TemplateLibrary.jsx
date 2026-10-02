@@ -12,7 +12,7 @@ import RetentionSelect, { retentionLabel } from "./RetentionSelect";
 import { SlotDragOverlay, SlotInspector, columnWidthMm } from "./SlotEditor";
 import { FieldDragOverlay, FieldsPanel, newField } from "./FieldEditor";
 import { SAMPLE_RECIPIENT, sampleValuesFor, usePublishedPreview } from "./preview";
-import { Badge, Button, EmptyState, Field, Section, STATUS_BADGE, TextInput, Toggle } from "./ui";
+import { Badge, Button, Collapsible, EmptyState, Field, Section, STATUS_BADGE, TextInput, Toggle } from "./ui";
 
 const CATEGORY_SUGGESTIONS = ["Thông báo", "Hợp đồng", "Giấy uỷ quyền", "Biên bản thỏa thuận", "Cam kết"];
 
@@ -340,7 +340,8 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
         <aside className="lg:col-span-3 bg-white rounded-xl border border-gray-200 p-2 lg:max-h-[75vh] lg:overflow-y-auto order-2 lg:order-1">
-          <p className="text-[11px] font-bold text-gray-800 mb-2 px-1">Biến động</p>
+          <p className="text-[11px] font-bold text-gray-800 px-1">Thông tin chèn vào văn bản</p>
+          <p className="text-[10px] text-gray-500 mb-2 px-1">Bấm để chèn vào nội dung (tên người nhận, ngày, số tiền…).</p>
           <VariablesPanel variables={form.variables} onChange={(variables) => set({ variables })} onInsert={insertVariable} />
         </aside>
 
@@ -427,6 +428,8 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
               </select>
             </Field>
             <Toggle checked={form.requires_signature} onChange={(v) => set({ requires_signature: v })} label="Yêu cầu người nhận ký" />
+          </Section>
+          <Collapsible title="Tuỳ chọn nâng cao" summary="Khung ký, lưu trữ PDF">
             <Toggle
               checked={form.layout.illustrative_label !== false}
               onChange={(v) => set({ layout: { ...form.layout, illustrative_label: v } })}
@@ -435,16 +438,13 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
             <Field label="Lưu trữ PDF">
               <RetentionSelect value={form.retention_days} onChange={(retention_days) => set({ retention_days })} inheritLabel="Theo mặc định trong Cài đặt" />
             </Field>
-          </Section>
-          <Section
-            title="Khung ký"
-            actions={
+            <div className="flex items-center justify-between">
+              <span className="text-[10.5px] font-semibold text-gray-600">Vị trí khung ký</span>
               <div className="flex gap-1">
                 <Button variant="ghost" className="h-7 px-2 text-[10.5px]" onClick={swapSides}>Đổi bên</Button>
                 <Button variant="ghost" className="h-7 px-2 text-[10.5px]" onClick={resetSlots}>Mặc định</Button>
               </div>
-            }
-          >
+            </div>
             <div className="flex gap-1">
               {form.layout.slots.map((s) => (
                 <button
@@ -461,8 +461,8 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
               ))}
             </div>
             <SlotInspector slot={slot} onChange={updateSlot} colW={colW} />
-          </Section>
-          <Section title="Trường người nhận điền">
+          </Collapsible>
+          <Section title="Ô người nhận điền / ký" description="Thêm ô ký nháy, ô tích, ô nhập… người nhận phải điền trước khi ký.">
             <FieldsPanel
               fields={fields}
               selectedId={selectedField}

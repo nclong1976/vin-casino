@@ -5,6 +5,7 @@ import {
   PAGE_HEIGHT_MM,
   PAGE_WIDTH_MM,
   layoutDocument,
+  logoBox,
   placeSignatureImage,
   slotImageArea,
 } from "./layout";
@@ -58,6 +59,24 @@ describe("layoutDocument", () => {
     expect(t).toContain("THÔNG BÁO ĐIỀU CHỈNH PHÍ");
     expect(t).toContain("Mã VB: VC/2026/000123 · Trang 1/1 · SHA-256: 9f2c1ab0");
     expect(r.pages[0].items.some((i) => i.kind === "qr" && i.value.includes("verify"))).toBe(true);
+  });
+
+  it("sizes the logo from logo_size_mm and keeps legacy 12mm when unset", () => {
+    const logoOf = (header) => {
+      const r = layoutDocument({ ...baseInput(para("x")), letterhead: { ...letterhead, header: { ...letterhead.header, logo_url: "https://x/logo.png", ...header } } });
+      return r.pages[0].items.find((i) => i.kind === "image" && i.role === "logo");
+    };
+    const legacy = logoOf({});
+    expect([legacy.w, legacy.h]).toEqual([12, 12]);
+    const big = logoOf({ logo_size_mm: 24 });
+    expect(big.h).toBe(24);
+    expect(big.w).toBe(72);
+    // Logo canh giữa cột trái, chữ tên đơn vị nằm dưới logo.
+    const org = texts(layoutDocument({ ...baseInput(para("x")), letterhead: { ...letterhead, header: { ...letterhead.header, logo_url: "u", logo_size_mm: 24 } } }).pages[0]).find((t) => t.text === "VINCLUB");
+    expect(org.y).toBeGreaterThan(big.y + big.h);
+    expect(logoBox(2, 70)).toEqual({ w: 24, h: 8 });
+    expect(logoBox(99, 70)).toEqual({ w: 70, h: 40 });
+    expect(logoBox("abc", 70)).toEqual({ w: 12, h: 12 });
   });
 
   it("omits the national motto when disabled", () => {

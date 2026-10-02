@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { validateLetterhead } from "@/lib/esignValidation";
-import { DEFAULT_THEME } from "@/shared/docLayout";
+import { DEFAULT_THEME, LOGO_SIZE_MM } from "@/shared/docLayout";
 import LetterheadRenderer from "@/components/documents/LetterheadRenderer";
 import ImageUploadField from "./ImageUploadField";
 import { SAMPLE_TEMPLATE, usePublishedPreview } from "./preview";
@@ -244,6 +244,9 @@ function LetterheadEditor({ initial, items, onClose }) {
 
           <Section title="Header" description="Cột trái: đơn vị phát hành. Cột phải: Quốc hiệu, tiêu ngữ, địa danh + ngày.">
             <ImageUploadField label="Logo (tuỳ chọn)" value={form.header.logo_url} onChange={(url) => set("header", { logo_url: url })} removeBackgroundByDefault={false} />
+            {form.header.logo_url && (
+              <LogoSizeControl value={form.header.logo_size_mm} onChange={(logo_size_mm) => set("header", { logo_size_mm })} />
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Field label="Tên đơn vị">
                 <TextInput value={form.header.org_name} onChange={(e) => set("header", { org_name: e.target.value })} placeholder="VinClub" />
@@ -307,6 +310,47 @@ function LetterheadEditor({ initial, items, onClose }) {
           {preview ? <LetterheadRenderer layout={preview.layout} /> : <div className="aspect-[210/297] rounded-lg bg-white border border-gray-200 animate-pulse" />}
         </div>
       </div>
+    </div>
+  );
+}
+
+const LOGO_PRESETS = [
+  ["Nhỏ", 12],
+  ["Vừa", 18],
+  ["Lớn", 26],
+];
+
+/** Cỡ logo: 3 nút chọn nhanh + thanh trượt (chiều cao logo, mm). */
+function LogoSizeControl({ value, onChange }) {
+  const size = value ?? LOGO_SIZE_MM.legacy;
+  return (
+    <div className="rounded-lg border border-gray-200 p-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10.5px] font-semibold text-gray-600">Cỡ logo: {size} mm</span>
+        <div className="flex gap-1">
+          {LOGO_PRESETS.map(([label, mm]) => (
+            <button
+              key={mm}
+              type="button"
+              onClick={() => onChange(mm)}
+              className={`px-2 py-0.5 rounded-md text-[10.5px] border ${size === mm ? "bg-[#948154] text-white border-[#948154]" : "border-gray-300 text-gray-600"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <input
+        type="range"
+        min={LOGO_SIZE_MM.min}
+        max={LOGO_SIZE_MM.max}
+        step="1"
+        value={size}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label="Cỡ logo"
+        className="w-full accent-[#948154]"
+      />
+      <p className="text-[9.5px] text-gray-400">Logo giữ nguyên tỉ lệ; logo ngang được rộng tối đa gấp 3 chiều cao. Văn bản đã gửi không bị đổi.</p>
     </div>
   );
 }

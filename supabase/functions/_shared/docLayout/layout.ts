@@ -29,6 +29,8 @@ import {
 
 export interface LetterheadHeader {
   logo_url?: string | null;
+  /** Chiều cao logo (mm). Không đặt = khung 12×12 mm như trước (giữ nguyên văn bản cũ). */
+  logo_size_mm?: number | null;
   org_name?: string;
   org_sub?: string;
   show_national_motto?: boolean;
@@ -598,6 +600,20 @@ function measureSimpleHeight(m: Measurer, text: string, width: number, font: Fon
   return breakLines(toPieces([{ text, style }], m), width, m).length * lineHeightMm(sizePt, lineFactor);
 }
 
+export const LOGO_SIZE_MM = { min: 8, max: 40, legacy: 12 };
+
+/**
+ * Khung logo: cao = logo_size_mm, rộng tối đa 3 lần chiều cao (logo ngang)
+ * nhưng không quá cột trái; ảnh luôn giữ tỉ lệ bên trong khung. Khung cũ
+ * (không đặt cỡ) giữ đúng 12×12 mm để văn bản đã phát hành không đổi.
+ */
+export function logoBox(sizeMm: number | null | undefined, maxW: number): { w: number; h: number } {
+  const n = Number(sizeMm);
+  if (sizeMm === null || sizeMm === undefined || !Number.isFinite(n)) return { w: LOGO_SIZE_MM.legacy, h: LOGO_SIZE_MM.legacy };
+  const h = Math.min(LOGO_SIZE_MM.max, Math.max(LOGO_SIZE_MM.min, n));
+  return { w: Math.min(maxW, h * 3), h };
+}
+
 function layoutHeader(b: PageBuilder, m: Measurer, input: LayoutInput, margins: { left: number; right: number }) {
   const header = input.letterhead?.header || {};
   const contentW = PAGE_WIDTH_MM - margins.left - margins.right;
@@ -608,9 +624,9 @@ function layoutHeader(b: PageBuilder, m: Measurer, input: LayoutInput, margins: 
 
   // Cột trái: logo, tên đơn vị, số văn bản.
   if (header.logo_url) {
-    const size = 12;
-    b.add({ kind: "image", role: "logo", src: header.logo_url, x: margins.left + (leftW - size) / 2, y: b.y, w: size, h: size });
-    b.y += size + 1.5;
+    const { w, h } = logoBox(header.logo_size_mm, leftW);
+    b.add({ kind: "image", role: "logo", src: header.logo_url, x: margins.left + (leftW - w) / 2, y: b.y, w, h });
+    b.y += h + 1.5;
   }
   placeSimpleText(b, m, (header.org_name || "").toUpperCase(), { x: margins.left, width: leftW, font: "bold", sizePt: HEADER_SIZE_PT, align: "center" });
   placeSimpleText(b, m, header.org_sub || "", { x: margins.left, width: leftW, font: "regular", sizePt: HEADER_SIZE_PT - 1, align: "center" });
