@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import NewsSection from "@/components/home/NewsSection";
 import NotificationBell from "@/components/home/NotificationBell";
+import PushOptIn from "@/components/shared/PushOptIn";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/lib/AuthContext";
 import { base44 } from "@/api/base44Client";
@@ -77,6 +78,13 @@ export default function Home() {
             </button>
           </div>
         </motion.header>
+
+        {/* Mời bật thông báo đẩy (ẩn khi đã bật / đã tắt lời mời / máy không hỗ trợ) */}
+        {user && (
+          <div className="px-3.5 mt-3">
+            <PushOptIn />
+          </div>
+        )}
 
         {/* User Card */}
         <motion.section variants={itemVariants} className="px-3.5 mt-[clamp(16px,10.3vw,34px)]">

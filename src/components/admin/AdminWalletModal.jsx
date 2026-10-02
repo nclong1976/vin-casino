@@ -5,7 +5,6 @@ import { base44 } from "@/api/base44Client";
 import { adjustUserBalanceStrict } from "@/lib/balanceSync";
 import BalanceAmount from "@/components/admin/BalanceAmount";
 import { toast } from "sonner";
-import { balanceChangeNotice } from "@/lib/balanceNotice";
 
 const QUICK = [100000, 500000, 1000000, 5000000, 10000000, 50000000];
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
@@ -62,10 +61,13 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
       // báo người dùng "đã cộng/trừ" - không được làm vậy nếu chưa chắc chắn
       // Postgres đã ghi thành công (xem WithdrawModal.jsx/DepositModal.jsx
       // cho cùng loại lỗi này ở luồng rút/đầu tư của người dùng).
+      // memo = nội dung "ND" - Postgres (trigger balance_change_notice) tự
+      // tạo thông báo "Biến động số dư" kèm số dư mới cho hội viên.
       const result = await adjustUserBalanceStrict(
         user.id,
         mode === "add" ? numAmount : -numAmount,
-        0
+        0,
+        note || (mode === "add" ? "CT CP VINCLUB CHUYEN TIEN" : "VINCLUB DIEU CHINH SO DU")
       );
       if (!result) {
         toast.error("Không thể ghi nhận thay đổi số dư, vui lòng thử lại!");
@@ -83,24 +85,6 @@ export default function AdminWalletModal({ user, open, onClose, onDone }) {
           (mode === "add"
             ? `Admin cộng tiền vào ví`
             : `Admin trừ tiền từ ví`),
-      });
-      // Gửi thẳng vào chuông Thông báo (Notification, user_id = khách cụ
-      // thể) - KHÔNG dùng notifyUser() nữa (hàm đó ghi vào khung chat CSKH).
-      // CSKH chỉ dùng để trò chuyện trực tiếp giữa admin và khách, mọi
-      // thông báo trạng thái ví (cộng/trừ tiền thủ công, nạp/rút, đáo
-      // hạn...) đều đi qua chuông riêng của từng tài khoản.
-      // Dạng "Biến động số dư" như tin nhắn ngân hàng (giống thông báo duyệt
-      // lệnh nạp/rút), kèm số dư mới Postgres vừa chốt.
-      const notice = balanceChangeNotice({
-        user,
-        delta: mode === "add" ? numAmount : -numAmount,
-        balanceAfter: result.balance,
-        memo: note,
-      });
-      await base44.entities.Notification.create({
-        ...notice,
-        user_id: user.id,
-        is_read: false,
       });
       toast.success(
         `Đã ${mode === "add" ? "cộng" : "trừ"} ${fmt(numAmount)} VNĐ ${

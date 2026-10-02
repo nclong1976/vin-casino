@@ -173,14 +173,23 @@ export async function upsertSupabaseUser(user) {
  *   Số dư THẬT sau khi cộng/trừ (đọc trực tiếp từ kết quả UPDATE), null
  *   nếu RPC lỗi (ví dụ chưa chạy migration supabase_schema.sql mới nhất).
  */
-export async function incrementUserBalance(userId, delta, totalDepositedDelta = 0) {
+export async function incrementUserBalance(userId, delta, totalDepositedDelta = 0, memo = '') {
   if (!userId) return null;
   try {
-    const { data, error } = await supabase.rpc('increment_user_balance', {
+    const args = {
       p_user_id: userId,
       p_delta: Math.trunc(Number(delta) || 0),
       p_total_deposited_delta: Math.trunc(Number(totalDepositedDelta) || 0),
-    });
+    };
+    // memo = nội dung "ND" của thông báo Biến động số dư (trigger
+    // balance_change_notice trên Postgres tự tạo thông báo cho mọi thay đổi).
+    let { data, error } = memo
+      ? await supabase.rpc('increment_user_balance_noted', { ...args, p_memo: String(memo).slice(0, 200) })
+      : await supabase.rpc('increment_user_balance', args);
+    // Database chưa có hàm _noted (chưa áp migration) → dùng hàm cũ.
+    if (error && memo && /increment_user_balance_noted|PGRST202|does not exist/i.test(`${error.code} ${error.message}`)) {
+      ({ data, error } = await supabase.rpc('increment_user_balance', args));
+    }
 
     if (error) {
       console.warn('[SupabaseDb] incrementUserBalance error:', error.message);

@@ -163,12 +163,12 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
  * null khi thất bại - bên gọi BẮT BUỘC tự hoàn tác UI optimistic (nếu có)
  * và báo lỗi cho người dùng, tuyệt đối không được coi null là "cứ cho qua".
  */
-export async function adjustUserBalanceStrict(userId, delta, totalDepositedDelta = 0) {
+export async function adjustUserBalanceStrict(userId, delta, totalDepositedDelta = 0, memo = "") {
   if (!userId) return null;
   const numDelta = Math.trunc(Number(delta) || 0);
   const numDepositDelta = Math.trunc(Number(totalDepositedDelta) || 0);
 
-  const rpcResult = await incrementUserBalance(userId, numDelta, numDepositDelta);
+  const rpcResult = await incrementUserBalance(userId, numDelta, numDepositDelta, memo);
   if (!rpcResult) return null;
   const local = applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
   // Luôn trả về số dư THẬT Postgres vừa chốt - kể cả khi người dùng này không
