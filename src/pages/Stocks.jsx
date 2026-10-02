@@ -11,6 +11,8 @@ import MyHoldings from "@/components/stocks/MyHoldings";
 import MyOrders from "@/components/stocks/MyOrders";
 import StockDetailSheet from "@/components/stocks/StockDetailSheet";
 import DividendCalendar from "@/components/stocks/DividendCalendar";
+import StockGuide, { StockGuideBanner, hasSeenGuide, markGuideSeen } from "@/components/stocks/StockGuide";
+import { HelpCircle } from "lucide-react";
 import { useMyPositions, sellableOf } from "@/hooks/useMyPositions";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useAuth } from "@/lib/AuthContext";
@@ -100,12 +102,20 @@ export default function Stocks() {
   const positions = useMyPositions(user?.id);
   const { watched, toggle: toggleWatch } = useWatchlist(user?.id);
   const [onlyWatched, setOnlyWatched] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [showBanner, setShowBanner] = useState(() => !hasSeenGuide());
   const [stocks, setStocks] = useState(FALLBACK_STOCKS);
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
   const [highlightActive, setHighlightActive] = useState(!!highlightId);
   const tab = TABS.some(([k]) => k === searchParams.get("tab")) ? searchParams.get("tab") : "market";
-  const { quotes, config, session } = useStockMarket();
+  const { quotes, config, session, calendar } = useStockMarket();
+
+  const openGuide = () => {
+    setShowGuide(true);
+    setShowBanner(false);
+    markGuideSeen();
+  };
   const liveStocks = useMemo(() => stocks.map((s) => withQuote(s, quotes[s.symbol])), [stocks, quotes]);
 
   const setTab = (k) => {
@@ -169,6 +179,16 @@ export default function Stocks() {
       />
 
       <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
+        {showBanner && (
+          <StockGuideBanner
+            onOpen={openGuide}
+            onDismiss={() => {
+              setShowBanner(false);
+              markGuideSeen();
+            }}
+          />
+        )}
+
         <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-[#151b24] border border-[#222c38]">
           {TABS.map(([k, label]) => (
             <button
@@ -185,7 +205,7 @@ export default function Stocks() {
 
         {tab === "market" && (
           <>
-            <MarketSummary quotes={quotes} session={session} />
+            <MarketSummary quotes={quotes} session={session} calendar={calendar} />
 
             <MyHoldings quotes={quotes} compact />
 
@@ -252,12 +272,25 @@ export default function Stocks() {
         )}
 
         {tab === "portfolio" && (
-          <MyHoldings quotes={quotes} onBuy={(sym) => openTrade(sym, "BUY")} onSell={(sym) => openTrade(sym, "SELL")} />
+          <MyHoldings
+            quotes={quotes}
+            onBuy={(sym) => openTrade(sym, "BUY")}
+            onSell={(sym) => openTrade(sym, "SELL")}
+            onStart={() => setTab("market")}
+            onHelp={openGuide}
+          />
         )}
 
         {tab === "orders" && <MyOrders />}
 
         {tab === "dividends" && <DividendCalendar positions={positions} />}
+
+        <button
+          onClick={openGuide}
+          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-[#222c38] text-[12px] text-gray-300 cursor-pointer"
+        >
+          <HelpCircle className="w-4 h-4 text-[#d4af37]" /> Hướng dẫn mua bán cổ phiếu cho người mới
+        </button>
 
         <p className="text-[9px] text-gray-600 text-center pt-2 leading-relaxed">
           Giao dịch khớp nội bộ trên VinClub theo giá do VinClub công bố, mô phỏng quy tắc sàn HOSE; không phải lệnh trên Sở Giao dịch Chứng khoán. Đầu tư có rủi ro, vui lòng cân nhắc kỹ.
@@ -281,11 +314,28 @@ export default function Stocks() {
           stock={trade.stock}
           side={trade.side}
           sellable={sellableOf(positions[trade.stock.symbol])}
+          avgCost={
+            Number(positions[trade.stock.symbol]?.qty) > 0
+              ? Number(positions[trade.stock.symbol].total_cost) / Number(positions[trade.stock.symbol].qty)
+              : 0
+          }
           quote={quotes[trade.stock.symbol]}
           config={config}
           session={session}
+          calendar={calendar}
+          onHelp={openGuide}
           onClose={() => setTrade(null)}
           onPlaced={(o) => o?.status === "pending" && setTab("orders")}
+        />
+      )}
+
+      {showGuide && (
+        <StockGuide
+          onClose={() => setShowGuide(false)}
+          onStart={() => {
+            setShowGuide(false);
+            setTab("market");
+          }}
         />
       )}
 

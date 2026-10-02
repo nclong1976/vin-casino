@@ -187,3 +187,61 @@ export function changePct(quote) {
   if (!(ref > 0) || !(last > 0)) return 0;
   return Math.round((last / ref - 1) * 10000) / 100;
 }
+
+// ───────────── Chế độ đơn giản cho người mới ─────────────
+
+const DOW = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+
+function shiftDate(dateStr, days) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+}
+
+/** Cộng n ngày giao dịch (bỏ cuối tuần / ngày nghỉ) - giống stock_add_trading_days. */
+export function addTradingDays(dateStr, n, calendar = {}) {
+  let d = dateStr;
+  let k = 0;
+  while (k < n) {
+    d = shiftDate(d, 1);
+    if (isTradingDay(d, calendar)) k += 1;
+  }
+  return d;
+}
+
+/** Ngày giao dịch mà lệnh đặt lúc `at` thuộc về (ngoài giờ => phiên kế tiếp). */
+export function orderTradeDate(at = new Date(), calendar = {}) {
+  const { date } = vnClock(at);
+  return sessionAt(at, calendar) === "CLOSED" ? addTradingDays(date, 1, calendar) : date;
+}
+
+/** "Thứ Hai 05/10" */
+export function friendlyDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return `${DOW[dow]} ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}`;
+}
+
+/**
+ * Loại lệnh chế độ đơn giản: đang khớp liên tục => MP (khớp ngay theo giá thị
+ * trường); ngoài giờ / nghỉ trưa / phiên định kỳ => LO tại giá hiện tại (chờ
+ * thị trường mở). Người dùng không cần biết LO/MP/ATO/ATC.
+ */
+export function simpleOrderType(session) {
+  return session === "CONT" ? "MP" : "LO";
+}
+
+/** Câu giải thích phiên hiện tại bằng lời thường. */
+export function sessionHint(session, at = new Date(), calendar = {}) {
+  if (session === "CONT") return "Thị trường đang mở — lệnh của bạn được khớp ngay.";
+  if (session === "ATO") return "Phiên mở cửa — lệnh sẽ được khớp lúc 09:15.";
+  if (session === "ATC") return "Phiên đóng cửa — lệnh sẽ được khớp lúc 14:45.";
+  if (session === "BREAK") return "Nghỉ trưa — lệnh sẽ được khớp khi thị trường mở lại lúc 13:00.";
+  if (session === "PRE_OPEN") return "Thị trường chưa mở — lệnh sẽ được khớp từ 09:00 hôm nay.";
+  return `Thị trường đã đóng cửa — lệnh sẽ được khớp khi mở cửa ${friendlyDate(orderTradeDate(at, calendar))} (09:00).`;
+}
+
+/** Số CP mua được với số tiền `amount` (gồm phí), làm tròn xuống lô. */
+export function qtyForAmount({ amount, orderType, limitPrice, quote, feeRate, lotSize = 100 }) {
+  return maxQty({ balance: amount, orderType, limitPrice, quote, feeRate, lotSize });
+}

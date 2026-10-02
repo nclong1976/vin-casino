@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { TrendingUp, Plus, Search, Check, X, RefreshCw, ArrowRight } from "lucide-react";
+import { TrendingUp, Plus, Search, Check, X, RefreshCw, BookOpen } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/lib/supabase";
 import { adminCreateStockOrder, cancelStockOrder, stockErrorMessage } from "@/lib/stockOrders";
@@ -7,86 +7,55 @@ import { STATUS_LABELS } from "@/lib/stockMarket";
 import StockQuotesBoard from "@/components/admin/stocks/StockQuotesBoard";
 import DividendManager from "@/components/admin/stocks/DividendManager";
 import StockReport from "@/components/admin/stocks/StockReport";
+import AdminStockGuide from "@/components/admin/stocks/AdminStockGuide";
 import { toast } from "sonner";
 
-const DEFAULT_STOCKS = [
-  {
-    symbol: "VIC",
-    name: "Tập đoàn Vingroup",
-    price: 45200,
-    change: 3.1,
-    category: "Đầu tư chứng khoán",
-    minAmount: 10000000,
-    yieldRate: "15.5%/năm",
-    is_active: true,
-    description: "Đầu tư chứng khoán tích sản cổ phiếu VIC - Tập đoàn Vingroup sinh lời bền vững.",
-  },
-  {
-    symbol: "VHM",
-    name: "Vinhomes",
-    price: 42800,
-    change: 2.4,
-    category: "Đầu tư chứng khoán",
-    minAmount: 10000000,
-    yieldRate: "14.2%/năm",
-    is_active: true,
-    description: "Cổ phiếu VHM dẫn đầu ngành bất động sản với quỹ đất vàng khổng lồ.",
-  },
-  {
-    symbol: "VRE",
-    name: "Vincom Retail",
-    price: 18350,
-    change: 1.6,
-    category: "Đầu tư chứng khoán",
-    minAmount: 5000000,
-    yieldRate: "12.8%/năm",
-    is_active: true,
-    description: "Chuỗi trung tâm thương mại cao cấp Vincom trải dài toàn quốc.",
-  },
-  {
-    symbol: "VPL",
-    name: "Vinpearl",
-    price: 71500,
-    change: 4.2,
-    category: "Đầu tư chứng khoán",
-    minAmount: 20000000,
-    yieldRate: "18.0%/năm",
-    is_active: true,
-    description: "Cổ phiếu hệ sinh thái du lịch nghỉ dưỡng Vinpearl cao cấp.",
-  },
-  {
-    symbol: "VFS",
-    name: "VinFast Auto (Nasdaq)",
-    price: 88500, // Normalized VNĐ equivalent
-    change: -1.8,
-    category: "Đầu tư chứng khoán",
-    minAmount: 50000000,
-    yieldRate: "22.5%/năm",
-    is_active: true,
-    description: "Hãng xe điện VinFast niêm yết trên sàn chứng khoán quốc tế Nasdaq.",
-  },
+const fmt = (n) => Math.round(Number(n) || 0).toLocaleString("vi-VN");
+const GUIDE_KEY = "vinclub.adminStockGuideHidden";
+
+const SUB_TABS = [
+  ["overview", "Tổng quan"],
+  ["prices", "Giá cổ phiếu"],
+  ["orders", "Lệnh"],
+  ["dividends", "Cổ tức"],
 ];
 
+const SOURCE_LABELS = { user: "Khách đặt", admin: "Admin cấp", backfill: "Ghi nhận lại", drip: "Tái đầu tư cổ tức" };
+
+/**
+ * Admin › Chứng khoán - 4 mục:
+ *   Tổng quan (báo cáo + xuất CSV) · Giá cổ phiếu (đặt giá, cài đặt phí)
+ *   · Lệnh (lệnh chờ / đã xử lý, huỷ, cấp cổ phiếu) · Cổ tức.
+ * Thêm / khoá / mở mã vẫn làm ở tab Dự án (một nơi sửa dữ liệu mã).
+ */
 export default function StocksTab({ onNavigateToProjects }) {
+  const [sub, setSub] = useState("overview");
+  const [showGuide, setShowGuide] = useState(() => {
+    try {
+      return localStorage.getItem(GUIDE_KEY) !== "1";
+    } catch {
+      return true;
+    }
+  });
   const [projects, setProjects] = useState([]);
   const [stockOrders, setStockOrders] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("pending");
   const [submitting, setSubmitting] = useState(false);
   const [cancellingId, setCancellingId] = useState(null);
-
-  // Modal
   const [showCreateOrder, setShowCreateOrder] = useState(false);
+  const [orderForm, setOrderForm] = useState({ userId: "", projectId: "", shares: "100", chargeWallet: false, note: "" });
 
-  // Form for Manual Stock Order Assignment
-  const [orderForm, setOrderForm] = useState({
-    userId: "",
-    projectId: "",
-    shares: "100",
-    chargeWallet: false,
-    note: "Admin cấp lệnh giao dịch chứng khoán",
-  });
+  const toggleGuide = (v) => {
+    setShowGuide(v);
+    try {
+      localStorage.setItem(GUIDE_KEY, v ? "0" : "1");
+    } catch {
+      /* bỏ qua */
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -96,17 +65,8 @@ export default function StocksTab({ onNavigateToProjects }) {
         supabase.from("stock_orders").select("*").order("created_at", { ascending: false }).limit(300),
         base44.entities.User.list().catch(() => []),
       ]);
-
-      // Lọc CHỈ theo category (trước đây có thêm t.includes("cp") - dò theo
-      // tiêu đề chứa 2 ký tự "cp" bất kỳ đâu, dễ khớp nhầm dự án không phải
-      // cổ phiếu).
-      const stockProjs = allProjects.filter((p) => (p.category || "").trim() === "Đầu tư chứng khoán");
-
-      setProjects(stockProjs.length > 0 ? stockProjs : DEFAULT_STOCKS);
+      setProjects(allProjects.filter((p) => (p.category || "").trim() === "Đầu tư chứng khoán"));
       setUsers(allUsers);
-
-      // Lệnh cổ phiếu nằm ở bảng stock_orders (Giai đoạn 0) - không còn
-      // dùng bảng transactions của Dự án.
       const byId = new Map(allUsers.map((u) => [u.id, u]));
       setStockOrders(
         (ordersRes?.data || []).map((o) => {
@@ -123,26 +83,19 @@ export default function StocksTab({ onNavigateToProjects }) {
 
   useEffect(() => {
     fetchData();
-
-    // Realtime: lệnh mới / đổi mã / đổi người dùng từ thiết bị khác hiện ngay.
     const unsubProject = base44.entities.Project.subscribe(() => fetchData());
-    const unsubUser = base44.entities.User.subscribe(() => fetchData());
     const channel = supabase
       .channel("admin_stock_orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "stock_orders" }, () => fetchData())
       .subscribe();
-
     return () => {
       if (typeof unsubProject === "function") unsubProject();
-      if (typeof unsubUser === "function") unsubUser();
       supabase.removeChannel(channel);
     };
   }, []);
 
-  const totalStockVolume = stockOrders.filter((o) => o.status === "filled" && o.side !== "SELL").reduce((s, o) => s + (Number(o.amount) || 0), 0);
-  const totalCompletedOrders = stockOrders.filter((o) => o.status === "filled").length;
-  const investorCount = new Set(stockOrders.map((o) => o.user_id)).size;
-  const tradableProjects = projects.filter((p) => p.id && !String(p.id).startsWith("stock_"));
+  const pendingCount = stockOrders.filter((o) => o.status === "pending").length;
+  const tradableProjects = projects.filter((p) => p.id);
   const formProject = tradableProjects.find((p) => p.id === orderForm.projectId) || tradableProjects[0];
   const formQty = Math.floor(Number(orderForm.shares) || 0);
   const formAmount = Math.round(Number(formProject?.price_per_m2) || 0) * formQty;
@@ -151,13 +104,13 @@ export default function StocksTab({ onNavigateToProjects }) {
     if (cancellingId) return;
     const what =
       order.side === "SELL"
-        ? `Huỷ lệnh ${order.order_type} bán ${order.qty} CP ${order.symbol} và trả cổ phiếu cho khách?`
-        : `Huỷ lệnh ${order.order_type} mua ${order.qty} CP ${order.symbol} và hoàn ${Number(order.hold_amount || 0).toLocaleString("vi-VN")} ₫ cho khách?`;
+        ? `Huỷ lệnh bán ${order.qty} CP ${order.symbol} và trả cổ phiếu cho khách?`
+        : `Huỷ lệnh mua ${order.qty} CP ${order.symbol} và hoàn ${fmt(order.hold_amount)} ₫ cho khách?`;
     if (!window.confirm(what)) return;
     setCancellingId(order.id);
     try {
       await cancelStockOrder(order.id);
-      toast.success("Đã huỷ lệnh và hoàn tiền phong toả");
+      toast.success("Đã huỷ lệnh, tiền / cổ phiếu đã trả lại cho khách");
       fetchData();
     } catch (e) {
       toast.error(stockErrorMessage(e, "Không huỷ được lệnh"));
@@ -168,19 +121,9 @@ export default function StocksTab({ onNavigateToProjects }) {
 
   const handleCreateOrderSubmit = async () => {
     if (submitting) return;
-    if (!orderForm.userId) {
-      toast.error("Vui lòng chọn người dùng");
-      return;
-    }
-    if (!formProject?.id) {
-      toast.error("Vui lòng chọn mã cổ phiếu");
-      return;
-    }
-    if (formQty <= 0) {
-      toast.error("Số lượng cổ phiếu không hợp lệ");
-      return;
-    }
-
+    if (!orderForm.userId) return toast.error("Vui lòng chọn khách hàng");
+    if (!formProject?.id) return toast.error("Vui lòng chọn mã cổ phiếu");
+    if (formQty <= 0) return toast.error("Số cổ phiếu không hợp lệ");
     setSubmitting(true);
     try {
       const res = await adminCreateStockOrder({
@@ -188,248 +131,212 @@ export default function StocksTab({ onNavigateToProjects }) {
         projectId: formProject.id,
         qty: formQty,
         chargeWallet: orderForm.chargeWallet,
-        note: orderForm.note,
+        note: orderForm.note || "Admin cấp cổ phiếu",
       });
-      toast.success(`Đã ghi nhận ${formQty.toLocaleString("vi-VN")} CP ${res?.order?.symbol || ""} cho khách hàng`);
+      toast.success(`Đã cấp ${fmt(formQty)} CP ${res?.order?.symbol || ""} cho khách hàng`);
       setShowCreateOrder(false);
       fetchData();
     } catch (e) {
-      toast.error(stockErrorMessage(e, "Lỗi khi tạo lệnh chứng khoán"));
+      toast.error(stockErrorMessage(e, "Không cấp được cổ phiếu"));
     } finally {
       setSubmitting(false);
     }
   };
 
+  const shownOrders = stockOrders.filter((o) => {
+    if (statusFilter === "pending" && o.status !== "pending") return false;
+    if (statusFilter === "done" && o.status === "pending") return false;
+    const q = search.toLowerCase();
+    return (
+      !q ||
+      (o.user_name || "").toLowerCase().includes(q) ||
+      (o.user_email || "").toLowerCase().includes(q) ||
+      (o.user_identifier || "").toLowerCase().includes(q) ||
+      (o.symbol || "").toLowerCase().includes(q)
+    );
+  });
+
   return (
-    <div className="space-y-4 font-heading">
-      {/* Header & Sub-tab Navigation */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-4 rounded-2xl border border-indigo-500/30 text-white shadow-lg">
+    <div className="space-y-3 font-heading">
+      <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-3.5 rounded-2xl border border-indigo-500/30 text-white shadow-lg">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2 text-indigo-300">
-            <TrendingUp className="w-5 h-5 text-emerald-400" />
-            Quản Lý Danh Mục & Đầu Tư Chứng Khoán
+          <h2 className="text-base font-bold flex items-center gap-2 text-indigo-200">
+            <TrendingUp className="w-5 h-5 text-emerald-400" /> Đầu tư chứng khoán
           </h2>
-          <p className="text-[11px] text-gray-300 mt-0.5">
-            Theo dõi lệnh mua cổ phiếu của người dùng & cấp cổ phần cho khách hàng
-          </p>
+          <p className="text-[11px] text-gray-300 mt-0.5">Giá, lệnh của khách, cổ tức và báo cáo</p>
         </div>
-
-        <div className="flex gap-2 w-full sm:w-auto">
-          <button
-            onClick={() => setShowCreateOrder(true)}
-            className="flex-1 sm:flex-initial px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1 shadow-md transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" /> Tạo lệnh chứng khoán
-          </button>
-          <button
-            onClick={fetchData}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
-            title="Làm mới dữ liệu"
-          >
-            <RefreshCw className="w-4 h-4" />
+        <div className="flex gap-1.5">
+          {!showGuide && (
+            <button
+              onClick={() => toggleGuide(true)}
+              className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5" /> Hướng dẫn
+            </button>
+          )}
+          <button onClick={fetchData} className="p-2 rounded-xl bg-white/10 hover:bg-white/20 cursor-pointer" title="Làm mới dữ liệu">
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
       </div>
 
-      {/* Overview Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-xs">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block">Tổng vốn chứng khoán</span>
-          <span className="text-sm font-black text-emerald-600 font-mono">
-            {new Intl.NumberFormat("vi-VN").format(totalStockVolume)} ₫
-          </span>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-xs">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block">Tổng lệnh đã khớp</span>
-          <span className="text-sm font-black text-indigo-600 font-mono">
-            {totalCompletedOrders} / {stockOrders.length} lệnh
-          </span>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-xs">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block">Số mã CP niêm yết</span>
-          <span className="text-sm font-black text-amber-600 font-mono">
-            {projects.length} Mã (VIC, VHM, VRE...)
-          </span>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-xs">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block">Nhà đầu tư chứng khoán</span>
-          <span className="text-sm font-black text-gray-800 font-mono">
-            {investorCount} Khách hàng
-          </span>
-        </div>
+      {showGuide && <AdminStockGuide onClose={() => toggleGuide(false)} />}
+
+      <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-gray-100">
+        {SUB_TABS.map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setSub(k)}
+            className={`py-2 rounded-lg text-[12px] font-bold cursor-pointer relative ${sub === k ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}
+          >
+            {label}
+            {k === "orders" && pendingCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px]">{pendingCount}</span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Sửa giá/tỉ giá/mô tả/trạng thái mã cổ phiếu giờ CHỈ làm ở tab "Dự
-          án" (mục Đầu tư chứng khoán) - trước đây tab này có 1 form CRUD
-          riêng (StockTickerModal) sửa CHUNG 1 bảng investment_projects với
-          form của ProjectsTab, 2 form có bộ field khác nhau (form ở đây
-          thiếu lịch tự mở/tắt) nên sửa ở tab này có thể vô tình làm mất dữ
-          liệu mà tab kia coi trọng. Giữ lại tab này chỉ để duyệt lệnh giao
-          dịch của người dùng - không còn 2 nơi cùng sửa 1 dữ liệu. */}
-      <div className="flex items-center justify-between gap-3 bg-white rounded-2xl p-3.5 border border-indigo-100">
-        <p className="text-[11px] text-gray-500">
-          Sửa tên, mô tả, trạng thái mở/khoá của <b>{projects.length} mã cổ phiếu</b> trong tab <b>"Dự án"</b> (mục Đầu tư chứng khoán). Giá giao dịch đặt ở Bảng giá bên dưới (sửa giá ở tab Dự án cũng đồng bộ vào bảng giá).
-        </p>
-        <button
-          onClick={onNavigateToProjects}
-          className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-        >
-          Đi tới Dự án <ArrowRight className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {sub === "overview" && <StockReport />}
 
-      <StockReport />
+      {sub === "prices" && <StockQuotesBoard onNavigateToProjects={onNavigateToProjects} />}
 
-      <StockQuotesBoard />
+      {sub === "dividends" && <DividendManager projects={projects} />}
 
-      <DividendManager projects={projects} />
-
-      {/* Danh mục & Lệnh giao dịch chứng khoán của Người dùng */}
-      <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-gray-200">
-            <div className="relative flex-1">
+      {sub === "orders" && (
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-center gap-2 bg-white p-2.5 rounded-xl border border-gray-200">
+            <div className="flex gap-1 p-0.5 rounded-lg bg-gray-100">
+              {[
+                ["pending", `Chờ khớp (${pendingCount})`],
+                ["done", "Đã xử lý"],
+                ["all", "Tất cả"],
+              ].map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setStatusFilter(k)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] cursor-pointer ${statusFilter === k ? "bg-white font-bold shadow-sm" : "text-gray-500"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="relative flex-1 min-w-[160px]">
               <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Tìm lệnh theo tên nhà đầu tư, mã cổ phiếu..."
+                placeholder="Tìm theo khách hàng, mã..."
                 className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:border-indigo-500"
               />
             </div>
+            <button
+              onClick={() => setShowCreateOrder(true)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" /> Cấp cổ phiếu
+            </button>
           </div>
+          <p className="text-[10.5px] text-gray-500 px-1">
+            Lệnh không cần duyệt — hệ thống tự khớp theo giá. Chỉ huỷ khi khách yêu cầu; tiền / cổ phiếu tự trả lại cho khách.
+          </p>
 
-          {loading ? (
-            <div className="text-center py-8 text-xs text-gray-400">Đang tải danh sách lệnh chứng khoán...</div>
-          ) : stockOrders.length === 0 ? (
-            <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-200 space-y-2">
-              <p className="text-xs text-gray-500 font-semibold">Chưa có lệnh giao dịch chứng khoán nào từ người dùng</p>
-              <button
-                onClick={() => setShowCreateOrder(true)}
-                className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-all"
-              >
-                + Cấp lệnh mua cổ phiếu cho khách hàng
-              </button>
+          {loading && stockOrders.length === 0 ? (
+            <div className="text-center py-8 text-xs text-gray-400">Đang tải lệnh...</div>
+          ) : shownOrders.length === 0 ? (
+            <div className="text-center py-8 bg-white rounded-2xl border border-dashed border-gray-200 text-xs text-gray-500">
+              {statusFilter === "pending" ? "Không có lệnh nào đang chờ khớp." : "Không có lệnh phù hợp."}
             </div>
           ) : (
             <div className="space-y-2">
-              {stockOrders
-                .filter((o) => {
-                  const q = search.toLowerCase();
-                  return (
-                    (o.user_name || "").toLowerCase().includes(q) ||
-                    (o.user_email || "").toLowerCase().includes(q) ||
-                    (o.user_identifier || "").toLowerCase().includes(q) ||
-                    (o.symbol || "").toLowerCase().includes(q)
-                  );
-                })
-                .map((order) => {
-                  const sourceLabel =
-                    order.source === "backfill" ? "Ghi nhận lại" : order.source === "admin" ? "Admin cấp" : "Khách đặt";
-
-                  return (
-                    <div
-                      key={order.id}
-                      className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold font-mono">
-                            {order.side === "SELL" ? "BÁN" : "MUA"} {order.symbol}
-                          </span>
-                          <span className="text-xs font-bold text-black">{order.user_name || order.user_email || order.user_id}</span>
-                        </div>
-                        <p className="text-[11px] text-gray-500">
-                          {order.user_identifier ? `TK ${order.user_identifier} · ` : ""}
-                          {order.user_email || "N/A"}
-                        </p>
-                        <p className="text-[10px] text-gray-400">
-                          {order.created_at ? new Date(order.created_at).toLocaleString("vi-VN") : ""} · {sourceLabel}
-                          {order.charged ? "" : " · không trừ ví"}
-                        </p>
-                        {order.note && <p className="text-[10px] text-gray-400 italic">{order.note}</p>}
+              {shownOrders.map((order) => {
+                const sell = order.side === "SELL";
+                const value =
+                  order.status === "filled"
+                    ? sell
+                      ? Number(order.amount || 0) - Number(order.fee || 0) - Number(order.tax || 0)
+                      : Number(order.amount || 0) + Number(order.fee || 0)
+                    : Number(order.hold_amount || 0);
+                const price = order.status === "filled" ? order.price : order.limit_price;
+                return (
+                  <div key={order.id} className="bg-white p-3 rounded-xl border border-gray-200 flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${sell ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                          {sell ? "BÁN" : "MUA"} {order.symbol}
+                        </span>
+                        <span className="text-xs font-bold text-gray-900 truncate">
+                          {order.user_identifier || order.user_name || order.user_email || order.user_id}
+                        </span>
                       </div>
-
-                      <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-0 pt-2 sm:pt-0 border-gray-100">
-                        <div className="text-right">
-                          <span className="text-xs font-bold text-emerald-600 font-mono block">
-                            {new Intl.NumberFormat("vi-VN").format(
-                              order.status === "filled"
-                                ? order.side === "SELL"
-                                  ? Number(order.amount || 0) - Number(order.fee || 0) - Number(order.tax || 0)
-                                  : Number(order.amount || 0) + Number(order.fee || 0)
-                                : order.hold_amount || 0
-                            )}{" "}
-                            ₫
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            {order.order_type} · {Number(order.qty || 0).toLocaleString("vi-VN")} CP
-                            {(order.status === "filled" ? order.price : order.limit_price)
-                              ? ` × ${Number(order.status === "filled" ? order.price : order.limit_price).toLocaleString("vi-VN")} ₫`
-                              : ""}
-                            {order.status === "filled" && Number(order.fee) > 0 ? ` · phí ${Number(order.fee).toLocaleString("vi-VN")}` : ""}
-                            {order.status === "filled" && Number(order.tax) > 0 ? ` · thuế ${Number(order.tax).toLocaleString("vi-VN")}` : ""}
-                            {order.status === "pending" ? (order.side === "SELL" ? " · giữ CP" : " · phong toả") : ""}
-                          </span>
-                        </div>
-                        {order.status === "filled" ? (
-                          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Đã khớp
-                          </span>
-                        ) : order.status === "pending" ? (
-                          <div className="flex items-center gap-1">
-                            <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">Chờ khớp</span>
-                            <button
-                              onClick={() => handleCancelOrder(order)}
-                              disabled={cancellingId === order.id}
-                              className="px-2 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold cursor-pointer disabled:opacity-50"
-                            >
-                              Huỷ
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold flex items-center gap-1">
-                            <X className="w-3 h-3" /> {STATUS_LABELS[order.status] || order.status}
-                            {order.cancel_reason ? ` · ${order.cancel_reason}` : ""}
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-[11px] text-gray-600 mt-0.5">
+                        {fmt(order.qty)} CP{price ? ` × ${fmt(price)} ₫` : ` · ${order.order_type}`} ·{" "}
+                        <b className="font-mono">{fmt(value)} ₫</b>
+                        {order.status === "pending" ? (sell ? " (giữ cổ phiếu)" : " (đang tạm giữ)") : sell ? " (khách nhận)" : " (khách trả)"}
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {order.created_at ? new Date(order.created_at).toLocaleString("vi-VN") : ""} · {SOURCE_LABELS[order.source] || order.source}
+                        {order.charged ? "" : " · không trừ ví"}
+                        {order.cancel_reason ? ` · ${order.cancel_reason}` : ""}
+                      </p>
                     </div>
-                  );
-                })}
+                    {order.status === "filled" ? (
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Đã khớp
+                      </span>
+                    ) : order.status === "pending" ? (
+                      <div className="flex items-center gap-1">
+                        <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">Chờ khớp</span>
+                        <button
+                          onClick={() => handleCancelOrder(order)}
+                          disabled={cancellingId === order.id}
+                          className="px-2 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          Huỷ
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold flex items-center gap-1">
+                        <X className="w-3 h-3" /> {STATUS_LABELS[order.status] || order.status}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
+      )}
 
-      {/* Modal: Create Manual Stock Order */}
       {showCreateOrder && (
         <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3">
           <div className="w-full max-w-sm bg-white rounded-2xl p-4 space-y-3 border border-gray-200 shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-              <h3 className="text-sm font-bold text-indigo-900">Tạo Lệnh Mua Cổ Phiếu Cho Khách hàng</h3>
-              <button onClick={() => setShowCreateOrder(false)} className="p-1 rounded-full hover:bg-gray-100">
+              <h3 className="text-sm font-bold text-indigo-900">Cấp cổ phiếu cho khách hàng</h3>
+              <button onClick={() => setShowCreateOrder(false)} className="p-1 rounded-full hover:bg-gray-100 cursor-pointer" aria-label="Đóng">
                 <X className="w-4 h-4 text-gray-500" />
               </button>
             </div>
 
             <div className="space-y-2.5 text-xs">
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Chọn nhà đầu tư (*):</label>
+              <label className="block">
+                <span className="font-bold text-gray-700 block mb-1">Khách hàng</span>
                 <select
                   value={orderForm.userId}
                   onChange={(e) => setOrderForm({ ...orderForm, userId: e.target.value })}
                   className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white"
                 >
-                  <option value="">-- Chọn tài khoản khách hàng --</option>
+                  <option value="">-- Chọn khách hàng --</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name || u.email} ({u.email})
+                      {u.identifier || u.name || u.email} {u.email ? `(${u.email})` : ""}
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
 
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Mã Cổ Phiếu:</label>
+              <label className="block">
+                <span className="font-bold text-gray-700 block mb-1">Mã cổ phiếu</span>
                 <select
                   value={formProject?.id || ""}
                   onChange={(e) => setOrderForm({ ...orderForm, projectId: e.target.value })}
@@ -437,15 +344,14 @@ export default function StocksTab({ onNavigateToProjects }) {
                 >
                   {tradableProjects.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.stock_symbol || p.symbol} - {p.name || p.title} ({Math.round(Number(p.price_per_m2) || 0).toLocaleString("vi-VN")} ₫)
-                      {p.is_active === false ? " · đang khoá" : ""}
+                      {p.stock_symbol || p.title} - {fmt(p.price_per_m2)} ₫{p.is_active === false ? " · đang khoá" : ""}
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
 
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Số lượng CP:</label>
+              <label className="block">
+                <span className="font-bold text-gray-700 block mb-1">Số cổ phiếu</span>
                 <input
                   type="number"
                   min="1"
@@ -453,10 +359,10 @@ export default function StocksTab({ onNavigateToProjects }) {
                   onChange={(e) => setOrderForm({ ...orderForm, shares: e.target.value })}
                   className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 font-mono"
                 />
-                <p className="text-[10px] text-gray-500 mt-1">
-                  Giá trị theo giá hiện tại: <b className="font-mono">{formAmount.toLocaleString("vi-VN")} ₫</b>
-                </p>
-              </div>
+                <span className="text-[10px] text-gray-500 mt-1 block">
+                  Giá trị theo giá hiện tại: <b className="font-mono">{fmt(formAmount)} ₫</b> · cổ phiếu về tài khoản ngay
+                </span>
+              </label>
 
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
@@ -466,32 +372,32 @@ export default function StocksTab({ onNavigateToProjects }) {
                   className="mt-0.5"
                 />
                 <span className="text-gray-700">
-                  Trừ tiền ví khách hàng
-                  <span className="block text-[10px] text-gray-500">Bỏ chọn: chỉ ghi nhận cổ phần, không trừ ví.</span>
+                  Trừ tiền ví khách ({fmt(formAmount)} ₫)
+                  <span className="block text-[10px] text-gray-500">Bỏ chọn nếu là tặng / bù cổ phiếu (không trừ tiền).</span>
                 </span>
               </label>
 
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Ghi chú:</label>
+              <label className="block">
+                <span className="font-bold text-gray-700 block mb-1">Ghi chú (tuỳ chọn)</span>
                 <input
                   value={orderForm.note}
                   onChange={(e) => setOrderForm({ ...orderForm, note: e.target.value })}
+                  placeholder="VD: Bù lệnh lỗi ngày 05/10"
                   className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200"
                 />
-              </div>
+              </label>
             </div>
 
             <button
               onClick={handleCreateOrderSubmit}
               disabled={submitting}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all mt-2"
+              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50"
             >
-              {submitting ? "Đang ghi nhận..." : "Xác Nhận Tạo Lệnh Giao Dịch"}
+              {submitting ? "Đang cấp..." : "Xác nhận cấp cổ phiếu"}
             </button>
           </div>
         </div>
       )}
-
     </div>
   );
 }

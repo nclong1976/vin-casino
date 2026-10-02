@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from "react";
-import { Activity, Save, RotateCcw } from "lucide-react";
+import { Activity, Save, RotateCcw, ChevronDown, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useStockMarket } from "@/hooks/useStockMarket";
-import { SESSION_LABELS, changePct, isValidTick, priceColor } from "@/lib/stockMarket";
+import { changePct, isValidTick, priceColor, sessionHint } from "@/lib/stockMarket";
 import { adminSetStockPrice, adminResetStockReference, adminSetStockConfig, stockErrorMessage } from "@/lib/stockOrders";
 
 const fmt = (n) => (n == null ? "—" : Math.round(Number(n) || 0).toLocaleString("vi-VN"));
 
 /**
- * Bảng giá cho Admin: đặt giá hiện tại (trong Trần/Sàn, đúng bước giá - lệnh
- * LO chờ được khớp ngay nếu đang phiên liên tục), đặt lại giá tham chiếu, và
- * cấu hình phí giao dịch / biên độ dao động.
+ * Giá cổ phiếu cho Admin: nhập giá mới cho từng mã (trong Sàn–Trần, đúng bước
+ * giá; lệnh chờ ở mức giá đó tự khớp). Cài đặt phí / thuế / biên độ và niêm
+ * yết lại giá là thao tác hiếm - để trong phần thu gọn.
  */
-export default function StockQuotesBoard() {
-  const { quotes, config, session } = useStockMarket();
+export default function StockQuotesBoard({ onNavigateToProjects }) {
+  const { quotes, config, session, calendar } = useStockMarket();
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState(null);
+  const [showCfg, setShowCfg] = useState(false);
   const [cfg, setCfg] = useState({ fee: "", tax: "", band: "" });
 
   useEffect(() => {
@@ -29,32 +30,37 @@ export default function StockQuotesBoard() {
   const rows = Object.values(quotes).sort((a, b) => a.symbol.localeCompare(b.symbol));
 
   const run = async (key, fn, ok) => {
-    if (busy) return;
+    if (busy) return false;
     setBusy(key);
     try {
       await fn();
       toast.success(ok);
+      return true;
     } catch (e) {
       toast.error(stockErrorMessage(e, "Không thực hiện được"));
+      return false;
     } finally {
       setBusy(null);
     }
   };
 
-  const setPrice = (q) => {
+  const setPrice = async (q) => {
     const p = Number(drafts[q.symbol]);
-    if (!isValidTick(p)) return toast.error("Giá không đúng bước giá (10 / 50 / 100 đ)");
-    run(`p-${q.symbol}`, () => adminSetStockPrice(q.symbol, p), `Đã đặt giá ${q.symbol} = ${fmt(p)} đ`).then(() =>
-      setDrafts((d) => ({ ...d, [q.symbol]: "" }))
-    );
+    if (!isValidTick(p)) return toast.error("Giá không đúng bước giá: dưới 10.000 đ bước 10; 10.000–49.950 bước 50; từ 50.000 bước 100.");
+    if (p < Number(q.floor_price) || p > Number(q.ceiling_price)) {
+      return toast.error(`Giá phải từ ${fmt(q.floor_price)} đến ${fmt(q.ceiling_price)} đ. Muốn đổi hẳn mặt bằng giá, dùng nút ↺ (niêm yết lại).`);
+    }
+    if (await run(`p-${q.symbol}`, () => adminSetStockPrice(q.symbol, p), `Đã đặt giá ${q.symbol} = ${fmt(p)} đ`)) {
+      setDrafts((d) => ({ ...d, [q.symbol]: "" }));
+    }
   };
 
-  const resetRef = (q) => {
+  const resetRef = async (q) => {
     const p = Number(drafts[q.symbol]) || Number(q.last_price);
-    if (!window.confirm(`Đặt lại giá tham chiếu ${q.symbol} = ${fmt(p)} đ? Trần/Sàn sẽ tính lại theo giá này.`)) return;
-    run(`r-${q.symbol}`, () => adminResetStockReference(q.symbol, p), `Đã đặt lại TC ${q.symbol}`).then(() =>
-      setDrafts((d) => ({ ...d, [q.symbol]: "" }))
-    );
+    if (!window.confirm(`Niêm yết lại ${q.symbol} ở giá ${fmt(p)} đ?\nGiá tham chiếu và Trần/Sàn hôm nay sẽ tính lại theo giá này.`)) return;
+    if (await run(`r-${q.symbol}`, () => adminResetStockReference(q.symbol, p), `Đã niêm yết lại ${q.symbol} = ${fmt(p)} đ`)) {
+      setDrafts((d) => ({ ...d, [q.symbol]: "" }));
+    }
   };
 
   const saveConfig = () => {
@@ -64,107 +70,77 @@ export default function StockQuotesBoard() {
     if (!(fee >= 0 && fee < 5)) return toast.error("Phí phải từ 0% đến dưới 5%");
     if (!(tax >= 0 && tax < 5)) return toast.error("Thuế bán phải từ 0% đến dưới 5%");
     if (!(band > 0 && band <= 50)) return toast.error("Biên độ phải từ 0% đến 50%");
-    run("cfg", () => adminSetStockConfig({ feeRate: fee / 100, sellTaxRate: tax / 100, priceBandPct: band }), "Đã lưu cấu hình giao dịch");
+    run("cfg", () => adminSetStockConfig({ feeRate: fee / 100, sellTaxRate: tax / 100, priceBandPct: band }), "Đã lưu cài đặt");
   };
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-3.5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-          <Activity className="w-4 h-4 text-emerald-600" /> Bảng giá
-          <span className="ml-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">
-            {SESSION_LABELS[session] || session}
-          </span>
+          <Activity className="w-4 h-4 text-emerald-600" /> Giá cổ phiếu
         </h3>
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          <label className="flex items-center gap-1 text-gray-600">
-            Phí
-            <input
-              value={cfg.fee}
-              onChange={(e) => setCfg({ ...cfg, fee: e.target.value })}
-              className="w-16 px-1.5 py-1 rounded-md border border-gray-200 font-mono text-right"
-            />
-            %
-          </label>
-          <label className="flex items-center gap-1 text-gray-600">
-            Thuế bán
-            <input
-              value={cfg.tax}
-              onChange={(e) => setCfg({ ...cfg, tax: e.target.value })}
-              className="w-14 px-1.5 py-1 rounded-md border border-gray-200 font-mono text-right"
-            />
-            %
-          </label>
-          <label className="flex items-center gap-1 text-gray-600">
-            Biên độ ±
-            <input
-              value={cfg.band}
-              onChange={(e) => setCfg({ ...cfg, band: e.target.value })}
-              className="w-12 px-1.5 py-1 rounded-md border border-gray-200 font-mono text-right"
-            />
-            %
-          </label>
+        {onNavigateToProjects && (
           <button
-            onClick={saveConfig}
-            disabled={busy === "cfg"}
-            className="px-2.5 py-1 rounded-md bg-gray-900 text-white font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            onClick={onNavigateToProjects}
+            className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
           >
-            <Save className="w-3 h-3" /> Lưu
+            Thêm / khoá / mở mã <ArrowRight className="w-3 h-3" />
           </button>
-        </div>
+        )}
       </div>
+      <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2.5 py-1.5">{sessionHint(session, new Date(), calendar)}</p>
 
       <div className="overflow-x-auto -mx-1">
-        <table className="w-full text-[11px] min-w-[640px]">
+        <table className="w-full text-[11.5px] min-w-[520px]">
           <thead>
-            <tr className="text-gray-400 text-left">
+            <tr className="text-gray-400 text-left text-[10.5px]">
               <th className="px-1 py-1">Mã</th>
-              <th className="px-1 py-1 text-right">Trần</th>
-              <th className="px-1 py-1 text-right">TC</th>
-              <th className="px-1 py-1 text-right">Sàn</th>
               <th className="px-1 py-1 text-right">Giá hiện tại</th>
-              <th className="px-1 py-1 text-right">Mở / Đóng</th>
-              <th className="px-1 py-1 text-right">KL</th>
-              <th className="px-1 py-1">Đặt giá mới</th>
+              <th className="px-1 py-1 text-right">Được đặt trong khoảng</th>
+              <th className="px-1 py-1 text-right">KL hôm nay</th>
+              <th className="px-1 py-1">Giá mới</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((q) => {
               const pct = changePct(q);
+              const c = priceColor(q.last_price, q);
               return (
                 <tr key={q.symbol} className="border-t border-gray-100">
-                  <td className="px-1 py-1.5 font-bold text-gray-900">{q.symbol}</td>
-                  <td className="px-1 py-1.5 text-right font-mono text-purple-600">{fmt(q.ceiling_price)}</td>
-                  <td className="px-1 py-1.5 text-right font-mono text-amber-600">{fmt(q.reference_price)}</td>
-                  <td className="px-1 py-1.5 text-right font-mono text-cyan-600">{fmt(q.floor_price)}</td>
-                  <td className="px-1 py-1.5 text-right font-mono font-bold" style={{ color: priceColor(q.last_price, q) === "#e5e7eb" ? undefined : priceColor(q.last_price, q) }}>
-                    {fmt(q.last_price)} <span className="font-normal">({pct >= 0 ? "+" : ""}{pct}%)</span>
+                  <td className="px-1 py-2 font-bold text-gray-900">{q.symbol}</td>
+                  <td className="px-1 py-2 text-right font-mono font-bold" style={{ color: c === "#e5e7eb" ? undefined : c }}>
+                    {fmt(q.last_price)}
+                    <span className="block text-[10px] font-normal">
+                      {pct >= 0 ? "+" : ""}
+                      {pct}% so với TC {fmt(q.reference_price)}
+                    </span>
                   </td>
-                  <td className="px-1 py-1.5 text-right font-mono text-gray-500">
-                    {fmt(q.open_price)} / {fmt(q.close_price)}
+                  <td className="px-1 py-2 text-right font-mono text-gray-600">
+                    {fmt(q.floor_price)} – {fmt(q.ceiling_price)}
                   </td>
-                  <td className="px-1 py-1.5 text-right font-mono text-gray-700">{fmt(q.volume)}</td>
-                  <td className="px-1 py-1.5">
+                  <td className="px-1 py-2 text-right font-mono text-gray-700">{fmt(q.volume)}</td>
+                  <td className="px-1 py-2">
                     <div className="flex items-center gap-1">
                       <input
                         type="number"
                         placeholder={String(q.last_price)}
                         value={drafts[q.symbol] ?? ""}
                         onChange={(e) => setDrafts((d) => ({ ...d, [q.symbol]: e.target.value }))}
-                        className="w-20 px-1.5 py-1 rounded-md border border-gray-200 font-mono"
+                        onKeyDown={(e) => e.key === "Enter" && drafts[q.symbol] && setPrice(q)}
+                        className="w-24 px-1.5 py-1 rounded-md border border-gray-200 font-mono"
                       />
                       <button
                         onClick={() => setPrice(q)}
                         disabled={!drafts[q.symbol] || !!busy}
-                        className="px-2 py-1 rounded-md bg-emerald-600 text-white font-bold cursor-pointer disabled:opacity-40"
+                        className="px-2.5 py-1 rounded-md bg-emerald-600 text-white font-bold cursor-pointer disabled:opacity-40"
                       >
                         Đặt
                       </button>
                       <button
                         onClick={() => resetRef(q)}
                         disabled={!!busy}
-                        title="Đặt lại giá tham chiếu"
-                        className="p-1 rounded-md bg-gray-100 text-gray-600 cursor-pointer disabled:opacity-40"
+                        title="Niêm yết lại (đổi giá tham chiếu, dùng khi cần giá ngoài Sàn–Trần)"
+                        className="p-1 rounded-md bg-gray-100 text-gray-500 cursor-pointer disabled:opacity-40"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                       </button>
@@ -176,9 +152,46 @@ export default function StockQuotesBoard() {
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] text-gray-400">
-        Giá mới phải nằm trong Trần/Sàn và đúng bước giá; lệnh LO chờ có giá đặt ≥ giá mới sẽ khớp ngay trong phiên liên tục. Mỗi ngày giao dịch mới, giá tham chiếu = giá đóng cửa hôm trước. Sửa giá ở tab Dự án cũng được tự động kẹp trong Trần/Sàn.
+      <p className="text-[10.5px] text-gray-500 leading-relaxed">
+        Nhập giá mới → bấm <b>Đặt</b> (hoặc Enter). Lệnh của khách đang chờ ở mức giá này sẽ tự khớp. Mỗi sáng hệ thống tự lấy giá đóng cửa
+        hôm trước làm giá tham chiếu và tính lại khoảng được đặt (±{Number(config.price_band_pct)}%).
       </p>
+
+      <div className="border-t border-gray-100 pt-2">
+        <button onClick={() => setShowCfg((v) => !v)} className="w-full flex items-center justify-between text-[11.5px] text-gray-600 cursor-pointer">
+          <span>
+            Cài đặt phí, thuế, biên độ <span className="text-gray-400">(ít khi cần đổi)</span>
+          </span>
+          <ChevronDown className={`w-4 h-4 transition-transform ${showCfg ? "rotate-180" : ""}`} />
+        </button>
+        {showCfg && (
+          <div className="mt-2 flex flex-wrap items-end gap-2 text-[11px]">
+            {[
+              ["fee", "Phí mua/bán (%)", "0,15"],
+              ["tax", "Thuế khi bán (%)", "0,1"],
+              ["band", "Biên độ ± (%)", "7"],
+            ].map(([k, label, ph]) => (
+              <label key={k} className="flex flex-col gap-1 text-gray-600">
+                {label}
+                <input
+                  value={cfg[k]}
+                  placeholder={ph}
+                  onChange={(e) => setCfg({ ...cfg, [k]: e.target.value })}
+                  className="w-24 px-2 py-1 rounded-md border border-gray-200 font-mono text-right"
+                />
+              </label>
+            ))}
+            <button
+              onClick={saveConfig}
+              disabled={busy === "cfg"}
+              className="px-3 py-1.5 rounded-md bg-gray-900 text-white font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <Save className="w-3 h-3" /> Lưu
+            </button>
+            <p className="w-full text-[10px] text-gray-400">Chỉ áp dụng cho lệnh đặt sau khi lưu. Đổi biên độ sẽ tính lại khoảng giá của hôm nay.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
