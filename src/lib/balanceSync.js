@@ -170,7 +170,10 @@ export async function adjustUserBalanceStrict(userId, delta, totalDepositedDelta
 
   const rpcResult = await incrementUserBalance(userId, numDelta, numDepositDelta);
   if (!rpcResult) return null;
-  return applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
+  const local = applyBalanceToLocalStores(userId, rpcResult.balance, rpcResult.total_deposited, rpcResult.balance_version);
+  // Luôn trả về số dư THẬT Postgres vừa chốt - kể cả khi người dùng này không
+  // có trong cache máy hiện tại (vd. Admin cộng/trừ ví cho hội viên khác).
+  return { ...(local || { id: userId }), balance: rpcResult.balance, total_deposited: rpcResult.total_deposited };
 }
 
 /**

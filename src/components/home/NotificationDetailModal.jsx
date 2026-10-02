@@ -4,6 +4,8 @@ import { X, Bell } from "lucide-react";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
+  withdraw: { label: "Rút tiền", color: "text-orange-500", bg: "bg-orange-50" },
+  document: { label: "Tài liệu", color: "text-[#948154]", bg: "bg-[#948154]/10" },
   contract: { label: "Hợp đồng", color: "text-[#948154]", bg: "bg-[#948154]/10" },
   wallet: { label: "Ví", color: "text-blue-500", bg: "bg-blue-50" },
   admin: { label: "Thông báo", color: "text-orange-500", bg: "bg-orange-50" },
