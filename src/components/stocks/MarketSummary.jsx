@@ -10,8 +10,62 @@ const compact = (n) => {
   return v.toLocaleString("vi-VN");
 };
 
+/**
+ * Biểu đồ tăng / giảm hôm nay của từng mã: thanh mọc sang phải (xanh) là
+ * tăng, sang trái (đỏ) là giảm so với giá tham chiếu; chạm mép là chạm
+ * trần / sàn (±biên độ).
+ */
+function MoversChart({ list, band, onSelect }) {
+  const rows = [...list].sort((a, b) => changePct(b) - changePct(a));
+  if (rows.length === 0) return null;
+  const scale = Math.max(Number(band) || 7, ...rows.map((q) => Math.abs(changePct(q))));
+  return (
+    <div className="mt-3 pt-3 border-t border-white/5">
+      <div className="flex items-center justify-between text-[9.5px] text-gray-500 mb-1.5">
+        <span>Tăng / giảm hôm nay</span>
+        <span>
+          <span className="text-red-400">◀ giảm</span> · <span className="text-emerald-400">tăng ▶</span>
+        </span>
+      </div>
+      <div className="space-y-1">
+        {rows.map((q) => {
+          const p = changePct(q);
+          const w = Math.min(50, (Math.abs(p) / scale) * 50);
+          const c = p > 0 ? "#10b981" : p < 0 ? "#ef4444" : "#d4af37";
+          return (
+            <button
+              key={q.symbol}
+              type="button"
+              onClick={onSelect ? () => onSelect(q.symbol) : undefined}
+              className={`w-full flex items-center gap-2 text-left ${onSelect ? "cursor-pointer" : "cursor-default"}`}
+              aria-label={`${q.symbol} ${p >= 0 ? "tăng" : "giảm"} ${Math.abs(p)}%`}
+            >
+              <span className="w-9 text-[11px] font-bold text-white">{q.symbol}</span>
+              <span className="relative flex-1 h-3.5 rounded bg-white/[0.04]">
+                <span className="absolute left-1/2 top-0 bottom-0 w-px bg-[#d4af37]/60" />
+                <span
+                  className="absolute top-0.5 bottom-0.5 rounded-sm"
+                  style={{
+                    background: c,
+                    width: p === 0 ? 3 : `${Math.max(w, 1.5)}%`,
+                    ...(p >= 0 ? { left: p === 0 ? "calc(50% - 1.5px)" : "50%" } : { right: "50%" }),
+                  }}
+                />
+              </span>
+              <span className="w-14 text-right text-[11px] font-mono font-semibold" style={{ color: c }}>
+                {p > 0 ? "+" : ""}
+                {p.toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Tổng quan thị trường từ bảng giá thật (stock_quotes) - thay số liệu cố định trước đây. */
-export default function MarketSummary({ quotes, session, calendar }) {
+export default function MarketSummary({ quotes, session, calendar, band, onSelect }) {
   const list = Object.values(quotes || {});
   const avg = list.length ? list.reduce((s, q) => s + changePct(q), 0) / list.length : 0;
   const up = list.filter((q) => changePct(q) > 0).length;
@@ -64,6 +118,7 @@ export default function MarketSummary({ quotes, session, calendar }) {
             </p>
           </div>
         </div>
+        <MoversChart list={list} band={band} onSelect={onSelect} />
         <p className="text-[10.5px] text-amber-200/90 mt-2">{sessionHint(session, new Date(), calendar)}</p>
         <p className="text-[9px] text-gray-500 mt-0.5">Giờ giao dịch: 09:00–11:30 · 13:00–14:45 (thứ Hai – thứ Sáu)</p>
       </div>

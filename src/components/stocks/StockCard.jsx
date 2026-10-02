@@ -1,13 +1,24 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { ResponsiveContainer, AreaChart, Area } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, ReferenceLine } from "recharts";
+import { trendColor } from "@/lib/stockChart";
 import { ArrowUpRight, ArrowDownRight, Lock, Star } from "lucide-react";
 
-export default function StockCard({ stock, index, onTrade, onDetail, watched = false, onToggleWatch }) {
+/**
+ * Thẻ cổ phiếu. series = các điểm giá thật trong ngày { t, p } (bắt đầu từ
+ * giá tham chiếu lúc 9:00) - vẽ biểu đồ nhỏ kèm đường tham chiếu (vàng, đứt):
+ * trên đường là tăng, dưới đường là giảm so với hôm qua.
+ */
+export default function StockCard({ stock, series = [], index, onTrade, onDetail, watched = false, onToggleWatch }) {
   const up = stock.change >= 0;
   const isActive = stock.is_active ?? true;
-  const color = up ? "#10b981" : "#ef4444";
-  const data = stock.spark.map((v) => ({ v }));
+  const color = trendColor(stock.change);
+  const ref = Number(stock.quote?.reference_price) || 0;
+  const prices = series.map((x) => x.p).concat(ref > 0 ? [ref] : []);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  const pad = Math.max((hi - lo) * 0.15, (ref || hi) * 0.004);
+  const data = series.length === 1 ? [series[0], { ...series[0], t: series[0].t + 1 }] : series;
 
   return (
     <motion.div
@@ -53,20 +64,33 @@ export default function StockCard({ stock, index, onTrade, onDetail, watched = f
           <p className="text-[10px] text-gray-400 truncate">{stock.name}</p>
         </div>
 
-        {/* Mini chart */}
-        <div className="w-[60px] h-[34px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id={`grad-${stock.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity={0.4} />
-                  <stop offset="100%" stopColor={color} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill={`url(#grad-${stock.symbol})`} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        {/* Biểu đồ nhỏ trong ngày (giá thật) */}
+        {data.length > 0 && (
+          <div className="w-[64px] h-[36px]" aria-label={`Biểu đồ giá ${stock.symbol} hôm nay`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 2 }}>
+                <defs>
+                  <linearGradient id={`grad-${stock.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis hide dataKey="t" type="number" domain={["dataMin", "dataMax"]} />
+                <YAxis hide domain={[lo - pad, hi + pad]} />
+                {ref > 0 && <ReferenceLine y={ref} stroke="#d4af37" strokeDasharray="2 2" strokeOpacity={0.7} />}
+                <Area
+                  type="stepAfter"
+                  dataKey="p"
+                  baseValue="dataMin"
+                  stroke={color}
+                  strokeWidth={1.5}
+                  fill={`url(#grad-${stock.symbol})`}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
         {/* Price */}
         <div className="flex flex-col items-end shrink-0 w-[78px]">
