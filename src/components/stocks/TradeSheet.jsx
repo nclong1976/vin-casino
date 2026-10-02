@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Wallet, AlertTriangle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalanceStrict } from "@/lib/balanceSync";
+import { placeStockOrder, newIdempotencyKey, stockErrorCode, stockErrorMessage } from "@/lib/stockOrders";
 import { useAuth } from "@/lib/AuthContext";
 import { toast } from "sonner";
 
@@ -12,6 +12,8 @@ export default function TradeSheet({ stock, onClose }) {
   const [qty, setQty] = useState(100);
   const [loading, setLoading] = useState(false);
   const [userBalance, setUserBalance] = useState(0);
+  // Cùng 1 khoá cho mọi lần bấm của 1 lệnh => bấm đúp/gửi lại không khớp 2 lần.
+  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -34,8 +36,17 @@ export default function TradeSheet({ stock, onClose }) {
   const totalNum = unit * qty;
   const total = totalNum.toLocaleString("vi-VN");
   const up = stock.change >= 0;
+  const BUY = "#10b981";
 
   const handleOrder = async () => {
+    if (!stock.id) {
+      toast.error("Mã này chưa mở giao dịch.");
+      return;
+    }
+    if (!Number.isInteger(qty) || qty <= 0) {
+      toast.error("Khối lượng không hợp lệ.");
+      return;
+    }
     if (userBalance < totalNum) {
       toast.warning(
         `Số dư ví (${userBalance.toLocaleString("vi-VN")} VNĐ) không đủ ${total} VNĐ. Đang chuyển hướng đến trang Nạp tiền...`
@@ -47,51 +58,25 @@ export default function TradeSheet({ stock, onClose }) {
 
     setLoading(true);
     try {
-      // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
-      // xác nhận thật từ Postgres) và ĐỢI kết quả trước khi ghi nhận lệnh -
-      // trước đây gọi adjustUserBalance() kiểu "bắn rồi quên" (không await,
-      // chỉ .catch im lặng), nếu ghi thất bại lệnh vẫn được báo "thành
-      // công" và tạo Transaction dù tiền chưa hề bị trừ.
-      if (user?.id) {
-        const result = await adjustUserBalanceStrict(user.id, -totalNum, 0, `MUA CO PHIEU ${stock.symbol} SL ${qty}`);
-        if (!result) {
-          toast.error("Không thể trừ tiền để đặt lệnh, vui lòng thử lại!");
-          setLoading(false);
-          return;
-        }
-        setUserBalance(result.balance);
-      }
-
-      await base44.entities.Transaction.create({
-        user_id: user?.id || "u_guest",
-        user_email: user?.email || "khachhang@vinclub.com",
-        user_name: user?.name || "Khách hàng",
-        project_id: `stock_${stock.symbol}`,
-        project_name: `Cổ phiếu ${stock.symbol} (${stock.name})`,
-        category: "Đầu tư chứng khoán",
-        amount: totalNum,
-        shares: qty,
-        status: "completed",
-        contract_status: "approved",
-        note: `Đặt lệnh ${up ? "MUA" : "BÁN"} ${qty} CP ${stock.symbol}`,
-        // Không gửi created_date - trigger compute_transaction_interest()
-        // ở Postgres LUÔN tự gán bằng now() của máy chủ, không tin đồng hồ
-        // thiết bị khách hàng.
-      });
-
-      await base44.entities.WalletTransaction.create({
-        user_id: user?.id,
-        type: "investment",
-        amount: totalNum,
-        status: "completed",
-        description: `Mua ${qty} cổ phiếu ${stock.symbol}`,
-        created_date: new Date().toISOString(),
-      });
-
-      toast.success(`Đặt lệnh thành công! Đã khớp ${qty} cổ phiếu ${stock.symbol}`);
+      // Trừ ví + ghi lệnh + cộng cổ phần trong MỘT giao dịch Postgres
+      // (RPC place_stock_order). Luồng cũ trừ tiền ở trình duyệt rồi ghi
+      // transactions với project_id sai => tiền mất mà không có cổ phần.
+      const result = await placeStockOrder({ projectId: stock.id, qty, idempotencyKey });
+      if (result?.balance != null) setUserBalance(Number(result.balance));
+      setIdempotencyKey(newIdempotencyKey());
+      window.dispatchEvent(new Event("vinclub:balance_updated"));
+      const filled = result?.order;
+      toast.success(
+        `Đã khớp lệnh mua ${Number(filled?.qty || qty).toLocaleString("vi-VN")} CP ${filled?.symbol || stock.symbol}` +
+          (filled?.price ? ` giá ${Number(filled.price).toLocaleString("vi-VN")} đ` : "")
+      );
       onClose();
     } catch (e) {
-      toast.error("Không thể thực hiện lệnh giao dịch chứng khoán");
+      if (stockErrorCode(e) === "INSUFFICIENT_BUYING_POWER") {
+        toast.warning(stockErrorMessage(e));
+      } else {
+        toast.error(stockErrorMessage(e));
+      }
     } finally {
       setLoading(false);
     }
@@ -134,7 +119,7 @@ export default function TradeSheet({ stock, onClose }) {
           </div>
 
           <div className="flex items-baseline justify-between p-3 rounded-xl bg-[#0d1117] mb-4">
-            <span className="text-[11px] text-gray-400">Giá khớp lệnh</span>
+            <span className="text-[11px] text-gray-400">Giá khớp lệnh (thị trường)</span>
             <span className="text-[18px] font-bold font-mono" style={{ color: up ? "#10b981" : "#ef4444" }}>
               {stock.price} đ
             </span>
@@ -158,7 +143,7 @@ export default function TradeSheet({ stock, onClose }) {
           <input
             type="number"
             value={qty}
-            onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
+            onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
             className="w-full px-3 py-2.5 rounded-lg bg-[#0d1117] border border-[#222c38] text-white text-[13px] outline-none focus:border-emerald-500 font-mono"
           />
 
@@ -178,9 +163,9 @@ export default function TradeSheet({ stock, onClose }) {
             disabled={loading}
             onClick={handleOrder}
             className="w-full mt-4 py-3 rounded-xl text-[14px] font-extrabold text-white active:scale-[0.98] transition-transform cursor-pointer shadow-lg uppercase tracking-wider"
-            style={{ backgroundColor: userBalance < totalNum ? "#d4af37" : (up ? "#10b981" : "#ef4444") }}
+            style={{ backgroundColor: userBalance < totalNum ? "#d4af37" : BUY }}
           >
-            {loading ? "Đang xử lý lệnh..." : userBalance < totalNum ? "NẠP TIỀN ĐỂ ĐẶT LỆNH" : (up ? "Đặt lệnh mua ngay" : "Đặt lệnh bán ngay")}
+            {loading ? "Đang xử lý lệnh..." : userBalance < totalNum ? "NẠP TIỀN ĐỂ ĐẶT LỆNH" : "Đặt lệnh mua ngay"}
           </button>
         </motion.div>
       </motion.div>

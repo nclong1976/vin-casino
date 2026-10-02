@@ -7,14 +7,16 @@ import TradeSheet from "@/components/stocks/TradeSheet";
 import BottomNav from "@/components/BottomNav";
 import MarketSearchBar from "@/components/shared/MarketSearchBar";
 import { base44 } from "@/api/base44Client";
+import MyHoldings from "@/components/stocks/MyHoldings";
 
 // Chỉ dùng khi bảng investment_projects chưa có mã cổ phiếu nào (vd lần
 // khởi tạo đầu tiên/mất kết nối) - KHÔNG còn là nguồn dữ liệu chính. Trước
 // đây trang này 100% hardcode, không hề đọc Supabase, nên StocksTab.jsx
 // bên Admin chỉnh sửa gì cũng không ảnh hưởng người dùng thật.
 const FALLBACK_STOCKS = [
-  { symbol: "VIC", name: "Tập đoàn Vingroup", price: "45.200", change: 3.1, spark: [42, 42.5, 41.8, 43, 44, 43.5, 44.8, 45.2] },
-  { symbol: "VHM", name: "Vinhomes", price: "42.800", change: 2.4, spark: [41, 41.2, 40.8, 41.5, 42, 41.8, 42.5, 42.8] },
+  // Không có id dự án thật => không đặt lệnh được, hiện "Tạm khóa giao dịch".
+  { symbol: "VIC", name: "Tập đoàn Vingroup", price: "45.200", change: 3.1, is_active: false, spark: [42, 42.5, 41.8, 43, 44, 43.5, 44.8, 45.2] },
+  { symbol: "VHM", name: "Vinhomes", price: "42.800", change: 2.4, is_active: false, spark: [41, 41.2, 40.8, 41.5, 42, 41.8, 42.5, 42.8] },
 ];
 
 /** Sinh dãy điểm cho mini-chart (spark) ổn định theo giá+biến động hiện tại - không có cột lưu từng điểm biểu đồ trong DB. */
@@ -43,12 +45,10 @@ function mapProjectToStock(p) {
     price: price.toLocaleString("vi-VN"),
     change,
     spark: synthesizeSpark(price, change),
-    // Đầu tư chứng khoán LUÔN mở giao dịch cho người chơi - không phụ thuộc
-    // is_active thật của Project (trường dùng chung cho MỌI danh mục qua
-    // ProjectsTab.jsx, admin có thể lỡ khóa nhầm khi quản lý danh sách
-    // chung). Cố định true ở đây để trang này không bao giờ hiện "Tạm khóa
-    // giao dịch" cho cổ phiếu, bất kể giá trị is_active trong Postgres.
-    is_active: true,
+    // Theo đúng trạng thái Admin đặt ở tab Dự án: mã đang khoá thì không mua
+    // được (server place_stock_order cũng từ chối SYMBOL_HALTED).
+    is_active: p.is_active !== false,
+    priceNum: price,
     description: p.description || "",
   };
 }
@@ -112,6 +112,8 @@ export default function Stocks() {
 
       <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
         <MarketSummary />
+
+        <MyHoldings stocks={stocks} />
 
         {/* Live Market & Stock Search Grounding */}
         <div className="pt-1 pb-1">
