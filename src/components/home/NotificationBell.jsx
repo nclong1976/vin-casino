@@ -148,7 +148,8 @@ export default function NotificationBell() {
     }
     if (n.type === "stock") {
       setOpen(false);
-      navigate("/stocks?tab=orders");
+      const ev = n.extra?.event;
+      navigate(ev === "dividend" || ev === "announced" ? "/stocks?tab=dividends" : "/stocks?tab=orders");
       return;
     }
     // Thông báo thường (title/content) trước đây bấm vào không có tác dụng

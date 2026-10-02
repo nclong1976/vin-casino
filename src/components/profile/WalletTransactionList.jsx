@@ -34,6 +34,7 @@ const KIND_STYLE = {
   [TRANSACTION_KINDS.INVESTMENT]: { icon: TrendingUp, iconBg: "bg-purple-50 text-purple-600 border-purple-100" },
   [TRANSACTION_KINDS.BONUS]: { icon: Gift, iconBg: "bg-amber-50 text-amber-600 border-amber-100" },
   [TRANSACTION_KINDS.STOCK_SALE]: { icon: TrendingUp, iconBg: "bg-emerald-50 text-emerald-600 border-emerald-100" },
+  [TRANSACTION_KINDS.DIVIDEND]: { icon: Gift, iconBg: "bg-amber-50 text-amber-600 border-amber-100" },
 };
 
 const STATUS_STYLE = {
@@ -48,7 +49,7 @@ const KIND_FILTERS = [
   { value: "all", label: "Tất cả" },
   { value: "wallet", label: "Nạp / Rút", kinds: [TRANSACTION_KINDS.DEPOSIT, TRANSACTION_KINDS.WITHDRAW] },
   { value: "investment", label: "Đầu tư", kinds: [TRANSACTION_KINDS.INVESTMENT, TRANSACTION_KINDS.STOCK_SALE] },
-  { value: "bonus", label: "Thưởng / Lãi", kinds: [TRANSACTION_KINDS.BONUS] },
+  { value: "bonus", label: "Thưởng / Lãi", kinds: [TRANSACTION_KINDS.BONUS, TRANSACTION_KINDS.DIVIDEND] },
 ];
 
 const STATUS_FILTERS = [

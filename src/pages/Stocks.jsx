@@ -10,6 +10,7 @@ import { base44 } from "@/api/base44Client";
 import MyHoldings from "@/components/stocks/MyHoldings";
 import MyOrders from "@/components/stocks/MyOrders";
 import StockDetailSheet from "@/components/stocks/StockDetailSheet";
+import DividendCalendar from "@/components/stocks/DividendCalendar";
 import { useMyPositions, sellableOf } from "@/hooks/useMyPositions";
 import { useAuth } from "@/lib/AuthContext";
 import { useStockMarket } from "@/hooks/useStockMarket";
@@ -20,6 +21,7 @@ const TABS = [
   ["market", "Thị trường"],
   ["portfolio", "Danh mục"],
   ["orders", "Lệnh"],
+  ["dividends", "Cổ tức"],
 ];
 
 // Chỉ dùng khi bảng investment_projects chưa có mã cổ phiếu nào (vd lần
@@ -164,7 +166,7 @@ export default function Stocks() {
       />
 
       <div className="max-w-5xl mx-auto px-4 py-4 pb-24 space-y-4">
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-[#151b24] border border-[#222c38]">
+        <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-[#151b24] border border-[#222c38]">
           {TABS.map(([k, label]) => (
             <button
               key={k}
@@ -211,6 +213,8 @@ export default function Stocks() {
         )}
 
         {tab === "orders" && <MyOrders />}
+
+        {tab === "dividends" && <DividendCalendar positions={positions} />}
 
         <p className="text-[9px] text-gray-600 text-center pt-2 leading-relaxed">
           Giao dịch khớp nội bộ trên VinClub theo giá do VinClub công bố, mô phỏng quy tắc sàn HOSE; không phải lệnh trên Sở Giao dịch Chứng khoán. Đầu tư có rủi ro, vui lòng cân nhắc kỹ.
