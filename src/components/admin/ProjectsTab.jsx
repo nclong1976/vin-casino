@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock, Megaphone, Send, ImagePlus, Users, Shield } from "lucide-react";
+import { Pencil, Check, X, Plus, Search, MapPin, Building2, Lock, Loader2, Trash2, AlertTriangle, Clock, Megaphone, Send, ImagePlus, Users, Shield, Calculator } from "lucide-react";
+import ValuationAdminModal from "@/components/admin/vinhomes/ValuationAdminModal";
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import {
@@ -38,6 +39,9 @@ export default function ProjectsTab({ filterRequest }) {
   // admin gửi ngay từ thẻ dự án, không phải rời trang rồi tự tìm lại đúng
   // dự án ở nơi khác (xem ProjectNotifyModal bên dưới).
   const [notifyingProject, setNotifyingProject] = useState(null);
+  // Dự án VinHomes đang mở màn "Cấu hình định giá" (hệ số, phân khu, mã căn,
+  // lịch sử giá, gói vay - xem components/admin/vinhomes/).
+  const [valuationProject, setValuationProject] = useState(null);
 
   // ProjectsTab giờ luôn mount sẵn (Admin.jsx chỉ ẩn/hiện bằng CSS thay vì
   // unmount) nên không còn nhận filter mới qua remount - phải tự áp dụng
@@ -330,6 +334,14 @@ export default function ProjectsTab({ filterRequest }) {
                   >
                     <Megaphone className="w-3 h-3" /> Gửi thông báo
                   </button>
+                  {(p.category || "").trim() === "VinHomes" && (
+                    <button
+                      onClick={() => setValuationProject(p)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10.5px] font-bold flex items-center gap-1 transition-all"
+                    >
+                      <Calculator className="w-3 h-3" /> Cấu hình định giá
+                    </button>
+                  )}
                   <button
                     onClick={() => setDeleting(p)}
                     title="Xóa dự án"
@@ -421,6 +433,8 @@ export default function ProjectsTab({ filterRequest }) {
           onClose={() => setNotifyingProject(null)}
         />
       )}
+
+      {valuationProject && <ValuationAdminModal project={valuationProject} onClose={() => setValuationProject(null)} />}
     </div>
   );
 }
