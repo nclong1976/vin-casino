@@ -7,6 +7,7 @@ import {
   AMENITY_ICONS,
   MODE_LABELS,
   TIME_LABELS,
+  PROJECTION_LABELS,
   validateGeo,
   validateHotspot,
   saveGeo,
@@ -99,7 +100,7 @@ function GeoForm({ projectId }) {
 
 function UploadForm({ projectId, zones, hasDefault, onDone }) {
   const [file, setFile] = useState(null);
-  const [meta, setMeta] = useState({ title: "", mode: "flycam", time_of_day: "day", zone_id: "", north_offset_deg: 0 });
+  const [meta, setMeta] = useState({ title: "", mode: "flycam", time_of_day: "day", zone_id: "", north_offset_deg: 0, projection: "equirect", hfov_deg: 120 });
   const [busy, setBusy] = useState(false);
   const set = (k) => (v) => setMeta((m) => ({ ...m, [k]: v }));
 
@@ -121,9 +122,25 @@ function UploadForm({ projectId, zones, hasDefault, onDone }) {
   return (
     <Section
       title="Tải ảnh 360°"
-      hint="Ảnh toàn cảnh 360° tỉ lệ 2:1 (equirectangular, VD 8000×4000) chụp bằng drone hoặc máy 360°. Ảnh được thu về tối đa 6144px để chạy mượt trên điện thoại."
+      hint="Hai loại ảnh: ảnh 360° toàn cảnh tỉ lệ 2:1 (chụp bằng máy 360° / drone, VD 8000×4000) hoặc ảnh phối cảnh / flycam thường (ảnh render tổng thể dự án). Ảnh lớn được thu nhỏ để chạy mượt trên điện thoại."
     >
       <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-[11px]" />
+      <div className="grid grid-cols-2 gap-2">
+        <Labeled label="Loại ảnh">
+          <select value={meta.projection} onChange={(e) => set("projection")(e.target.value)} className="px-2 py-1 rounded-md border border-gray-200 text-[11px] bg-white">
+            {Object.entries(PROJECTION_LABELS).map(([k, l]) => (
+              <option key={k} value={k}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </Labeled>
+        {meta.projection === "flat" && (
+          <Labeled label="Góc rộng của ảnh (độ)" hint="Ảnh flycam / phối cảnh thường 90–150°. Càng lớn, ảnh hiện càng xa.">
+            <NumInput step="5" value={meta.hfov_deg} onChange={set("hfov_deg")} />
+          </Labeled>
+        )}
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Labeled label="Góc nhìn">
           <select value={meta.mode} onChange={(e) => set("mode")(e.target.value)} className="px-2 py-1 rounded-md border border-gray-200 text-[11px] bg-white">
@@ -363,6 +380,7 @@ export default function Map360Admin({ projectId }) {
                       </p>
                       <p className="text-gray-500">
                         {MODE_LABELS[p.mode]} · {TIME_LABELS[p.time_of_day]}
+                        {p.projection === "flat" ? ` · Phối cảnh ${Number(p.hfov_deg)}°` : " · 360°"}
                       </p>
                       <div className="flex items-center gap-1">
                         <span className="text-gray-500">Bắc</span>

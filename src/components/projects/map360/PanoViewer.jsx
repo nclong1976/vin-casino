@@ -4,7 +4,7 @@ import { MarkersPlugin } from "@photo-sphere-viewer/markers-plugin";
 import "@photo-sphere-viewer/core/index.css";
 import "@photo-sphere-viewer/markers-plugin/index.css";
 import "./pano.css";
-import { AMENITY_ICONS, radToDeg } from "@/lib/vinhomesMap";
+import { AMENITY_ICONS, radToDeg, isFlat, flatPanoData, clampFlatPosition } from "@/lib/vinhomesMap";
 
 const escapeHtml = (s) => String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -43,6 +43,8 @@ const PanoViewer = forwardRef(function PanoViewer({ pano, hotspots, simulatedNig
   const viewer = useRef(null);
   const markers = useRef(null);
   const spin = useRef(null);
+  // Ảnh phối cảnh đang hiện: { hfov, vfov } độ; null = ảnh 360° toàn phần.
+  const flat = useRef(null);
   const handlers = useRef({});
   const [loading, setLoading] = useState(true);
   handlers.current = { onHotspot, onPick, onHeading, onError, north: Number(pano?.north_offset_deg) || 0, hotspots };
@@ -65,9 +67,24 @@ const PanoViewer = forwardRef(function PanoViewer({ pano, hotspots, simulatedNig
       if (!data.rightclick && Number.isFinite(data.yaw)) handlers.current.onPick?.({ yaw: data.yaw, pitch: data.pitch });
     });
     v.addEventListener("position-updated", ({ position }) => handlers.current.onHeading?.(radToDeg(position.yaw) - handlers.current.north));
+    // Ảnh phối cảnh: không cho xoay / kéo ra ngoài mép ảnh.
+    v.addEventListener("before-rotate", (e) => {
+      if (flat.current) e.position = clampFlatPosition(e.position, flat.current, { viewH: v.state.hFov, viewV: v.state.vFov });
+    });
+    v.addEventListener("zoom-updated", () => {
+      if (flat.current) v.rotate(v.getPosition());
+    });
     v.addEventListener("panorama-error", () => handlers.current.onError?.());
     // Điểm chỉ gắn được khi đã có ảnh - gắn lại mỗi lần ảnh tải xong.
-    v.addEventListener("panorama-loaded", () => markers.current?.setMarkers(toMarkers(handlers.current.hotspots)));
+    v.addEventListener("panorama-loaded", () => {
+      markers.current?.setMarkers(toMarkers(handlers.current.hotspots));
+      // Ảnh phối cảnh: khung nhìn tối đa bằng chiều cao ảnh, mở ở mức thu nhỏ nhất.
+      v.setOption("maxFov", flat.current ? Math.max(31, Math.min(90, flat.current.vfov * 0.98)) : 90);
+      if (flat.current) {
+        v.zoom(0);
+        v.rotate({ yaw: 0, pitch: 0 });
+      }
+    });
     return () => {
       clearInterval(spin.current);
       v.destroy();
@@ -81,8 +98,24 @@ const PanoViewer = forwardRef(function PanoViewer({ pano, hotspots, simulatedNig
     if (!v || !pano) return;
     let alive = true;
     setLoading(true);
-    const full = () => v.setPanorama(pano.image_url, { transition: 400, showLoader: false });
-    const first = pano.preview_url ? v.setPanorama(pano.preview_url, { transition: 300, showLoader: false }) : Promise.resolve();
+    const opts = (transition) => {
+      if (!isFlat(pano)) {
+        flat.current = null;
+        return { transition, showLoader: false };
+      }
+      return {
+        transition,
+        showLoader: false,
+        position: { yaw: 0, pitch: 0 },
+        panoData: (img) => {
+          const r = flatPanoData(img.naturalWidth || img.width, img.naturalHeight || img.height, pano.hfov_deg);
+          flat.current = { hfov: r.hfov, vfov: r.vfov };
+          return r.panoData;
+        },
+      };
+    };
+    const full = () => v.setPanorama(pano.image_url, opts(400));
+    const first = pano.preview_url ? v.setPanorama(pano.preview_url, opts(300)) : Promise.resolve();
     first
       .then(() => alive && full())
       .catch(() => alive && handlers.current.onError?.())
@@ -103,11 +136,14 @@ const PanoViewer = forwardRef(function PanoViewer({ pano, hotspots, simulatedNig
     setAutorotate(on) {
       clearInterval(spin.current);
       if (!on || !viewer.current) return;
+      let dir = 1;
       spin.current = setInterval(() => {
         const v = viewer.current;
         if (!v) return;
         const p = v.getPosition();
-        v.rotate({ yaw: p.yaw + 0.004, pitch: p.pitch });
+        v.rotate({ yaw: p.yaw + 0.004 * dir, pitch: p.pitch });
+        // Ảnh phối cảnh: chạm mép thì quay ngược lại.
+        if (flat.current && Math.abs(v.getPosition().yaw - p.yaw) < 1e-6) dir = -dir;
       }, 33);
     },
     resetNorth() {

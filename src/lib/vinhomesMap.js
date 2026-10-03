@@ -136,9 +136,10 @@ export async function resizeImage(file, maxW, quality = 0.86) {
  * điện thoại) và bản xem trước 1024px hiện ngay trong lúc chờ.
  */
 export async function uploadPanorama(projectId, file, meta) {
-  const full = await resizeImage(file, 6144, 0.85);
-  if (!isEquirectangular(full.width, full.height)) {
-    throw new Error(`Ảnh phải là ảnh toàn cảnh 360° tỉ lệ 2:1 (ảnh này ${full.width}×${full.height}).`);
+  const flat = meta.projection === "flat";
+  const full = await resizeImage(file, flat ? 4096 : 6144, 0.85);
+  if (!flat && !isEquirectangular(full.width, full.height)) {
+    throw new Error(`Ảnh 360° toàn cảnh phải có tỉ lệ 2:1 (ảnh này ${full.width}×${full.height}). Nếu là ảnh phối cảnh / flycam thường, chọn loại "Ảnh phối cảnh".`);
   }
   const preview = await resizeImage(file, 1024, 0.7);
   const base = `${projectId}/${Date.now()}`;
@@ -158,6 +159,8 @@ export async function uploadPanorama(projectId, file, meta) {
       time_of_day: meta.time_of_day,
       zone_id: meta.zone_id || null,
       north_offset_deg: Number(meta.north_offset_deg) || 0,
+      projection: flat ? "flat" : "equirect",
+      hfov_deg: flat ? Math.min(360, Math.max(30, Number(meta.hfov_deg) || 120)) : 120,
       image_url: imageUrl,
       preview_url: previewUrl,
       storage_path: `${base}.jpg`,
@@ -265,4 +268,52 @@ export async function uploadMasterplanImage(projectId, file) {
   const { error } = await supabase.storage.from(PANO_BUCKET).upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" });
   if (error) throw error;
   return supabase.storage.from(PANO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+// ───────────── Ảnh phối cảnh (không phải 360° toàn phần) ─────────────
+
+export const PROJECTION_LABELS = { equirect: "Ảnh 360° toàn cảnh (tỉ lệ 2:1)", flat: "Ảnh phối cảnh / flycam góc rộng" };
+export const isFlat = (pano) => pano?.projection === "flat";
+
+/**
+ * Đặt ảnh phối cảnh rộng hfov độ vào giữa một mặt cầu ảo để khung 360° hiển
+ * thị đúng tỉ lệ (không kéo méo quanh 360°). Trả panoData cho Photo Sphere
+ * Viewer và góc dọc của ảnh.
+ */
+export function flatPanoData(width, height, hfovDeg = 120) {
+  let hfov = Math.min(360, Math.max(30, Number(hfovDeg) || 120));
+  let fullWidth = Math.round((width * 360) / hfov);
+  // Ảnh quá cao so với góc rộng đã chọn: thu hẹp góc ngang để ảnh vừa chiều dọc mặt cầu (không cắt ảnh).
+  if (height > fullWidth / 2) {
+    fullWidth = height * 2;
+    hfov = (width / fullWidth) * 360;
+  }
+  const fullHeight = Math.round(fullWidth / 2);
+  return {
+    panoData: {
+      isEquirectangular: true,
+      fullWidth,
+      fullHeight,
+      croppedWidth: width,
+      croppedHeight: height,
+      croppedX: Math.round((fullWidth - width) / 2),
+      croppedY: Math.round((fullHeight - height) / 2),
+    },
+    hfov,
+    vfov: (height / fullHeight) * 180,
+  };
+}
+
+/** Giữ khung nhìn (rộng viewH × cao viewV độ) nằm trong ảnh phối cảnh (hfov × vfov độ, tâm ở yaw 0). */
+export function clampFlatPosition({ yaw, pitch }, { hfov, vfov }, { viewH, viewV }) {
+  const wrap = (a) => {
+    let x = a % (2 * Math.PI);
+    if (x > Math.PI) x -= 2 * Math.PI;
+    if (x < -Math.PI) x += 2 * Math.PI;
+    return x;
+  };
+  const maxYaw = Math.max(0, degToRad((hfov - viewH) / 2));
+  const maxPitch = Math.max(0, degToRad((vfov - viewV) / 2));
+  const y = Math.min(maxYaw, Math.max(-maxYaw, wrap(yaw)));
+  return { yaw: y < 0 ? y + 2 * Math.PI : y, pitch: Math.min(maxPitch, Math.max(-maxPitch, pitch)) };
 }
