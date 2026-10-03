@@ -1,0 +1,20 @@
+/* Khung ảnh 360°: dùng thanh tải riêng (vàng, mỏng) thay cho vòng "Loading..." của
+   Photo Sphere Viewer, và nền tối trong lúc chờ ảnh. */
+.vh-pano .psv-loader-container {
+  display: none !important;
+}
+.vh-pano .psv-container {
+  background: #0d1117;
+}
+/* Đêm mô phỏng: chỉ làm tối ảnh, không làm tối các điểm tương tác. */
+.vh-pano--night .psv-canvas-container {
+  filter: brightness(0.5) saturate(0.7) contrast(1.1);
+}
+.vh-pano--night .psv-canvas-container::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 26, 58, 0.35);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
