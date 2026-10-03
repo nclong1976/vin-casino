@@ -96,7 +96,7 @@ function Field({ label, children }) {
  * toán và gói vay. Phần "đầu tư trong app" vẫn dùng NGUYÊN các hàm của
  * investmentTerms.js (cùng công thức với DepositModal và trigger tính lãi).
  */
-export default function ValuationModal({ project, onClose, onInvest }) {
+export default function ValuationModal({ project, onClose, onInvest, initialZoneId = null }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tab, setTab] = useState("valuation");
@@ -121,7 +121,7 @@ export default function ValuationModal({ project, onClose, onInvest }) {
           return;
         }
         setFormData(data);
-        const zone = data.zones?.[0];
+        const zone = data.zones?.find((z) => z.id === initialZoneId) || data.zones?.[0];
         const types = TYPE_ORDER.filter((t) => (data.types || []).includes(t) && (!zone || zone.types.includes(t)));
         const type = types[0] || "apartment";
         const range = data.area_ranges?.[type];

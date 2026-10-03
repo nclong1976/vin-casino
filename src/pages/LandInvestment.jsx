@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -25,6 +25,9 @@ import PageHeader from "@/components/shared/PageHeader";
 import BottomNav from "@/components/BottomNav";
 import DepositModal from "@/components/projects/DepositModal";
 import ValuationModal from "@/components/projects/ValuationModal";
+import { supportsWebGL } from "@/components/projects/map360/webgl";
+// Bản đồ 3D + ảnh 360° nặng (MapLibre, three.js) - chỉ tải khi khách bấm "Định giá thử".
+const ProjectMap360 = lazy(() => import("@/components/projects/map360/ProjectMap360"));
 import { base44 } from "@/api/base44Client";
 import { toast } from "sonner";
 import { getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
@@ -144,6 +147,10 @@ export default function LandInvestment() {
   // tách riêng khỏi activeTab (PROJECTS/REASONS/TOOLS) vì đây là 1 popup che
   // trên trang hiện tại, không phải 1 tab điều hướng riêng.
   const [valuationProject, setValuationProject] = useState(null);
+  // Bản đồ 360° đang mở (id dự án khởi đầu). Máy không có WebGL thì mở thẳng
+  // màn định giá như trước.
+  const [mapProjectId, setMapProjectId] = useState(null);
+  const openValuation = (p, zoneId = null) => setValuationProject({ ...p, title: p.name || p.title, initialZoneId: zoneId });
   const [activeTab, setActiveTab] = useState("PROJECTS"); // "PROJECTS" | "REASONS" | "TOOLS"
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
@@ -420,7 +427,7 @@ export default function LandInvestment() {
                     {/* Actions */}
                     <div className="flex gap-2 pt-1">
                       <button
-                        onClick={() => setValuationProject({ ...p, title: p.name || p.title })}
+                        onClick={() => (supportsWebGL() ? setMapProjectId(p.id) : openValuation(p))}
                         className="flex-1 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-[10px] font-bold flex items-center justify-center gap-1 transition-all border border-gray-200"
                       >
                         <Calculator className="w-3 h-3 text-[#948154]" /> Định giá thử
@@ -875,11 +882,25 @@ export default function LandInvestment() {
         <DepositModal project={selectedProject} onClose={() => setSelectedProject(null)} />
       )}
 
+      {mapProjectId && (
+        <Suspense fallback={<div className="fixed inset-0 z-[90] bg-[#0d1117] flex items-center justify-center text-[12px] text-white/70">Đang mở bản đồ 360°...</div>}>
+          <ProjectMap360
+            initialProjectId={mapProjectId}
+            onClose={() => setMapProjectId(null)}
+            onValuate={(proj, zoneId) => {
+              const p = properties.find((x) => x.id === proj.id);
+              if (p) openValuation(p, zoneId);
+            }}
+          />
+        </Suspense>
+      )}
+
       {/* Định giá thử theo TỪNG dự án (bấm từ thẻ dự án ở tab "PROJECTS") */}
       {valuationProject && (
         <ValuationModal
-          key={valuationProject.id}
+          key={`${valuationProject.id}-${valuationProject.initialZoneId || ""}`}
           project={valuationProject}
+          initialZoneId={valuationProject.initialZoneId}
           onClose={() => setValuationProject(null)}
           onInvest={(p) => {
             setValuationProject(null);

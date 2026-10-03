@@ -8,6 +8,7 @@ import UnitsEditor from "./UnitsEditor";
 import PriceHistoryEditor from "./PriceHistoryEditor";
 import LoansEditor from "./LoansEditor";
 import LeadsList from "./LeadsList";
+import Map360Admin from "./Map360Admin";
 import { NumInput } from "./ui";
 
 const TABS = [
@@ -15,6 +16,7 @@ const TABS = [
   ["zones", "Phân khu & mã căn"],
   ["prices", "Lịch sử giá"],
   ["loans", "Gói vay"],
+  ["map", "Bản đồ & 360°"],
   ["leads", "Khách quan tâm"],
 ];
 
@@ -165,6 +167,7 @@ export default function ValuationAdminModal({ project, onClose }) {
               )}
               {tab === "prices" && <PriceHistoryEditor projectId={project.id} history={data.history} config={data.config} onChanged={reload} />}
               {tab === "loans" && <LoansEditor />}
+              {tab === "map" && <Map360Admin projectId={project.id} />}
               {tab === "leads" && <LeadsList projectId={project.id} projectName={name} />}
             </>
           )}
