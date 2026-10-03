@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, X, RotateCw, Plus, Minus, Plane, Footprints, Sun, Moon, Calculator, MapPin, Map as MapIcon, Compass } from "lucide-react";
+import { ArrowLeft, X, RotateCw, Plus, Minus, Plane, Footprints, Sun, Moon, Calculator, MapPin, Map as MapIcon, Compass, Box, Square } from "lucide-react";
 import MapStage from "./MapStage";
 import PanoViewer from "./PanoViewer";
-import { loadMapOverview, loadProject360, choosePanorama, availableModes, hasGeo, MODE_LABELS, AMENITY_ICONS } from "@/lib/vinhomesMap";
+import MasterplanStage from "./MasterplanStage";
+import { loadMapOverview, loadProject360, choosePanorama, availableModes, hasGeo, hasMasterplan, MODE_LABELS, AMENITY_ICONS } from "@/lib/vinhomesMap";
+import { TYPE_LABELS } from "@/lib/vinhomesValuation";
 import { fmtVnd } from "@/lib/vinhomesValuation";
 
 const GUIDE_KEY = "vinclub.map360GuideSeen";
@@ -34,7 +36,12 @@ function ToolButton({ label, active, onClick, children, disabled }) {
 export default function ProjectMap360({ initialProjectId, onClose, onValuate }) {
   const [projects, setProjects] = useState([]);
   const [selectedId, setSelectedId] = useState(initialProjectId);
+  // "map" = bản đồ 3D, "plan" = sa bàn, "pano" = ảnh 360°.
   const [stage, setStage] = useState("map");
+  const [planTilt, setPlanTilt] = useState(true);
+  const [planZoom, setPlanZoom] = useState(1);
+  const [planSel, setPlanSel] = useState(null);
+  const projectsRef = useRef([]);
   const [data, setData] = useState(null);
   const [mode, setMode] = useState("flycam");
   const [time, setTime] = useState("day");
@@ -56,7 +63,10 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
 
   useEffect(() => {
     loadMapOverview()
-      .then(setProjects)
+      .then((list) => {
+        projectsRef.current = list;
+        setProjects(list);
+      })
       .catch(() => setMapFailed(true));
   }, []);
 
@@ -71,6 +81,8 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
     setAmenity(null);
     setPanoFailed(false);
     setStage("map");
+    setPlanSel(null);
+    setPlanZoom(1);
     let timer;
     loadProject360(selectedId)
       .then((d) => {
@@ -79,7 +91,13 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
         const modes = availableModes(d.panos);
         const m = modes.includes("flycam") ? "flycam" : modes[0] || "flycam";
         setMode(m);
-        if (d.panos.length) timer = setTimeout(() => alive && setStage("pano"), reduceMotion() ? 0 : 1700);
+        // Sau khi bay tới: có ảnh 360° thì mở ảnh, không thì mở sa bàn (nếu có).
+        timer = setTimeout(() => {
+          if (!alive) return;
+          const geo = projectsRef.current.find((p) => p.id === selectedId)?.geo;
+          if (d.panos.length) setStage("pano");
+          else if (hasMasterplan(geo)) setStage("plan");
+        }, reduceMotion() ? 0 : 1700);
       })
       .catch(() => alive && setData({ panos: [], hotspots: [], zones: [] }));
     return () => {
@@ -119,16 +137,22 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
       {/* Thanh trên */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2 bg-gradient-to-b from-black/70 to-transparent">
         <button
-          onClick={stage === "pano" ? () => setStage("map") : onClose}
-          aria-label={stage === "pano" ? "Về bản đồ" : "Đóng"}
+          onClick={stage !== "map" ? () => setStage("map") : onClose}
+          aria-label={stage !== "map" ? "Về bản đồ" : "Đóng"}
           className="w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-bold truncate">{stage === "pano" && project ? project.title : "Bản đồ dự án 360°"}</p>
+          <p className="text-[13px] font-bold truncate">{stage !== "map" && project ? project.title : "Bản đồ dự án 360°"}</p>
           <p className="text-[10px] text-white/70 truncate">
-            {stage === "pano" && pano ? `${MODE_LABELS[pano.mode]}${pano.title ? ` · ${pano.title}` : ""}` : `${located.length} dự án trên bản đồ`}
+            {stage === "pano" && pano
+              ? `${MODE_LABELS[pano.mode]}${pano.title ? ` · ${pano.title}` : ""}`
+              : stage === "plan"
+                ? project?.geo?.masterplan?.image_url
+                  ? "Mặt bằng tổng thể"
+                  : "Sa bàn minh hoạ"
+                : `${located.length} dự án trên bản đồ`}
           </p>
         </div>
         <button onClick={onClose} aria-label="Đóng" className="w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center cursor-pointer">
@@ -144,7 +168,7 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
             selectedId={selectedId}
             onSelect={(p) => setSelectedId(p.id)}
             onError={() => setMapFailed(true)}
-            className={`absolute inset-0 transition-opacity duration-500 ${stage === "pano" ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+            className={`absolute inset-0 transition-opacity duration-500 ${stage !== "map" ? "opacity-0 pointer-events-none" : "opacity-100"}`}
           />
         ) : (
           stage === "map" && (
@@ -153,6 +177,65 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
               <p className="text-[12px] text-white/70">Không tải được bản đồ. Chọn dự án ở dải bên dưới để xem ảnh 360° và định giá.</p>
             </div>
           )
+        )}
+
+        {stage === "plan" && project && hasMasterplan(project.geo) && (
+          <>
+            <MasterplanStage
+              plan={project.geo.masterplan}
+              zones={data?.zones}
+              selectedId={planSel?.id}
+              tilt={planTilt}
+              zoom={planZoom}
+              onZone={setPlanSel}
+              onAmenity={setPlanSel}
+              className="absolute inset-0 bg-gradient-to-b from-[#1a2433] to-[#0d1117] pt-24 pb-2 px-1"
+            />
+            <div className="absolute right-3 top-[calc(max(env(safe-area-inset-top),10px)+48px)] z-10 flex gap-1.5">
+              <ToolButton label={planTilt ? "Nhìn thẳng từ trên xuống" : "Nhìn nghiêng 3D"} active={planTilt} onClick={() => setPlanTilt((v) => !v)}>
+                {planTilt ? <Square className="w-4 h-4" /> : <Box className="w-4 h-4" />}
+              </ToolButton>
+              <ToolButton label="Phóng to" disabled={planZoom >= 3} onClick={() => setPlanZoom((z) => Math.min(3, z + 0.5))}>
+                <Plus className="w-4 h-4" />
+              </ToolButton>
+              <ToolButton label="Thu nhỏ" disabled={planZoom <= 1} onClick={() => setPlanZoom((z) => Math.max(1, z - 0.5))}>
+                <Minus className="w-4 h-4" />
+              </ToolButton>
+            </div>
+            {project.geo.masterplan.illustrative && !project.geo.masterplan.image_url && (
+              <span className="absolute left-3 top-[calc(max(env(safe-area-inset-top),10px)+52px)] z-10 px-2 py-0.5 rounded-full bg-black/55 text-[10px] text-white/80">
+                Sơ đồ minh hoạ - không theo tỉ lệ
+              </span>
+            )}
+            {planSel && (
+              <div className="absolute left-3 right-16 bottom-3 z-10 rounded-xl bg-white text-gray-900 p-3 shadow-xl">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[12.5px] font-bold">
+                    {planSel.kind === "amenity" ? `${AMENITY_ICONS[planSel.icon] || AMENITY_ICONS.pin} ` : planSel.kind === "zone" ? "◉ Phân khu " : "🌳 "}
+                    {planSel.label}
+                  </p>
+                  <button onClick={() => setPlanSel(null)} aria-label="Đóng" className="p-0.5 cursor-pointer">
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+                {planSel.kind === "zone" && (
+                  <>
+                    <p className="text-[11px] text-gray-600 mt-0.5">
+                      {(data?.zones?.find((z) => z.id === planSel.zone_id)?.types || []).map((t) => TYPE_LABELS[t] || t).join(" · ") || "Đang cập nhật loại hình"}
+                    </p>
+                    {planSel.zone_id && (
+                      <button
+                        onClick={() => onValuate(project, planSel.zone_id)}
+                        className="mt-2 w-full py-2 rounded-lg bg-[#948154] text-white text-[11.5px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Calculator className="w-3.5 h-3.5" /> Định giá căn ở phân khu này
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {pano && stage === "pano" && !panoFailed && (
@@ -279,11 +362,22 @@ export default function ProjectMap360({ initialProjectId, onClose, onValuate }) 
               </div>
             )}
             {data && !data.panos.length && <p className="text-[10.5px] text-white/50">Ảnh 360° của dự án sẽ được cập nhật.</p>}
-            {data?.panos.length > 0 && stage === "map" && (
-              <button onClick={() => setStage("pano")} className="text-[11px] font-bold text-[#d4af37] cursor-pointer">
-                Xem ảnh 360° →
-              </button>
-            )}
+            <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-white/5">
+              {[
+                ["map", "Bản đồ", true],
+                ["plan", "Sa bàn", hasMasterplan(project.geo)],
+                ["pano", "360°", (data?.panos.length || 0) > 0],
+              ].map(([k, label, ok]) => (
+                <button
+                  key={k}
+                  disabled={!ok}
+                  onClick={() => setStage(k)}
+                  className={`py-1.5 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${stage === k ? "bg-[#d4af37] text-black" : "text-white/80"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {!hasGeo(project.geo) && <p className="text-[10.5px] text-white/50">Dự án chưa có vị trí trên bản đồ.</p>}
           </div>
         )}

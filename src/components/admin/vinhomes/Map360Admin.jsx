@@ -19,6 +19,7 @@ import {
   deleteHotspot,
 } from "@/lib/vinhomesMap";
 import { NumInput, Labeled, Section, Errors, PrimaryButton } from "./ui";
+import PlanEditor from "./PlanEditor";
 
 const PanoViewer = lazy(() => import("@/components/projects/map360/PanoViewer"));
 const EMPTY_HS = { kind: "zone", label: "", icon: "pin", zone_id: "", target_pano_id: "", description: "", yaw: "", pitch: "" };
@@ -345,6 +346,7 @@ export default function Map360Admin({ projectId }) {
         </div>
       ) : (
         <>
+          <PlanEditor projectId={projectId} zones={data.zones} />
           <UploadForm projectId={projectId} zones={data.zones} hasDefault={data.panos.some((p) => p.is_default)} onDone={reload} />
           <Section title={`Ảnh 360° của dự án (${data.panos.length})`} hint="Ảnh có ★ là ảnh mở đầu tiên. Bấm vào ảnh để đặt điểm tương tác.">
             {data.panos.length === 0 ? (
