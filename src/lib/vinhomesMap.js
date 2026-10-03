@@ -212,3 +212,57 @@ export function validateHotspot(h) {
   if (h.kind === "link" && !h.target_pano_id) e.push("Chọn ảnh 360° sẽ chuyển tới.");
   return e;
 }
+
+// ───────────── Sa bàn (masterplan) ─────────────
+
+export const PLAN_KINDS = { zone: "Phân khu", amenity: "Tiện ích", lake: "Hồ / mặt nước", park: "Công viên", road: "Đường / hướng kết nối" };
+// Màu phân khu theo thứ tự cố định (không đổi khi thêm / bớt phân khu khác).
+export const ZONE_COLORS = ["#d9b54a", "#8ea4d2", "#e08e6d", "#b48ad1", "#5fb3a8", "#c98fa0", "#9aa86a", "#7f9fb0"];
+
+const clampPct = (v) => Math.min(100, Math.max(0, Math.round(Number(v) * 10) / 10));
+
+/** Chuẩn hoá danh sách điểm sa bàn: toạ độ 0–100, bán kính hợp lý, bỏ điểm hỏng. */
+export function normalizePlanMarkers(markers) {
+  return (Array.isArray(markers) ? markers : [])
+    .filter((m) => m && PLAN_KINDS[m.kind] && Number.isFinite(Number(m.x)) && Number.isFinite(Number(m.y)))
+    .map((m) => ({
+      ...m,
+      x: clampPct(m.x),
+      y: clampPct(m.y),
+      ...(["zone", "lake", "park"].includes(m.kind) ? { r: Math.min(30, Math.max(3, Number(m.r) || 10)) } : {}),
+      label: String(m.label || "").trim(),
+    }));
+}
+
+/** Màu của phân khu theo thứ tự xuất hiện trong danh sách phân khu của dự án. */
+export function zoneColor(zoneId, zones) {
+  const i = (zones || []).findIndex((z) => z.id === zoneId);
+  return ZONE_COLORS[(i < 0 ? 0 : i) % ZONE_COLORS.length];
+}
+
+export function validatePlanMarker(m) {
+  const e = [];
+  if (!PLAN_KINDS[m.kind]) e.push("Chọn loại điểm.");
+  if (!String(m.label || "").trim()) e.push("Thiếu tên hiển thị.");
+  if (m.kind === "zone" && !m.zone_id) e.push("Chọn phân khu cho vùng này.");
+  const isNum = (v) => v !== "" && v !== null && v !== undefined && Number.isFinite(Number(v));
+  if (!isNum(m.x) || !isNum(m.y)) e.push("Bấm lên sa bàn để chọn vị trí.");
+  return e;
+}
+
+export const hasMasterplan = (geo) => !!(geo?.masterplan && (geo.masterplan.image_url || normalizePlanMarkers(geo.masterplan.markers).length));
+
+export const saveMasterplan = (projectId, plan) =>
+  supabase
+    .from("vh_project_geo")
+    .upsert({ project_id: projectId, masterplan: { ...plan, markers: normalizePlanMarkers(plan.markers) }, updated_at: new Date().toISOString() })
+    .then(check);
+
+/** Ảnh mặt bằng thật (không bắt buộc tỉ lệ 2:1), thu về tối đa 3000px. */
+export async function uploadMasterplanImage(projectId, file) {
+  const { blob } = await resizeImage(file, 3000, 0.88);
+  const path = `${projectId}/masterplan_${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from(PANO_BUCKET).upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" });
+  if (error) throw error;
+  return supabase.storage.from(PANO_BUCKET).getPublicUrl(path).data.publicUrl;
+}

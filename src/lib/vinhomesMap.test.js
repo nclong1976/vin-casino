@@ -64,3 +64,37 @@ describe("ảnh và điểm", () => {
     expect(radToDeg(Math.PI / 2)).toBeCloseTo(90);
   });
 });
+
+const { normalizePlanMarkers, zoneColor, validatePlanMarker, hasMasterplan, ZONE_COLORS } = await import("./vinhomesMap");
+
+describe("sa bàn", () => {
+  it("chuẩn hoá điểm: kẹp toạ độ, bán kính, bỏ điểm hỏng", () => {
+    const out = normalizePlanMarkers([
+      { kind: "zone", x: 120, y: -5, r: 99, label: " A " },
+      { kind: "amenity", x: 10, y: 10, label: "B" },
+      { kind: "ufo", x: 1, y: 1 },
+      { kind: "lake", x: "abc", y: 1 },
+    ]);
+    expect(out).toEqual([
+      { kind: "zone", x: 100, y: 0, r: 30, label: "A" },
+      { kind: "amenity", x: 10, y: 10, label: "B" },
+    ]);
+  });
+
+  it("màu phân khu theo thứ tự cố định", () => {
+    const zones = [{ id: "a" }, { id: "b" }];
+    expect(zoneColor("b", zones)).toBe(ZONE_COLORS[1]);
+    expect(zoneColor("x", zones)).toBe(ZONE_COLORS[0]);
+  });
+
+  it("validatePlanMarker", () => {
+    expect(validatePlanMarker({ kind: "park", label: "CV", x: 10, y: 20 })).toEqual([]);
+    expect(validatePlanMarker({ kind: "zone", label: "", x: "", y: 1 })).toHaveLength(3);
+  });
+
+  it("hasMasterplan", () => {
+    expect(hasMasterplan({ masterplan: { markers: [{ kind: "zone", x: 1, y: 1 }] } })).toBe(true);
+    expect(hasMasterplan({ masterplan: { image_url: "x", markers: [] } })).toBe(true);
+    expect(hasMasterplan({ masterplan: null })).toBe(false);
+  });
+});
