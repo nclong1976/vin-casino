@@ -98,3 +98,37 @@ describe("sa bàn", () => {
     expect(hasMasterplan({ masterplan: null })).toBe(false);
   });
 });
+
+const { flatPanoData, clampFlatPosition, isFlat } = await import("./vinhomesMap");
+
+describe("ảnh phối cảnh", () => {
+  it("flatPanoData đặt ảnh vào giữa mặt cầu theo góc rộng", () => {
+    const { panoData, hfov, vfov } = flatPanoData(1200, 600, 120);
+    expect(hfov).toBe(120);
+    expect(panoData).toMatchObject({ fullWidth: 3600, fullHeight: 1800, croppedWidth: 1200, croppedHeight: 600, croppedX: 1200, croppedY: 600 });
+    expect(vfov).toBeCloseTo(60);
+  });
+
+  it("ảnh quá cao: thu hẹp góc ngang để ảnh vừa chiều dọc, không cắt ảnh", () => {
+    const { panoData, hfov, vfov } = flatPanoData(1000, 4000, 60);
+    expect(panoData).toMatchObject({ fullWidth: 8000, fullHeight: 4000, croppedHeight: 4000, croppedY: 0 });
+    expect(hfov).toBeCloseTo(45);
+    expect(vfov).toBe(180);
+  });
+
+  it("clampFlatPosition giữ khung nhìn trong ảnh", () => {
+    const flat = { hfov: 120, vfov: 60 };
+    const view = { viewH: 60, viewV: 40 };
+    const r = clampFlatPosition({ yaw: Math.PI / 2, pitch: 0.5 }, flat, view);
+    expect(r.yaw).toBeCloseTo(Math.PI / 6);
+    expect(r.pitch).toBeCloseTo((10 * Math.PI) / 180);
+    const l = clampFlatPosition({ yaw: 2 * Math.PI - 1, pitch: -1 }, flat, view);
+    expect(l.yaw).toBeCloseTo(2 * Math.PI - Math.PI / 6);
+    expect(l.pitch).toBeCloseTo((-10 * Math.PI) / 180);
+  });
+
+  it("isFlat", () => {
+    expect(isFlat({ projection: "flat" })).toBe(true);
+    expect(isFlat({ projection: "equirect" })).toBe(false);
+  });
+});
