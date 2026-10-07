@@ -287,7 +287,7 @@ const MessageBubble = React.memo(({ m, isAdmin, senderName, isSuperAdmin, onCopy
 ));
 
 // ─── Main Component ───────────────────────────────────────────────
-export default function MessagesTab({ initialSelectedUserId = null }) {
+export default function MessagesTab({ initialSelectedUserId = null, selectRequest = 0 }) {
   const { user } = useAuth();
   const isSuperAdmin = isSuperAdminUser(user);
 
@@ -309,11 +309,13 @@ export default function MessagesTab({ initialSelectedUserId = null }) {
   // kênh đã rớt và chỉ còn poll 20s dự phòng đang gánh.
   const [connStatus, setConnStatus] = useState(null);
 
+  // selectRequest tăng mỗi lần nơi khác yêu cầu mở chat (kể cả lại đúng khách
+  // cũ, vd bấm thông báo đẩy lần 2 sau khi admin đã chuyển sang khách khác).
   useEffect(() => {
     if (initialSelectedUserId) {
       setSelectedUser(initialSelectedUserId);
     }
-  }, [initialSelectedUserId]);
+  }, [initialSelectedUserId, selectRequest]);
   const [previewImage, setPreviewImage] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // {type: 'msg'|'conv', target}

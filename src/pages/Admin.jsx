@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -60,6 +60,7 @@ const TABS = [
 
 export default function Admin() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout } = useAuth();
   const { triggerSound } = useConfig();
   const [tab, setTab] = useState("member_hub");
@@ -93,10 +94,33 @@ export default function Admin() {
   // onNavigateToChat xuống qua props để MemberHubTab chuyển tiếp cho
   // UsersTab/TransactionsTab dùng nguyên như cũ.
   const [chatTargetUserId, setChatTargetUserId] = useState(null);
+  const [chatRequest, setChatRequest] = useState(0);
   const handleNavigateToChat = (userId) => {
     setChatTargetUserId(userId);
+    setChatRequest((n) => n + 1);
     setTab("messages");
   };
+
+  // Bấm thông báo đẩy "Tin nhắn CSKH mới" mở /admin?chat=<user_id> (mở app
+  // mới, hoặc public/sw.js postMessage tới tab admin đang mở) - nhảy thẳng
+  // vào khung chat của khách đó rồi bỏ tham số khỏi URL.
+  useEffect(() => {
+    const chat = new URLSearchParams(location.search).get("chat");
+    if (!chat) return;
+    handleNavigateToChat(chat);
+    navigate("/admin", { replace: true });
+  }, [location.search]);
+
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return undefined;
+    const onMessage = (e) => {
+      const url = e.data?.type === "open-url" && typeof e.data.url === "string" ? e.data.url : null;
+      if (url && url.startsWith("/admin")) navigate(url);
+    };
+    sw.addEventListener("message", onMessage);
+    return () => sw.removeEventListener("message", onMessage);
+  }, []);
 
   const fetchStats = () => {
     Promise.all([
@@ -313,7 +337,7 @@ export default function Admin() {
       <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
         <AnimatedTabPanel active={tab === "messages"}>
           <AdminErrorBoundary>
-            <MessagesTab initialSelectedUserId={chatTargetUserId} />
+            <MessagesTab initialSelectedUserId={chatTargetUserId} selectRequest={chatRequest} />
           </AdminErrorBoundary>
         </AnimatedTabPanel>
         <AnimatedTabPanel active={tab === "member_hub"}>

@@ -34,13 +34,22 @@ self.addEventListener("push", (event) => {
 
 // Bấm vào thông báo - focus tab admin đang mở sẵn (nếu có) thay vì luôn mở
 // tab mới, tránh admin có nhiều tab "/admin" chồng chất mỗi lần bấm thông báo.
+// Thông báo admin có thể kèm tham số (vd "/admin?chat=<user_id>" - tin nhắn
+// CSKH): tab admin đang mở nhận postMessage rồi tự chuyển tới đúng khung chat
+// (Admin.jsx), không tải lại trang.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || "/admin";
+  const isAdmin = targetUrl.startsWith("/admin");
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
-        if (client.url.includes(targetUrl) && "focus" in client) return client.focus();
+        if (!("focus" in client)) continue;
+        if (isAdmin && new URL(client.url).pathname.startsWith("/admin")) {
+          client.postMessage({ type: "open-url", url: targetUrl });
+          return client.focus();
+        }
+        if (client.url.includes(targetUrl)) return client.focus();
       }
       if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
     })
