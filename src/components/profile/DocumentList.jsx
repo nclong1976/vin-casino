@@ -17,7 +17,7 @@ const STATUS_CONFIG = {
 const SIGNED_ESIGN = { label: "Đã ký", icon: CheckCircle2, className: "bg-emerald-50 text-emerald-700 border-emerald-200/60" };
 
 const isOverdue = (d) => d.status === "pending" && d.due_at && new Date(d.due_at) < new Date();
-const needsSigning = (d) => d.status === "pending" && !isOverdue(d);
+export const needsSigning = (d) => d.status === "pending" && !isOverdue(d);
 const isSigned = (d) => !!d.signed_at || ["signed", "approved", "rejected"].includes(d.status);
 
 function statusOf(d) {

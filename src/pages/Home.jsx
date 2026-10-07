@@ -4,10 +4,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import NewsSection from "@/components/home/NewsSection";
 import NotificationBell from "@/components/home/NotificationBell";
+import DocumentInbox from "@/components/home/DocumentInbox";
 import PushOptIn from "@/components/shared/PushOptIn";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/lib/AuthContext";
-import { base44 } from "@/api/base44Client";
 import casinoIcon from "@/assets/images/regenerated_image_1786492435642.png";
 
 export default function Home() {
@@ -69,13 +69,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-[15px]">
             <NotificationBell />
-            <button 
-              onClick={() => base44.auth.logout()}
-              className="p-1 -m-1 transition-opacity hover:opacity-80 active:scale-95"
-              title="Đăng xuất"
-            >
-              <img className="w-[15px] h-4 object-contain" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/078594036_11de357bc_9b294d953cbc2903954760855a66112110260ce4.png" alt="Logout" />
-            </button>
+            {/* Hộp thư văn bản thay cho nút đăng xuất cũ (đăng xuất ở trang Hồ sơ). */}
+            <DocumentInbox />
           </div>
         </motion.header>
 
