@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { getCardTierInfo } from "@/lib/membershipUtils";
 import { qrRects } from "@/shared/docLayout";
 import {
-  CATEGORIES, TIER_LABELS, claimOffer, claimStatus, fetchMyClaims, fetchWelfareOffers, offerState, tierKey, tierProgress,
+  CATEGORIES, TIER_LABELS, claimOffer, claimStatus, fetchMyClaims, fetchWelfareOffers, markClaimUsed, offerState, tierKey, tierProgress,
 } from "@/lib/welfare";
 
 const CATEGORY_STYLE = {
@@ -154,6 +154,8 @@ export default function Benefits() {
   const [voucher, setVoucher] = useState(null);
   const [claiming, setClaiming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [confirmUse, setConfirmUse] = useState(false);
+  const [using, setUsing] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -205,6 +207,23 @@ export default function Benefits() {
       load();
     } finally {
       setClaiming(false);
+    }
+  };
+
+  const handleUse = async () => {
+    if (!voucher) return;
+    setUsing(true);
+    try {
+      const updated = await markClaimUsed(voucher.id);
+      setVoucher(updated);
+      setConfirmUse(false);
+      toast.success("Đã xác nhận sử dụng voucher");
+      load();
+    } catch (e) {
+      toast.error(e?.message || "Không cập nhật được voucher");
+      load();
+    } finally {
+      setUsing(false);
     }
   };
 
@@ -392,7 +411,13 @@ export default function Benefits() {
       </Sheet>
 
       {/* Voucher */}
-      <Sheet open={!!voucher} onOpenChange={(v) => !v && setVoucher(null)} title={voucher?.offer_title || ""} description="Đưa mã này cho nhân viên khi sử dụng ưu đãi">
+      <Sheet
+        open={!!voucher}
+        onOpenChange={(v) => {
+          if (v || using) return;
+          setVoucher(null);
+          setConfirmUse(false);
+        }} title={voucher?.offer_title || ""} description="Đưa mã này cho nhân viên khi sử dụng ưu đãi">
         {voucher && (
           <div className="space-y-3">
             <div className={`rounded-2xl border-2 border-dashed p-4 flex flex-col items-center ${voucherSt === "active" ? "border-[#948154]/50" : "border-gray-200 opacity-60"}`}>
@@ -423,6 +448,40 @@ export default function Benefits() {
                 <p className="text-[11.5px] text-gray-700 whitespace-pre-line">{voucherOffer.terms}</p>
               </div>
             )}
+            {voucherSt === "active" &&
+              (confirmUse ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                  <p className="text-[11.5px] text-amber-800">
+                    Chỉ xác nhận khi ưu đãi <b>đã được sử dụng tại quầy</b>. Voucher sẽ chuyển sang "Đã dùng" và không hoàn tác được.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={using}
+                      onClick={() => setConfirmUse(false)}
+                      className="flex-1 h-10 rounded-xl bg-white border border-gray-200 text-[12px] font-semibold text-gray-600"
+                    >
+                      Huỷ
+                    </button>
+                    <button
+                      type="button"
+                      disabled={using}
+                      onClick={handleUse}
+                      className="flex-1 h-10 rounded-xl bg-[#948154] text-white text-[12px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-70"
+                    >
+                      {using && <Loader2 className="w-4 h-4 animate-spin" />} Xác nhận
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmUse(true)}
+                  className="w-full h-11 rounded-xl border-2 border-[#948154] text-[#948154] text-[13px] font-bold flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" /> Xác nhận đã sử dụng
+                </button>
+              ))}
           </div>
         )}
       </Sheet>

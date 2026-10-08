@@ -82,3 +82,10 @@ export async function claimOffer(offerId) {
   if (error) throw new Error(error.message);
   return data;
 }
+
+/** Người chơi tự xác nhận đã dùng voucher tại quầy (không hoàn tác). */
+export async function markClaimUsed(claimId) {
+  const { data, error } = await supabase.rpc("use_welfare_claim", { p_claim_id: claimId });
+  if (error) throw new Error(error.message);
+  return data;
+}
