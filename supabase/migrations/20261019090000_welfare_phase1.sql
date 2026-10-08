@@ -62,6 +62,9 @@ CREATE POLICY welfare_claims_admin ON public.welfare_claims
 
 REVOKE ALL ON public.welfare_offers, public.welfare_claims FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.welfare_offers TO authenticated;
+-- Supabase mặc định cấp mọi quyền cho authenticated trên bảng mới - thu lại
+-- INSERT/DELETE: voucher chỉ được tạo qua claim_welfare_offer().
+REVOKE INSERT, DELETE ON public.welfare_claims FROM authenticated;
 GRANT SELECT, UPDATE ON public.welfare_claims TO authenticated;
 
 -- Thứ bậc hạng - khớp normalizeTierKey() trong membershipUtils.js.
