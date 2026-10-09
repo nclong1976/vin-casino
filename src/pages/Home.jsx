@@ -9,6 +9,7 @@ import PushOptIn from "@/components/shared/PushOptIn";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/lib/AuthContext";
 import casinoIcon from "@/assets/images/regenerated_image_1786492435642.png";
+import resortIcon from "@/assets/images/resort_icon.webp";
 
 export default function Home() {
   const { user } = useAuth();
@@ -229,15 +230,11 @@ export default function Home() {
             </Link>
 
             <Link to="/resort">
-              <motion.button variants={itemVariants} className="flex flex-col items-center gap-1.5 group w-full">
-                <div className="relative w-[43px] min-h-[26px] flex flex-col items-center justify-center transition-transform group-hover:-translate-y-1">
-                  <img className="absolute inset-0 w-full h-full object-contain" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/17b322d8e_ed51e3965_4507a554ce1116fb18f795191dbc40ffa11916bf.png" alt="" />
-                  <img className="w-3 h-3.5 relative z-10 -mt-1" src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/53431ea7b_efc8ca483_407589bb643be08347aafaeab518659779961f0f.png" alt="" />
-                  <span className="text-figma-8 font-normal leading-figma-10 text-figma-text-7 relative z-10 mt-0.5">
-                    VINPEARL
-                  </span>
+              <motion.button variants={itemVariants} className="flex flex-col items-center gap-2.5 group w-full">
+                <div className="min-h-[22px] flex items-end justify-center">
+                  <img className="w-[22px] h-[22px] object-contain transition-transform group-hover:-translate-y-1" src={resortIcon} alt="" />
                 </div>
-                <p className="text-figma-10 font-medium leading-figma-17 text-center text-figma-text-6 mt-1">
+                <p className="text-figma-10 font-medium leading-figma-14 text-center text-figma-text-6">
                   Đầu tư nghỉ<br />dưỡng
                 </p>
               </motion.button>
