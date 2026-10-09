@@ -152,7 +152,8 @@ export const DEFAULT_LAYOUT: Required<TemplateLayout> = {
     },
   ],
   fields: [],
-  illustrative_label: true,
+  // Mặc định KHÔNG ghi "Chữ ký mang tính minh hoạ" - Admin bật lại theo từng mẫu nếu cần.
+  illustrative_label: false,
 };
 
 export const PAGE_WIDTH_MM = 210;
@@ -1126,7 +1127,7 @@ export function normalizeLayout(layout: TemplateLayout | null | undefined): Requ
     signature_zone: { ...DEFAULT_LAYOUT.signature_zone, ...(layout?.signature_zone || {}) },
     slots: layout?.slots?.length ? layout.slots : DEFAULT_LAYOUT.slots,
     fields: normalizeFields(layout?.fields),
-    illustrative_label: layout?.illustrative_label !== false,
+    illustrative_label: layout?.illustrative_label === true,
   };
 }
 
