@@ -74,8 +74,11 @@ export default function NotificationBell() {
         // cộng/trừ ví thủ công, dự án đáo hạn tự động) giờ tạo thẳng vào
         // bảng notifications theo user_id để hiện ở đây - khung chat CSKH
         // chỉ còn dùng để trò chuyện trực tiếp giữa admin và khách.
+        // Văn bản cần ký (type "document") chỉ hiện ở Hộp thư văn bản (icon lá
+        // thư, DocumentInbox.jsx) - không lặp lại ở chuông.
         const userNotifs = (list || [])
           .filter(n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin"))
+          .filter(n => n.type !== "document")
           .map(n => ({ ...n, is_read: readSet.has(n.id) }));
         setNotifs(userNotifs);
       })
