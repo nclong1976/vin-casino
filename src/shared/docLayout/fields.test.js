@@ -46,8 +46,9 @@ describe("normalizeFields", () => {
     expect(out[2].anchor).toEqual({ kind: "flow" });
   });
 
-  it("defaults to the illustrative label", () => {
-    expect(normalizeLayout(null).illustrative_label).toBe(true);
+  it("defaults to no illustrative label", () => {
+    expect(normalizeLayout(null).illustrative_label).toBe(false);
+    expect(normalizeLayout({ illustrative_label: true }).illustrative_label).toBe(true);
     expect(normalizeLayout({ illustrative_label: false }).illustrative_label).toBe(false);
   });
 });
@@ -101,8 +102,10 @@ describe("layout of fields", () => {
     expect(tick.length).toBe(2);
   });
 
-  it("labels signatures as illustrative unless turned off", () => {
-    const on = layoutDocument(input(para("x")));
+  it("labels signatures as illustrative only when turned on", () => {
+    const def = layoutDocument(input(para("x")));
+    expect(texts(def)).not.toContain(ILLUSTRATIVE_FOOTER);
+    const on = layoutDocument(input(para("x"), { layout: { fields: FIELDS, illustrative_label: true } }));
     expect(texts(on)).toContain(ILLUSTRATIVE_TEXT);
     expect(texts(on)).toContain(ILLUSTRATIVE_FOOTER);
     const off = layoutDocument(input(para("x"), { layout: { fields: FIELDS, illustrative_label: false } }));

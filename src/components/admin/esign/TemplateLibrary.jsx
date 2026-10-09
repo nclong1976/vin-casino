@@ -431,7 +431,7 @@ function TemplateEditor({ row, letterheads, onClose, onDispatch }) {
           </Section>
           <Collapsible title="Tuỳ chọn nâng cao" summary="Khung ký, lưu trữ PDF">
             <Toggle
-              checked={form.layout.illustrative_label !== false}
+              checked={form.layout.illustrative_label === true}
               onChange={(v) => set({ layout: { ...form.layout, illustrative_label: v } })}
               label='Ghi "Chữ ký minh hoạ"'
             />

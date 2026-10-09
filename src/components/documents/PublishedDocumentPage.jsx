@@ -63,7 +63,7 @@ export default function PublishedDocumentPage({ doc: initialDoc, reload }) {
   const canSign = doc.status === "pending" && !doc.locked_at && !overdue;
   const signed = !!doc.signed_at;
   const needSlot = doc.requires_signature !== false;
-  const illustrative = doc.layout_snapshot?.illustrative_label !== false;
+  const illustrative = doc.layout_snapshot?.illustrative_label === true;
   const fields = useMemo(() => normalizeFields(doc.layout_snapshot?.fields), [doc.layout_snapshot]);
 
   // Đọc hết: mốc cuối văn bản hiện trên màn hình → ghi read_completed_at.
