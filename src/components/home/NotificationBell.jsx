@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X, Clock } from "lucide-react";
@@ -57,6 +58,8 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const ref = useRef(null);
+  const panelRef = useRef(null);
+  const [panelPos, setPanelPos] = useState(null);
 
   const fetchNotifs = () => {
     if (!user) return;
@@ -107,9 +110,31 @@ export default function NotificationBell() {
     }
   }, [user]);
 
+  // Popup render qua portal vào document.body với position: fixed - nếu để
+  // absolute trong header, nó bị kẹt trong stacking context của header
+  // (motion.header có transform) và bị thẻ số dư/các khối phía sau đè lên
+  // bất kể z-index. Vị trí bám theo nút chuông, cập nhật khi cuộn/đổi kích
+  // thước màn hình.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPanelPos({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current?.contains(e.target) || panelRef.current?.contains(e.target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -174,14 +199,17 @@ export default function NotificationBell() {
         )}
       </button>
 
+      {createPortal(
       <AnimatePresence>
-        {open && (
+        {open && panelPos && (
           <motion.div
+            ref={panelRef}
+            style={{ top: panelPos.top, right: panelPos.right }}
             initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className="absolute right-0 top-full mt-2 w-[280px] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden"
+            className="fixed w-[280px] max-w-[calc(100vw-16px)] bg-white rounded-2xl shadow-xl border border-gray-100 z-[100] overflow-hidden"
           >
             <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
               <div className="flex items-center gap-1.5">
@@ -321,7 +349,9 @@ export default function NotificationBell() {
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
 
       <NotificationDetailModal notif={selected} onClose={() => setSelected(null)} />
     </div>
