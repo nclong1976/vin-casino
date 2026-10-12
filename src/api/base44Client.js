@@ -1306,10 +1306,10 @@ class FallbackBase44Client {
         // Create welcome notification in bell inbox for the new user
         try {
           const welcomeNotif = {
-            id: 'n_welcome_' + Date.now(),
-            title: 'Chào mừng đến với VinClub',
-            message: 'Chào mừng bạn đã đến với Vinclub — hành trình đặc quyền dành riêng cho bạn, nơi mỗi trải nghiệm đều được nâng tầm và trọn vẹn hơn bao giờ hết.',
-            content: 'Chào mừng bạn đã đến với Vinclub — hành trình đặc quyền dành riêng cho bạn, nơi mỗi trải nghiệm đều được nâng tầm và trọn vẹn hơn bao giờ hết.',
+            id: 'n_welcome_' + newUser.id,
+            title: 'Chào mừng bạn đã trở thành thành viên của VinClub',
+            message: 'Chào mừng bạn đã trở thành thành viên của VinClub',
+            content: 'Chào mừng bạn đã trở thành thành viên của VinClub',
             user_id: newUser.id,
             type: 'admin',
             is_read: false,

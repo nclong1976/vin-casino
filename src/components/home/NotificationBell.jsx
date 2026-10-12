@@ -7,6 +7,7 @@ import { getReadNotificationIds, markNotificationsRead } from "@/lib/supabaseDb"
 import { useAuth } from "@/lib/AuthContext";
 import { getProjectTermUnit, getProjectTermDurationDisplayValue, formatScheduleTime, isDailyAccrualCategory, getCycleDays, formatDailyRatePercent } from "@/lib/investmentTerms";
 import NotificationDetailModal from "@/components/home/NotificationDetailModal";
+import { filterBellNotifications } from "@/lib/bellNotifications";
 
 const TYPE_LABELS = {
   deposit: { label: "Nạp tiền", color: "text-green-500", bg: "bg-green-50" },
@@ -64,21 +65,14 @@ export default function NotificationBell() {
       getReadNotificationIds(user.id),
     ])
       .then(([list, readSet]) => {
-        // Chuông thông báo hiển thị: tin CHUNG toàn hệ thống (không gắn
-        // user_id), broadcast tới admin ("admin" là giá trị đặc biệt, không
-        // phải id thật), VÀ tin riêng của chính tài khoản này (n.user_id ===
-        // user.id) - nhóm cuối này trước đây bị loại hẳn khỏi chuông (mọi
-        // thông tin gắn 1 tài khoản đều đẩy vào khung chat CSKH, xem
-        // lib/notifyUser.js), nhưng mọi thông báo trạng thái giao dịch (nạp/
-        // rút tiền duyệt hoặc từ chối, hợp đồng đầu tư duyệt/từ chối, admin
-        // cộng/trừ ví thủ công, dự án đáo hạn tự động) giờ tạo thẳng vào
-        // bảng notifications theo user_id để hiện ở đây - khung chat CSKH
-        // chỉ còn dùng để trò chuyện trực tiếp giữa admin và khách.
-        // Văn bản cần ký (type "document") chỉ hiện ở Hộp thư văn bản (icon lá
-        // thư, DocumentInbox.jsx) - không lặp lại ở chuông.
-        const userNotifs = (list || [])
-          .filter(n => !n.user_id || n.user_id === user.id || (n.user_id === "admin" && user.role === "admin"))
-          .filter(n => n.type !== "document")
+        // Chuông thông báo hiển thị: tin CHUNG toàn hệ thống, broadcast tới
+        // admin, VÀ tin riêng của chính tài khoản này - mọi thông báo trạng
+        // thái giao dịch (nạp/rút, hợp đồng, ví, đáo hạn) tạo thẳng vào bảng
+        // notifications theo user_id để hiện ở đây; khung chat CSKH chỉ còn
+        // dùng để trò chuyện trực tiếp giữa admin và khách. Tin broadcast cũ
+        // hơn ngày tạo tài khoản bị ẩn (hội viên mới chỉ thấy tin chào mừng) -
+        // xem lib/bellNotifications.js.
+        const userNotifs = filterBellNotifications(list, user)
           .map(n => ({ ...n, is_read: readSet.has(n.id) }));
         setNotifs(userNotifs);
       })
