@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { Pencil, Check, X, Plus, Search, Newspaper, Star, Loader2, Trash2, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Pencil, Check, X, Plus, Search, Newspaper, Star, Loader2, Trash2, AlertTriangle, ArrowUp, ArrowDown, ImagePlus } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { NEWS_CATEGORIES, sortNewsList } from "@/constants/newsData";
 import { toast } from "sonner";
+import { compressImageFile } from "@/lib/imageCompression";
 
 const CATEGORY_OPTIONS = NEWS_CATEGORIES.filter((c) => c !== "Tất cả");
 
@@ -335,8 +336,40 @@ function NewsEditModal({ item, onClose, onSave }) {
   });
 
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Ảnh bìa tải thẳng từ máy lên Supabase Storage (UploadFile) rồi lưu URL
+  // công khai vào cột "image" - admin không cần tự tìm/dán link nữa. Không
+  // lùi về base64 khi upload lỗi như khung chat CSKH: ảnh base64 sẽ nằm
+  // trong mọi lượt tải danh sách tin tức, nên báo lỗi để admin thử lại.
+  const handleImageFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Vui lòng chọn tệp hình ảnh");
+      return;
+    }
+    setUploading(true);
+    try {
+      const compressed = await compressImageFile(file);
+      const res = await base44.integrations.Core.UploadFile({ file: compressed });
+      if (!res?.file_url) throw new Error("missing url");
+      set("image", res.file_url);
+      toast.success("Đã tải ảnh lên");
+    } catch {
+      toast.error("Tải ảnh lên thất bại, vui lòng thử lại");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSubmit = () => {
+    if (uploading) {
+      toast.error("Vui lòng chờ ảnh tải lên xong");
+      return;
+    }
     if (!form.title.trim()) {
       toast.error("Vui lòng nhập tiêu đề tin tức");
       return;
@@ -443,17 +476,57 @@ function NewsEditModal({ item, onClose, onSave }) {
           </div>
 
           <div>
-            <label className="text-[10px] font-bold text-gray-700 block mb-1">URL Hình ảnh:</label>
+            <label className="text-[10px] font-bold text-gray-700 block mb-1">Hình ảnh:</label>
             <input
-              value={form.image}
-              onChange={(e) => set("image", e.target.value)}
-              placeholder="https://images.unsplash.com/..."
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] focus:outline-none focus:border-[#948154]"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageFile}
+              className="hidden"
             />
-            {form.image && (
-              <div className="mt-1.5 h-20 rounded-lg overflow-hidden border border-gray-200">
+            {form.image ? (
+              <div className="relative h-28 rounded-lg overflow-hidden border border-gray-200">
                 <img src={form.image} alt="Preview" className="w-full h-full object-cover" />
+                {uploading && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 text-white animate-spin" />
+                  </div>
+                )}
+                <div className="absolute bottom-1.5 right-1.5 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="px-2 py-1 rounded-md bg-white/90 hover:bg-white text-[9.5px] font-bold text-black shadow-sm flex items-center gap-1 disabled:opacity-60"
+                  >
+                    <ImagePlus className="w-3 h-3" /> Đổi ảnh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => set("image", "")}
+                    disabled={uploading}
+                    className="px-2 py-1 rounded-md bg-white/90 hover:bg-white text-[9.5px] font-bold text-red-600 shadow-sm flex items-center gap-1 disabled:opacity-60"
+                  >
+                    <Trash2 className="w-3 h-3" /> Xóa
+                  </button>
+                </div>
               </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-full h-28 rounded-lg border-2 border-dashed border-gray-300 hover:border-[#948154] hover:bg-[#948154]/5 flex flex-col items-center justify-center gap-1 text-gray-500 transition disabled:opacity-60"
+              >
+                {uploading ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-[#948154]" />
+                ) : (
+                  <>
+                    <ImagePlus className="w-5 h-5 text-[#948154]" />
+                    <span className="text-[10px] font-semibold">Tải ảnh lên từ thiết bị</span>
+                  </>
+                )}
+              </button>
             )}
           </div>
 
@@ -498,7 +571,8 @@ function NewsEditModal({ item, onClose, onSave }) {
 
           <button
             onClick={handleSubmit}
-            className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[11px] font-bold shadow-md transition-all flex items-center justify-center gap-1.5 mt-2"
+            disabled={uploading}
+            className="w-full py-2.5 rounded-xl bg-[#948154] hover:bg-[#837046] text-white text-[11px] font-bold shadow-md transition-all flex items-center justify-center gap-1.5 mt-2 disabled:opacity-60"
           >
             <Check className="w-4 h-4" /> {item?.id ? "Lưu thay đổi" : "Đăng tin tức"}
           </button>
