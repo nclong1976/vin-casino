@@ -12,7 +12,7 @@
 // (bootstrap owner) dùng để đảm bảo chủ dự án không bao giờ bị khóa khỏi
 // chính Bảng quản trị của mình nếu dữ liệu role trên Postgres có trục trặc -
 // đây là danh sách CỐ ĐỊNH, khớp CHÍNH XÁC (không dò chuỗi con).
-const BOOTSTRAP_OWNER_EMAILS = ["nclong1976@gmail.com", "leo1102@vinclub.com"];
+const BOOTSTRAP_OWNER_EMAILS = ["nclong1976@gmail.com"];
 const BOOTSTRAP_OWNER_USERNAMES = ["nclong"];
 
 export default function isAdminUser(user) {
