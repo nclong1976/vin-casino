@@ -28,6 +28,20 @@ const MIN_WITHDRAW = 100000;
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 
+// Hạn mức rút/ngày theo hạng hội viên (VNĐ). null = không giới hạn (Diamond).
+// Phải khớp với trigger enforce_withdraw_daily_limit() ở Postgres - đó mới
+// là nguồn chốt chặn cuối cùng; kiểm tra ở đây chỉ để báo sớm cho user
+// TRƯỚC khi trừ tiền, tránh cảnh "đã trừ tiền nhưng lệnh bị backend từ chối".
+const tierDailyLimit = (tier) => {
+  const t = (tier || "").toLowerCase();
+  if (t.includes("diamond") || t.includes("kim cương")) return null;
+  if (t.includes("platinum") || t.includes("bạch kim")) return 10000000000;
+  if (t.includes("gold") || t.includes("vàng")) return 5000000000;
+  return 1000000000; // Member
+};
+// Chuỗi ngày theo giờ VN để gộp đúng "trong ngày" như phía server.
+const vnDateStr = (d) => new Date(d).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+
 export default function WithdrawModal({ open, onClose, banks = [], balance = 0, onDone, onAddBank }) {
   const { user } = useAuth();
   // Steps: "input" | "pin" | "tracking"
@@ -75,7 +89,7 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
   const selectedBank = banks.find((b) => b.id === selectedBankId);
 
   // Validate form before moving to PIN verification
-  const handleProceedToPin = () => {
+  const handleProceedToPin = async () => {
     if (user?.is_locked) {
       return toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH để được hỗ trợ.");
     }
@@ -92,6 +106,31 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
     }
     if (numAmount > balance) {
       return toast.error("Số dư khả dụng trong ví không đủ");
+    }
+
+    // Hạn mức rút/ngày theo hạng hội viên (chặn SỚM, trước khi trừ tiền).
+    const limit = tierDailyLimit(user?.membership_tier);
+    if (limit !== null) {
+      let todayTotal = 0;
+      try {
+        const todayStr = vnDateStr(new Date());
+        const rows = await base44.entities.WalletTransaction
+          .filter({ type: "withdraw", user_id: user?.id }, "-created_date", 100)
+          .catch(() => []);
+        todayTotal = (rows || [])
+          .filter((r) => ["pending", "approved", "completed"].includes(r.status)
+            && r.created_date && vnDateStr(r.created_date) === todayStr)
+          .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      } catch (e) {
+        todayTotal = 0; // Lấy không được: để backend chốt chặn.
+      }
+      if (todayTotal + numAmount > limit) {
+        const remaining = Math.max(0, limit - todayTotal);
+        return toast.error(
+          `Vượt hạn mức rút trong ngày của hạng ${user?.membership_tier || "Member"} ` +
+          `(${fmt(limit)} VNĐ/ngày). Hôm nay đã rút ${fmt(todayTotal)} VNĐ, còn lại ${fmt(remaining)} VNĐ.`
+        );
+      }
     }
 
     const existingPin = localStorage.getItem("vinclub_user_pin");
@@ -235,7 +274,17 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       if (onDone) onDone();
       toast.success(`Đã tạo lệnh rút ${fmt(numAmount)} VNĐ! Đang chờ Admin phê duyệt.`);
     } catch (e) {
-      toast.error("Không thể khởi tạo lệnh rút tiền");
+      // Tiền đã bị trừ ở trên nhưng KHÔNG tạo được lệnh rút (vd backend chặn
+      // vượt hạn mức ngày theo hạng) - hoàn trả ngay để user không mất tiền.
+      try {
+        await adjustUserBalanceStrict(user?.id, numAmount, 0, `HOAN TIEN LENH RUT LOI ${code}`);
+      } catch (re) {}
+      const msg = String(e?.message || e || "");
+      if (msg.includes("WITHDRAW_DAILY_LIMIT_EXCEEDED")) {
+        toast.error(`Vượt hạn mức rút trong ngày của hạng ${user?.membership_tier || "Member"}. Vui lòng thử lại với số tiền nhỏ hơn. Tiền đã được giữ nguyên trong ví.`);
+      } else {
+        toast.error("Không thể khởi tạo lệnh rút tiền. Số dư đã được giữ nguyên.");
+      }
       setStep("input");
     } finally {
       setSaving(false);
