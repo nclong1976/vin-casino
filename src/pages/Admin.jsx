@@ -11,11 +11,13 @@ import {
   LogOut,
   MessageSquare,
   FileSignature,
+  Lock,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { countSupabaseUsers } from "@/lib/supabaseDb";
 import { useAuth } from "@/lib/AuthContext";
 import { useConfig } from "@/lib/ConfigContext";
+import { isSuperAdminUser } from "@/lib/isAdminUser";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import OverviewTab from "@/components/admin/OverviewTab";
@@ -26,6 +28,7 @@ import NewsNotificationsTab from "@/components/admin/NewsNotificationsTab";
 import InvestmentCasinoTab from "@/components/admin/InvestmentCasinoTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 import ESignTab from "@/components/admin/ESignTab";
+import VipChatTab from "@/components/admin/VipChatTab";
 
 // "Hợp đồng" đã gộp vào subtab thứ 3 của "Quản lý Hội viên & Giao dịch"
 // (MemberHubTab) - cùng bản chất "hàng chờ duyệt" như subtab Phê duyệt
@@ -49,7 +52,7 @@ import ESignTab from "@/components/admin/ESignTab";
 // AnimatedTabPanel bên dưới - MessagesTab vẫn giữ kết nối Realtime dù admin
 // đang xem tab khác) - tách tab chỉ giúp ĐƯỜNG VÀO ngắn hơn, không phải vá
 // lỗi kết nối.
-const TABS = [
+const BASE_TABS = [
   { id: "messages", label: "Tin nhắn CSKH", icon: MessageSquare },
   { id: "member_hub", label: "Quản lý Hội viên & Giao dịch", icon: Users },
   { id: "investment_casino", label: "Đầu tư CK & Casino", icon: TrendingUp },
@@ -61,8 +64,15 @@ const TABS = [
 export default function Admin() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuth();
+  const { user: currentAdmin, logout } = useAuth();
   const { triggerSound } = useConfig();
+  const isSuperAdmin = isSuperAdminUser(currentAdmin);
+
+  // VIP Chat tab chỉ hiển thị cho Super Admin
+  const TABS = isSuperAdmin
+    ? [{ id: "vip_chat", label: "VIP Chat", icon: Lock }, ...BASE_TABS]
+    : BASE_TABS;
+
   const [tab, setTab] = useState("member_hub");
   const [stats, setStats] = useState({});
   // Id tin nhắn đã biết - dùng để phát hiện "tin khách MỚI thật sự" (không
@@ -335,6 +345,11 @@ export default function Admin() {
           như trước) vì nội dung mỗi khối giờ cố định, không còn đổi qua đổi
           lại giữa các tab để cần tín hiệu "nội dung mới, xoá lỗi cũ" nữa. */}
       <div className="max-w-4xl mx-auto px-4 py-4 overflow-hidden">
+        {isSuperAdmin && (
+          <AnimatedTabPanel active={tab === "vip_chat"}>
+            <AdminErrorBoundary><VipChatTab /></AdminErrorBoundary>
+          </AnimatedTabPanel>
+        )}
         <AnimatedTabPanel active={tab === "messages"}>
           <AdminErrorBoundary>
             <MessagesTab initialSelectedUserId={chatTargetUserId} selectRequest={chatRequest} />
