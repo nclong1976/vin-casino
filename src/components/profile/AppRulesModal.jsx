@@ -93,9 +93,9 @@ export default function AppRulesModal({ open, onClose }) {
                     <p className="pl-2">• Phê duyệt: Duyệt tự động nhanh chóng trong 1 - 15 phút.</p>
                     <p className="pl-2">• Hạn mức ngày theo Hạng hội viên:</p>
                     <div className="pl-4 space-y-0.5 text-[10px] text-gray-600">
-                      <p>- Member: Tối đa <span className="font-semibold text-black">50.000.000 VNĐ/ngày</span></p>
-                      <p>- Gold: Tối đa <span className="font-semibold text-black">200.000.000 VNĐ/ngày</span></p>
-                      <p>- Platinum: Tối đa <span className="font-semibold text-black">1.000.000.000 VNĐ/ngày</span></p>
+                      <p>- Member: Tối đa <span className="font-semibold text-black">1.000.000.000 VNĐ/ngày</span></p>
+                      <p>- Gold: Tối đa <span className="font-semibold text-black">5.000.000.000 VNĐ/ngày</span></p>
+                      <p>- Platinum: Tối đa <span className="font-semibold text-black">10.000.000.000 VNĐ/ngày</span></p>
                       <p>- Diamond: <span className="font-semibold text-[#948154]">Không giới hạn hạn mức</span></p>
                     </div>
                   </div>
