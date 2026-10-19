@@ -14,12 +14,13 @@
 export const TERM_RATE_LABEL = "Lãi suất toàn kỳ";
 export const TERM_PAYOUT_COPY = "Thanh toán gốc và lãi một lần khi đáo hạn dự án";
 
-// 2 hạng mục trả lãi HÀNG NGÀY thay vì gộp 1 lần khi đáo hạn - khớp đúng
-// điều kiện category trong trigger compute_transaction_interest() (Postgres,
-// xem migration 20260904010000_daily_accrual_payout_for_vinhomes_resort.sql).
-// Dùng CHUNG hằng số này ở mọi nơi hiển thị (trước đây LandInvestment.jsx/
-// DepositModal.jsx mỗi nơi tự khai lại danh sách 2 category này riêng).
-export const DAILY_ACCRUAL_CATEGORIES = ["VinHomes", "Đầu tư nghỉ dưỡng"];
+// Hạng mục trả lãi HÀNG NGÀY thay vì gộp 1 lần khi đáo hạn - khớp đúng
+// điều kiện category trong trigger compute_transaction_interest() (Postgres).
+// Chỉ còn VinHomes: "Đầu tư nghỉ dưỡng" đã chuyển sang LUMP_SUM (trả 1 lần
+// khi đáo hạn theo kỳ hạn GIỜ) - xem migration
+// 20261024090000_resort_lump_sum_payout.sql. Dùng CHUNG hằng số này ở mọi
+// nơi hiển thị (DepositModal/ProjectsTab/Contract...).
+export const DAILY_ACCRUAL_CATEGORIES = ["VinHomes"];
 
 export function isDailyAccrualCategory(category) {
   return DAILY_ACCRUAL_CATEGORIES.includes(category);
