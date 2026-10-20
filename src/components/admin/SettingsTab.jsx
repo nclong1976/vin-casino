@@ -14,6 +14,7 @@ import {
   unsubscribeAdminPush,
 } from "@/lib/pushNotifications";
 import { useAuth } from "@/lib/AuthContext";
+import AdminPermissionsManager from "@/components/admin/AdminPermissionsManager";
 
 const DEFAULT_MESSAGE = "Hệ thống đang trong thời gian bảo trì. Vui lòng quay lại sau.";
 
@@ -118,6 +119,9 @@ export default function SettingsTab() {
         <SettingsIcon className="w-4 h-4 text-[#948154]" />
         <h2 className="text-sm font-bold text-black uppercase tracking-wider">Cài đặt hệ thống</h2>
       </div>
+
+      {/* Phân quyền admin (RBAC) - chỉ super admin/chủ sở hữu thấy */}
+      <AdminPermissionsManager />
 
       <div className="p-4 rounded-2xl border-2 border-gray-200 bg-white shadow-md">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

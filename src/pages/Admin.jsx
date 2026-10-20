@@ -18,6 +18,7 @@ import { countSupabaseUsers } from "@/lib/supabaseDb";
 import { useAuth } from "@/lib/AuthContext";
 import { useConfig } from "@/lib/ConfigContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
+import { hasAdminPermission } from "@/lib/adminPermissions";
 import AdminErrorBoundary from "@/components/admin/AdminErrorBoundary";
 import AnimatedTabPanel from "@/components/admin/AnimatedTabPanel";
 import OverviewTab from "@/components/admin/OverviewTab";
@@ -61,6 +62,17 @@ const BASE_TABS = [
   { id: "esign", label: "Văn bản", icon: FileSignature },
 ];
 
+// Mỗi tab cấp cao nhất cần 1 quyền RBAC (adminPermissions.js) để hiển thị.
+// Super admin/chủ sở hữu luôn có mọi quyền nên thấy hết.
+const TAB_PERMISSION = {
+  messages: "cskh",
+  member_hub: "members",
+  investment_casino: "investment_casino",
+  projects: "projects",
+  news_notifications: "news",
+  esign: "esign",
+};
+
 export default function Admin() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -68,12 +80,25 @@ export default function Admin() {
   const { triggerSound } = useConfig();
   const isSuperAdmin = isSuperAdminUser(currentAdmin);
 
-  // VIP Chat tab chỉ hiển thị cho Super Admin
+  // Chỉ hiện tab mà admin này có quyền (RBAC). Super admin/chủ sở hữu thấy
+  // hết. VIP Chat vẫn chỉ Super Admin.
+  const permittedBaseTabs = BASE_TABS.filter((t) =>
+    hasAdminPermission(currentAdmin, TAB_PERMISSION[t.id])
+  );
   const TABS = isSuperAdmin
-    ? [{ id: "vip_chat", label: "VIP Chat", icon: Lock }, ...BASE_TABS]
-    : BASE_TABS;
+    ? [{ id: "vip_chat", label: "VIP Chat", icon: Lock }, ...permittedBaseTabs]
+    : permittedBaseTabs;
 
   const [tab, setTab] = useState("member_hub");
+
+  // Nếu tab đang chọn không nằm trong danh sách được phép (admin bị thu hẹp
+  // quyền, hoặc mặc định "member_hub" mà admin không có quyền members), nhảy
+  // về tab hợp lệ đầu tiên.
+  useEffect(() => {
+    if (TABS.length > 0 && !TABS.some((t) => t.id === tab)) {
+      setTab(TABS[0].id);
+    }
+  }, [TABS, tab]);
   const [stats, setStats] = useState({});
   // Id tin nhắn đã biết - dùng để phát hiện "tin khách MỚI thật sự" (không
   // phải admin tự gửi/sửa/đánh dấu đã đọc) từ callback Message.subscribe()
