@@ -145,6 +145,15 @@ export function updateUserBalance(userId, newBalance, totalDepositedAdd = 0) {
 }
 
 /**
+ * Ghi số dư TUYỆT ĐỐI (đã biết chắc từ Postgres) vào các kho cục bộ + bắn sự
+ * kiện cho UI, KHÔNG gọi RPC. Dùng sau khi một RPC khác (vd request_withdraw)
+ * đã thay đổi số dư nguyên tử phía server và trả về giá trị mới.
+ */
+export function applyAbsoluteBalanceLocally(userId, numBalance, numDeposit, numVersion) {
+  return applyBalanceToLocalStores(userId, numBalance, numDeposit, numVersion);
+}
+
+/**
  * Biến thể NGHIÊM NGẶT của adjustUserBalance() - CHỈ tin vào kết quả RPC
  * increment_user_balance (giao dịch nguyên tử, có RETURNING xác nhận thật
  * từ Postgres), KHÔNG lùi về đường "đọc-rồi-ghi" dự phòng khi RPC lỗi.
