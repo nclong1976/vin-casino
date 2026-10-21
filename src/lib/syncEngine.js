@@ -153,6 +153,11 @@ export async function hydrateUserOnNewDevice(authUser) {
       // hưởng" nhầm quyền admin của phiên trước.
       role: dbUser?.role || authUser.role || "user",
       is_super_admin: !!(dbUser?.is_super_admin ?? authUser.is_super_admin ?? false),
+      // Phân quyền admin (RBAC) - chỉ tin từ Postgres theo uid, cùng cách
+      // bảo vệ như role/is_super_admin. Không có thì là mảng rỗng.
+      admin_permissions: Array.isArray(dbUser?.admin_permissions)
+        ? dbUser.admin_permissions
+        : (Array.isArray(authUser.admin_permissions) ? authUser.admin_permissions : []),
       email: uemail || dbUser?.email || matchedSupa?.email || authUser.email,
       name: dbUser?.name || dbUser?.full_name || matchedSupa?.name || matchedSupa?.full_name || authUser.name || authUser.full_name || "Hội viên VinClub",
       full_name: dbUser?.full_name || dbUser?.name || matchedSupa?.full_name || matchedSupa?.name || authUser.full_name || authUser.name || "Hội viên VinClub",
