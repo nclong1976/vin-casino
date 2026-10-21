@@ -892,6 +892,46 @@ export async function deleteSupabaseUser(id) {
   }
 }
 
+/**
+ * Tạo lệnh rút tiền NGUYÊN TỬ qua RPC request_withdraw: trừ số dư + tạo lệnh
+ * trong cùng 1 giao dịch Postgres. Trả về { tx, balance, totalDeposited,
+ * balanceVersion, error }. Khi error khác null -> KHÔNG có gì bị thay đổi
+ * (tiền chưa bị trừ), bên gọi chỉ cần báo lỗi, không phải hoàn tác gì.
+ */
+export async function createWithdrawRequest({ userId, amount, bankName, accountNumber, accountHolder, code }) {
+  try {
+    const { data, error } = await supabase.rpc('request_withdraw', {
+      p_amount: amount,
+      p_bank_name: bankName,
+      p_account_number: accountNumber,
+      p_account_holder: accountHolder,
+      p_code: code || null,
+    });
+    if (error) return { tx: null, error };
+
+    const tx = Array.isArray(data) ? data[0] : data;
+
+    // Lấy số dư mới (đã trừ) để đồng bộ hiển thị cục bộ. Không chặn luồng nếu
+    // đọc lỗi - realtime sẽ tự đồng bộ sau.
+    let balance = null, totalDeposited = null, balanceVersion = undefined;
+    if (userId) {
+      const { data: u } = await supabase
+        .from('users')
+        .select('balance, total_deposited, balance_version')
+        .eq('id', userId)
+        .maybeSingle();
+      if (u) {
+        balance = Number(u.balance);
+        totalDeposited = Number(u.total_deposited);
+        balanceVersion = u.balance_version;
+      }
+    }
+    return { tx, balance, totalDeposited, balanceVersion, error: null };
+  } catch (e) {
+    return { tx: null, error: e };
+  }
+}
+
 // ==========================================
 // 2. WALLET TRANSACTIONS OPERATIONS
 // ==========================================

@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
-import { adjustUserBalanceStrict } from "@/lib/balanceSync";
+import { applyAbsoluteBalanceLocally } from "@/lib/balanceSync";
+import { createWithdrawRequest } from "@/lib/supabaseDb";
 import { toast } from "sonner";
 import { getBankLogo } from "@/constants/banks";
 import { Link } from "react-router-dom";
@@ -216,30 +217,43 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
     setCreatedTimeStr(timeFormatted);
 
     try {
-      // Trừ tiền qua adjustUserBalanceStrict() (chỉ tin RPC nguyên tử, có
-      // xác nhận thật từ Postgres) - trước đây dùng adjustUserBalance() (có
-      // await nhưng KHÔNG kiểm tra kết quả trả về), đường dự phòng của hàm
-      // đó luôn trả về "coi như thành công" ngay cả khi Postgres từ chối
-      // ghi, khiến lệnh rút "pending" vẫn được tạo và Admin vẫn thấy để
-      // duyệt dù tiền chưa hề bị trừ khỏi số dư thật (xem DepositModal.jsx,
-      // nơi lỗi tương tự đã được vá cho luồng đầu tư).
-      const balanceResult = await adjustUserBalanceStrict(user?.id, -numAmount, 0, `RUT TIEN VE ${selectedBank.bank_name} ${code}`);
-      if (!balanceResult) {
-        toast.error("Không thể trừ tiền để tạo lệnh rút, vui lòng thử lại!");
+      // Tạo lệnh rút NGUYÊN TỬ: trừ tiền + tạo lệnh trong CÙNG 1 giao dịch
+      // Postgres (RPC request_withdraw). Nếu lỗi (vd vượt hạn mức ngày, số dư
+      // không đủ) thì rollback cả hai -> KHÔNG BAO GIỜ có cảnh "đã trừ tiền
+      // nhưng không tạo được lệnh". Thay cho luồng cũ (trừ tiền trước rồi mới
+      // insert) vốn có thể mất tiền khi insert bị backend từ chối, vì người
+      // dùng không được phép tự cộng lại ví mình để hoàn tác.
+      const { tx, balance: newBalance, totalDeposited, balanceVersion, error } = await createWithdrawRequest({
+        userId: user?.id,
+        amount: numAmount,
+        bankName: selectedBank.bank_name,
+        accountNumber: selectedBank.account_number,
+        accountHolder: selectedBank.account_holder,
+        code,
+      });
+
+      if (error || !tx) {
+        const msg = String(error?.message || error || "");
+        if (msg.includes("WITHDRAW_DAILY_LIMIT_EXCEEDED")) {
+          toast.error(`Vượt hạn mức rút trong ngày của hạng ${user?.membership_tier || "Member"}. Vui lòng thử lại với số tiền nhỏ hơn.`);
+        } else if (msg.includes("INSUFFICIENT_BALANCE")) {
+          toast.error("Số dư khả dụng trong ví không đủ.");
+        } else if (msg.includes("ACCOUNT_LOCKED")) {
+          toast.error("Tài khoản của bạn đang bị tạm khóa. Vui lòng liên hệ CSKH.");
+        } else if (msg.includes("WITHDRAW_MIN")) {
+          toast.error(`Hạn mức rút tối thiểu là ${fmt(MIN_WITHDRAW)} VNĐ.`);
+        } else {
+          toast.error("Không thể khởi tạo lệnh rút tiền, vui lòng thử lại!");
+        }
+        setStep("input");
         return;
       }
 
-      const tx = await base44.entities.WalletTransaction.create({
-        type: "withdraw",
-        amount: numAmount,
-        bank_name: selectedBank.bank_name,
-        account_number: selectedBank.account_number,
-        account_holder: selectedBank.account_holder,
-        status: "pending",
-        user_id: user?.id,
-        description: `Lệnh rút tiền về ${selectedBank.bank_name} (${code})`,
-        code: code
-      });
+      // Thành công: server đã trừ tiền + tạo lệnh. Đồng bộ số dư hiển thị
+      // theo giá trị THẬT vừa đọc từ Postgres (không cần tự tính lại).
+      if (newBalance !== null && newBalance !== undefined) {
+        applyAbsoluteBalanceLocally(user?.id, newBalance, totalDeposited, balanceVersion);
+      }
 
       setCurrentTx(tx);
       setLiveStatus("pending");
@@ -274,17 +288,9 @@ export default function WithdrawModal({ open, onClose, banks = [], balance = 0, 
       if (onDone) onDone();
       toast.success(`Đã tạo lệnh rút ${fmt(numAmount)} VNĐ! Đang chờ Admin phê duyệt.`);
     } catch (e) {
-      // Tiền đã bị trừ ở trên nhưng KHÔNG tạo được lệnh rút (vd backend chặn
-      // vượt hạn mức ngày theo hạng) - hoàn trả ngay để user không mất tiền.
-      try {
-        await adjustUserBalanceStrict(user?.id, numAmount, 0, `HOAN TIEN LENH RUT LOI ${code}`);
-      } catch (re) {}
-      const msg = String(e?.message || e || "");
-      if (msg.includes("WITHDRAW_DAILY_LIMIT_EXCEEDED")) {
-        toast.error(`Vượt hạn mức rút trong ngày của hạng ${user?.membership_tier || "Member"}. Vui lòng thử lại với số tiền nhỏ hơn. Tiền đã được giữ nguyên trong ví.`);
-      } else {
-        toast.error("Không thể khởi tạo lệnh rút tiền. Số dư đã được giữ nguyên.");
-      }
+      // RPC nguyên tử: nếu lỗi thì server đã rollback, tiền chưa bị trừ -
+      // không cần hoàn tác gì ở client.
+      toast.error("Không thể khởi tạo lệnh rút tiền, vui lòng thử lại!");
       setStep("input");
     } finally {
       setSaving(false);
