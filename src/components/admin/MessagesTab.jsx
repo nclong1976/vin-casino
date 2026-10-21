@@ -38,6 +38,8 @@ import { CSKH_AWAY_THRESHOLD_MS } from "@/lib/cskhConversation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { isSuperAdminUser } from "@/lib/isAdminUser";
+import { loadQuickReplies, saveQuickReplies } from "@/lib/quickReplies";
+import QuickReplyManager from "@/components/admin/QuickReplyManager";
 import {
   SUPPORT_STATUS_LABELS,
   SUPPORT_STATUS_BADGE_CLASSES,
@@ -91,20 +93,9 @@ const fmtTime = (iso) =>
     minute: "2-digit",
   });
 
-// Mẫu tin nhắn CSKH soạn sẵn cho các tình huống thường gặp (nạp/rút/đầu tư/
-// khóa tài khoản) - chọn 1 mẫu chỉ ĐIỀN vào ô soạn tin (replyText), KHÔNG tự
-// gửi, để admin xem/sửa lại trước khi bấm gửi như bình thường.
-const QUICK_REPLY_TEMPLATES = [
-  { label: "Lời chào mở đầu", text: "Xin chào Quý khách! Em là CSKH VinClub. Em có thể hỗ trợ gì cho Quý khách ạ?" },
-  { label: "Đã tiếp nhận, đang xử lý", text: "Dạ em đã tiếp nhận yêu cầu của Quý khách và đang chuyển bộ phận liên quan xử lý. Quý khách vui lòng chờ trong ít phút ạ." },
-  { label: "Duyệt nạp tiền thành công", text: "Yêu cầu nạp tiền của Quý khách đã được duyệt thành công, số dư ví đã được cộng đầy đủ. Cảm ơn Quý khách đã tin tưởng đồng hành cùng VinClub!" },
-  { label: "Duyệt rút tiền thành công", text: "Lệnh rút tiền của Quý khách đã được duyệt và chuyển khoản thành công. Quý khách vui lòng kiểm tra tài khoản ngân hàng, tiền sẽ về trong ít phút ạ." },
-  { label: "Từ chối yêu cầu", text: "Rất tiếc, yêu cầu của Quý khách chưa thể xử lý do: [lý do]. Quý khách vui lòng kiểm tra lại và gửi lại yêu cầu ạ." },
-  { label: "Yêu cầu bổ sung giấy tờ", text: "Để xác minh giao dịch, Quý khách vui lòng gửi thêm [ảnh CCCD/sao kê chuyển khoản] giúp em ạ. Em cảm ơn Quý khách!" },
-  { label: "Thông báo tài khoản tạm khóa", text: "Tài khoản của Quý khách hiện đang tạm khóa để xác minh bảo mật. Quý khách vui lòng liên hệ CSKH để được hỗ trợ mở khóa sớm nhất ạ." },
-  { label: "Xin lỗi vì phản hồi chậm", text: "Em xin lỗi vì đã để Quý khách chờ lâu. Hiện hệ thống đang xử lý nhiều yêu cầu cùng lúc, em sẽ hỗ trợ Quý khách ngay ạ." },
-  { label: "Cảm ơn & kết thúc hỗ trợ", text: "Cảm ơn Quý khách đã liên hệ VinClub. Nếu cần hỗ trợ thêm, Quý khách cứ nhắn lại đây ạ. Chúc Quý khách một ngày tốt lành!" },
-];
+// Mẫu tin nhắn gửi nhanh CSKH giờ do admin tự chỉnh (thêm/sửa/xóa/sắp xếp),
+// lưu theo thiết bị - xem src/lib/quickReplies.js và QuickReplyManager.jsx.
+// Chọn 1 mẫu chỉ ĐIỀN vào ô soạn tin (replyText), KHÔNG tự gửi.
 
 const fmtDate = (iso) => {
   const d = new Date(iso || Date.now());
@@ -324,6 +315,9 @@ export default function MessagesTab({ initialSelectedUserId = null, selectReques
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
+  // Mẫu gửi nhanh admin tự chỉnh (localStorage) + modal quản lý.
+  const [quickReplies, setQuickReplies] = useState(() => loadQuickReplies());
+  const [showQuickEditor, setShowQuickEditor] = useState(false);
 
   // Cache riêng theo khách (fetchMessagesPageByUser - src/lib/supabaseDb.js,
   // WHERE user_id + LIMIT thật, khóa theo user_id để không mất lịch sử qua
@@ -1367,23 +1361,45 @@ export default function MessagesTab({ initialSelectedUserId = null, selectReques
 
               {showTemplates && (
                 <div className="absolute bottom-full left-0 mb-2 w-64 max-h-64 overflow-y-auto bg-white rounded-xl border border-gray-200 shadow-xl z-30 py-1">
-                  {QUICK_REPLY_TEMPLATES.map((t, i) => (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        setReplyText(t.text);
-                        setShowTemplates(false);
-                        textareaRef.current?.focus();
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0"
-                    >
-                      <p className="text-[10.5px] font-bold text-black">{t.label}</p>
-                      <p className="text-[9.5px] text-gray-400 line-clamp-1">{t.text}</p>
-                    </button>
-                  ))}
+                  {quickReplies.length === 0 ? (
+                    <p className="px-3 py-3 text-[10px] text-gray-400 text-center">
+                      Chưa có mẫu. Bấm "Sửa mẫu" để thêm.
+                    </p>
+                  ) : (
+                    quickReplies.map((t, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setReplyText(t.text);
+                          setShowTemplates(false);
+                          textareaRef.current?.focus();
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0"
+                      >
+                        <p className="text-[10.5px] font-bold text-black">{t.label}</p>
+                        <p className="text-[9.5px] text-gray-400 line-clamp-1">{t.text}</p>
+                      </button>
+                    ))
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowTemplates(false);
+                      setShowQuickEditor(true);
+                    }}
+                    className="w-full text-left px-3 py-2 mt-1 border-t border-gray-100 text-[10.5px] font-bold text-[#948154] hover:bg-amber-50 flex items-center gap-1.5"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Sửa mẫu gửi nhanh
+                  </button>
                 </div>
               )}
             </div>
+
+            <QuickReplyManager
+              open={showQuickEditor}
+              replies={quickReplies}
+              onClose={() => setShowQuickEditor(false)}
+              onSave={(list) => setQuickReplies(saveQuickReplies(list))}
+            />
 
             <textarea
               ref={textareaRef}
