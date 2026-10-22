@@ -49,6 +49,13 @@ export default function Home() {
         
         <img
           className="absolute top-[220px] left-0 w-full h-[306px] object-cover object-center"
+          style={{
+            // Mờ dần mép dưới ảnh nền sang trong suốt (lộ nền trắng) thay vì
+            // cắt cứng - xoá đường ranh giới tối/trắng gắt cắt ngang lưới icon,
+            // cho màu nền phân bổ đều/mượt hơn.
+            WebkitMaskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+            maskImage: "linear-gradient(to bottom, #000 55%, transparent 100%)",
+          }}
           src="https://media.base44.com/images/public/6a37d9fdaf7a9d14d5fd8c01/5155b8632_a8ec8076a_e082916a0352d71fdbe6fa45a8014e36f5c6769f.png"
           alt=""
           aria-hidden="true" />
