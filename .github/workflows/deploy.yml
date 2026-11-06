@@ -59,6 +59,11 @@ jobs:
       - name: SPA fallback for client-side routing
         run: cp dist/index.html dist/404.html
 
+      # Tạo file .nojekyll để GitHub Pages KHÔNG cố gắng build lại với Jekyll
+      # (Vite đã build xong, chỉ cần serve file tĩnh).
+      - name: Disable Jekyll processing
+        run: touch dist/.nojekyll
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
