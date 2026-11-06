@@ -14,6 +14,7 @@ export const ADMIN_PERMISSION_LABELS = {
   tx_approve: "Duyệt nạp / rút tiền",
   wallet_adjust: "Cộng / trừ tiền ví",
   user_moderate: "Khóa / mở khóa tài khoản",
+  user_delete: "Xoá tài khoản người dùng",
   investment_casino: "Đầu tư CK & Casino",
   projects: "Dự án",
   news: "Tin tức & Thông báo",
