@@ -1,7 +1,8 @@
 name: Deploy to GitHub Pages
 
 # Thay thế hoàn toàn deploy trên Render (đã gỡ render.yaml) - app giờ host
-# tĩnh 100% trên GitHub Pages. Phần backend duy nhất còn thật (tra cứu thị
+# tĩnh 100% trên GitHub Pages.
+# Trigged deployment Phần backend duy nhất còn thật (tra cứu thị
 # trường bằng Gemini) đã chuyển sang Supabase Edge Function
 # (supabase/functions/market-search), không cần Node server nào chạy nền.
 on:
